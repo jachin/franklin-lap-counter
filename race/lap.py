@@ -16,7 +16,8 @@ class Lap:
 
     def __str__(self):
         return f"Racer {self.racer_id} Lap {self.lap_number} Time: {self.lap_time:.2f}s"
-
+    def __repr__(self):
+        return f"Lap(racer_id={self.racer_id}, lap_number={self.lap_number}, lap_time={self.lap_time})"
     def is_better_than(self, other: "Lap") -> bool:
         """
         Compare this lap's quality to another lap by lap_number, then lap_time.

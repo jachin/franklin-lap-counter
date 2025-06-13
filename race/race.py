@@ -1,5 +1,5 @@
 from enum import Enum, auto
-from typing import List, Optional
+from typing import List, Optional, Tuple
 import random
 from .lap import Lap
 
@@ -90,3 +90,50 @@ class Race:
         if not self.laps:
             return None
         return min(self.laps, key=lambda lap: lap.lap_time)
+
+def order_laps_by_occurrence(laps: List[Lap]) -> List[Tuple[float, Lap]]:
+    """
+    Given a list of Lap objects, returns a list of tuples ordered by the time
+    the lap would have occurred in the race. Each tuple contains:
+    (relative_time, lap) where relative_time is cumulative sum of lap times for the racer.
+    Sorted by relative_time ascending.
+    """
+
+    laps_with_cumulative_time = []
+
+    # Group laps by racer
+    laps_by_racer = {}
+    for lap in laps:
+        laps_by_racer.setdefault(lap.racer_id, []).append(lap)
+
+    # Sort laps per racer by lap number
+    for racer_id, racer_laps in laps_by_racer.items():
+        racer_laps.sort(key=lambda lap: lap.lap_number)
+
+    # Calculate cumulative lap times per lap per racer
+    for racer_id, racer_laps in laps_by_racer.items():
+        total_time = 0.0
+        for lap in racer_laps:
+            total_time += lap.lap_time
+            laps_with_cumulative_time.append((total_time, lap))
+
+    # Sort all laps by their cumulative race time
+    laps_with_cumulative_time.sort(key=lambda x: x[0])
+
+    return laps_with_cumulative_time
+
+    def __str__(self) -> str:
+        return (
+            f"Race(state={self.state.name}, "
+            f"laps={len(self.laps)}, "
+            f"start_time={self.start_time}, "
+            f"elapsed_time={self.elapsed_time:.2f})"
+        )
+
+    def __repr__(self) -> str:
+        return (
+            f"Race(state={self.state}, "
+            f"start_time={self.start_time!r}, "
+            f"elapsed_time={self.elapsed_time!r}, "
+            f"laps=[{', '.join(repr(lap) for lap in self.laps)}])"
+        )

@@ -6,7 +6,8 @@ from textual.widgets import Header, Footer, Static, Button, TabbedContent, TabPa
 from textual.reactive import reactive
 from race.lap import Lap
 from race.race import Race, RaceState
-from race.race import generate_fake_race
+from race.race import generate_fake_race, order_laps_by_occurrence
+import pprint
 
 class LapDataDisplay(Static):
     laps = reactive([])
@@ -160,6 +161,9 @@ class HardwareMonitorGUI(App):
             # Generate a fake race
             fake_race = generate_fake_race()
 
+            logging.info("fake_race %s", fake_race)
+            logging.info("self.race %s", self.race)
+
             status_display.race_state = self.race.state
             start_btn.disabled = True
             stop_btn.disabled = False
@@ -183,37 +187,42 @@ class HardwareMonitorGUI(App):
 
     async def play_fake_race(self, fake_race):
         """
-        Asynchronously plays back the fake race laps in real time based on lap times.
+        Asynchronously plays back the fake race laps in real time based on lap completion times.
         Emits lap events to lap_queue so UI updates as if real.
         """
         if not fake_race.laps:
+            logging.error("Fake race has no laps")
             return
 
-        start_time = self.race.start_time or asyncio.get_event_loop().time()
+        start_time = self.race.start_time
 
-        # Sort laps by lap_number then racer_id to ensure consistent lap event order
-        sorted_laps = sorted(fake_race, key=lambda lap: (lap.lap_number, lap.racer_id))
+        if start_time is None:
+            start_time = asyncio.get_event_loop().time()
 
-        last_event_time = start_time
+        sorted_laps = order_laps_by_occurrence(fake_race.laps)
+
+
+        logging.info("Sorted laps:\n%s", pprint.pformat(sorted_laps))
+        cumulative_elapsed = 0.0
 
         try:
-            for lap in sorted_laps:
-                # But simpler: We'll emit laps with delays equal to lap_time after previous.
-                # So let's await lap.lap_time after last_event_time
-                now = asyncio.get_event_loop().time()
-                wait_time = max(0, last_event_time + lap.lap_time - now)
-                await asyncio.sleep(wait_time)
-
+            for (ts, lap) in sorted_laps:
+                elapsed_time = asyncio.get_event_loop().time() - start_time
+                wait_time = ts - elapsed_time
+                if wait_time > 0:
+                    await asyncio.sleep(wait_time)
                 lap_event = Lap(
                     racer_id=lap.racer_id,
                     lap_number=lap.lap_number,
                     lap_time=lap.lap_time,
                 )
+                logging.info("fake lap %s", lap_event)
                 await self.lap_queue.put(lap_event)
-                last_event_time = asyncio.get_event_loop().time()
+                cumulative_elapsed += lap.lap_time
         except asyncio.CancelledError:
             # Playback was stopped
             pass
+
 
 
 if __name__ == "__main__":

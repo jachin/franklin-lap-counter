@@ -16,10 +16,14 @@ class Race:
     def __init__(self):
         self.laps: List[Lap] = []
         self.state: RaceState = RaceState.NOT_STARTED
+        self.start_time: Optional[float] = None
+        self.elapsed_time: float = 0.0
 
-    def start(self) -> None:
+    def start(self, start_time: Optional[float] = None) -> None:
         if self.state in (RaceState.NOT_STARTED, RaceState.PAUSED):
             self.state = RaceState.RUNNING
+            if start_time is not None:
+                self.start_time = start_time
 
     def pause(self) -> None:
         if self.state == RaceState.RUNNING:
@@ -31,6 +35,8 @@ class Race:
     def reset(self) -> None:
         self.laps.clear()
         self.state = RaceState.NOT_STARTED
+        self.start_time = None
+        self.elapsed_time = 0.0
 
     def add_lap(self, lap: Lap) -> None:
         if self.state != RaceState.RUNNING:

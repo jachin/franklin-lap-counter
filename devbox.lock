@@ -69,6 +69,70 @@
         }
       }
     },
+    "python313Packages.textual@latest": {
+      "last_modified": "2025-06-02T09:36:13Z",
+      "resolved": "github:NixOS/nixpkgs/e4b09e47ace7d87de083786b404bf232eb6c89d8#python313Packages.textual",
+      "source": "devbox-search",
+      "version": "3.3.0",
+      "systems": {
+        "aarch64-darwin": {
+          "outputs": [
+            {
+              "name": "out",
+              "path": "/nix/store/5i901q1qgk67siizsxh0lzwh50v9ppyz-python3.13-textual-3.3.0",
+              "default": true
+            },
+            {
+              "name": "dist",
+              "path": "/nix/store/1szrz0qas3r16pcc1bqmsdfwj2ck24l6-python3.13-textual-3.3.0-dist"
+            }
+          ],
+          "store_path": "/nix/store/5i901q1qgk67siizsxh0lzwh50v9ppyz-python3.13-textual-3.3.0"
+        },
+        "aarch64-linux": {
+          "outputs": [
+            {
+              "name": "out",
+              "path": "/nix/store/i6b3w4arfja8qmp8z3gbqc7963dh20mi-python3.13-textual-3.3.0",
+              "default": true
+            },
+            {
+              "name": "dist",
+              "path": "/nix/store/3g84nhx3m3rksspg3g9m1gmh9jj7wrdv-python3.13-textual-3.3.0-dist"
+            }
+          ],
+          "store_path": "/nix/store/i6b3w4arfja8qmp8z3gbqc7963dh20mi-python3.13-textual-3.3.0"
+        },
+        "x86_64-darwin": {
+          "outputs": [
+            {
+              "name": "out",
+              "path": "/nix/store/42n4mfk38na5dws0q0swixwylrxw9gnq-python3.13-textual-3.3.0",
+              "default": true
+            },
+            {
+              "name": "dist",
+              "path": "/nix/store/rzq5q12c4gb4mg1nylrny1asyli17qc9-python3.13-textual-3.3.0-dist"
+            }
+          ],
+          "store_path": "/nix/store/42n4mfk38na5dws0q0swixwylrxw9gnq-python3.13-textual-3.3.0"
+        },
+        "x86_64-linux": {
+          "outputs": [
+            {
+              "name": "out",
+              "path": "/nix/store/8cywk39dl7jw7v1p8gsn96z2hzraqzzk-python3.13-textual-3.3.0",
+              "default": true
+            },
+            {
+              "name": "dist",
+              "path": "/nix/store/g2a6x03mk5vq8wlyyfld43xygyllrrx9-python3.13-textual-3.3.0-dist"
+            }
+          ],
+          "store_path": "/nix/store/8cywk39dl7jw7v1p8gsn96z2hzraqzzk-python3.13-textual-3.3.0"
+        }
+      }
+    },
     "python@3.13.3": {
       "last_modified": "2025-05-16T20:19:48Z",
       "plugin_version": "0.0.4",

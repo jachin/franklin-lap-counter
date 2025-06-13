@@ -4,3 +4,4 @@
 .devbox
 .DS_Store
 __pycache__
+race.log

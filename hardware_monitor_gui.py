@@ -107,12 +107,19 @@ class HardwareMonitorGUI(App):
         )
         logging.info("HardwareMonitorGUI initialized")
 
+    async def update_race_time(self):
+        # TODO this works for now but we should probably use the time that's coming
+        # from the lap counter it self
+        while True:
+            if self.race.state == RaceState.RUNNING and self.race.start_time is not None:
+                self.race.elapsed_time = asyncio.get_event_loop().time() - self.race.start_time
+            await asyncio.sleep(0.1)
+
     async def hardware_monitor_task(self):
         #TODO Implement hardware monitor task
         await asyncio.sleep(0.1)
 
     async def refresh_lap_data(self):
-        logging.info("refresh_lap_data")
         lap_display_events = self.query_one(LapDataDisplay)
         lap_display_leaderboard = self.query_one(LeaderboardDisplay)
         race_time_display = self.query_one(RaceTimeDisplay)
@@ -182,7 +189,9 @@ class HardwareMonitorGUI(App):
             stop_btn.disabled = True
 
     async def on_mount(self) -> None:
+        asyncio.create_task(self.update_race_time())
         asyncio.create_task(self.refresh_lap_data())
+
         asyncio.create_task(self.hardware_monitor_task())
 
     async def play_fake_race(self, fake_race):

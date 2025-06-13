@@ -1,6 +1,17 @@
 from enum import Enum, auto
 from typing import List, Optional
+import random
 from .lap import Lap
+
+def generate_fake_race():
+   """Generates a fake race with 5 drivers, 10 laps each, and random lap times between 5 and 6 seconds."""
+   fake_race = Race()
+   racer_ids = [1, 2, 3, 4, 5]
+   for lap_number in range(1, 11):
+       for racer_id in racer_ids:
+           lap_time = random.uniform(5, 6)
+           fake_race.add_fake_lap(Lap(racer_id=racer_id, lap_number=lap_number, lap_time=lap_time))
+   return fake_race
 
 
 class RaceState(Enum):
@@ -19,11 +30,10 @@ class Race:
         self.start_time: Optional[float] = None
         self.elapsed_time: float = 0.0
 
-    def start(self, start_time: Optional[float] = None) -> None:
+    def start(self, start_time: float) -> None:
         if self.state in (RaceState.NOT_STARTED, RaceState.PAUSED):
             self.state = RaceState.RUNNING
-            if start_time is not None:
-                self.start_time = start_time
+            self.start_time = start_time
 
     def pause(self) -> None:
         if self.state == RaceState.RUNNING:
@@ -41,6 +51,9 @@ class Race:
     def add_lap(self, lap: Lap) -> None:
         if self.state != RaceState.RUNNING:
             raise RuntimeError("Cannot add lap unless race is running")
+        self.laps.append(lap)
+
+    def add_fake_lap(self, lap: Lap) -> None:
         self.laps.append(lap)
 
     def leaderboard(self) -> List:

@@ -42,8 +42,8 @@ class LeaderboardDisplay(DataTable):
         self.add_columns("Position", "Racer ID", "Lap Count", "Best Lap Time (s)", "Total Time (s)")
         if not self.leaderboard:
             return
-        for pos, (racer_id, lap_count, best_lap_time, total_time) in enumerate(self.leaderboard, 1):
-            row = (pos, racer_id, lap_count, f"{best_lap_time:.2f}", f"{total_time:.2f}")
+        for position, racer_id, lap_count, best_lap_time, total_time in self.leaderboard:
+            row = (position, racer_id, lap_count, f"{best_lap_time:.2f}", f"{total_time:.2f}")
             self.add_row(*row)
 
     def watch_leaderboard(self, leaderboard) -> None:

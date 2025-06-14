@@ -7,6 +7,7 @@ from textual.reactive import reactive
 from race.lap import Lap
 from race.race import Race, RaceState
 from race.race import generate_fake_race, order_laps_by_occurrence
+from textual.binding import Binding
 import pprint
 
 class LapDataDisplay(Static):
@@ -105,6 +106,11 @@ class HardwareMonitorGUI(App):
 
     """
 
+    BINDINGS = [
+        Binding("ctrl+s", "start_race", "Start Race"),
+        Binding("ctrl+x", "stop_race", "Stop Race"),
+    ]
+
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.lap_queue = asyncio.Queue()
@@ -167,13 +173,11 @@ class HardwareMonitorGUI(App):
                     yield LapDataDisplay(id="lap_data")
         yield Footer()
 
-    def on_button_pressed(self, event: Button.Pressed) -> None:
-        button_id = event.button.id
+    def action_start_race(self) -> None:
         status_display = self.query_one(RaceStatusDisplay)
         start_btn = self.query_one("#start_btn", Button)
         stop_btn = self.query_one("#stop_btn", Button)
-
-        if button_id == "start_btn":
+        if self.race.state != RaceState.RUNNING:
             current_time = asyncio.get_event_loop().time()
             self.race.start(start_time=current_time)
 
@@ -191,7 +195,12 @@ class HardwareMonitorGUI(App):
             if hasattr(self, "_playback_task") and not self._playback_task.done():
                 self._playback_task.cancel()
             self._playback_task = asyncio.create_task(self.play_fake_race(fake_race))
-        elif button_id == "stop_btn":
+
+    def action_stop_race(self) -> None:
+        status_display = self.query_one(RaceStatusDisplay)
+        start_btn = self.query_one("#start_btn", Button)
+        stop_btn = self.query_one("#stop_btn", Button)
+        if self.race.state == RaceState.RUNNING:
             # Stop playback and reset race state
             if hasattr(self, "_playback_task") and not self._playback_task.done():
                 self._playback_task.cancel()
@@ -199,6 +208,13 @@ class HardwareMonitorGUI(App):
             status_display.race_state = self.race.state
             start_btn.disabled = False
             stop_btn.disabled = True
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        button_id = event.button.id
+        if button_id == "start_btn":
+            self.action_start_race()
+        elif button_id == "stop_btn":
+            self.action_stop_race()
 
     async def on_mount(self) -> None:
         asyncio.create_task(self.update_race_time())

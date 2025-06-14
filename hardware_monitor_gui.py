@@ -57,31 +57,44 @@ class RaceTimeDisplay(Digits):
         self.update(f"{minutes}:{seconds}:{tenths}")
 
 class HardwareMonitorGUI(App):
+    TITLE = "Franklin Lap Counter"
+    SUB_TITLE = "RC Lap Counter"
     CSS = """
     Screen {
         align: center middle;
     }
+
     #race_controls {
+        padding: 1;
+        margin: 1;
         height: 10;
         width: 1fr;
+        background: $background;
     }
+
     RaceTimeDisplay {
-        padding: 1 1;
-        background: $primary;
+        padding: 1;
+        margin: 1;
+        background: $background;
         color: $foreground;
         width: 1fr;
     }
+
     RaceStatusDisplay {
-        padding: 1 1;
+        padding: 1;
+        margin: 1;
         background: $primary;
         color: $foreground;
         width: 1fr;
     }
 
     #tabbed_content {
-        border: heavy cyan;
         height: 1fr;
         padding: 1 2;
+    }
+
+    LeaderboardDisplay {
+        color: $text-primary;
     }
 
     """

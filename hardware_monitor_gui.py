@@ -9,6 +9,7 @@ from race.race import Race, RaceState
 from race.race import generate_fake_race, order_laps_by_occurrence
 from textual.binding import Binding
 import pprint
+import serial
 
 class LapDataDisplay(Static):
     laps = reactive([])
@@ -153,8 +154,16 @@ class HardwareMonitorGUI(App):
             await asyncio.sleep(0.1)
 
     async def hardware_monitor_task(self):
-        #TODO Implement hardware monitor task
-        await asyncio.sleep(0.1)
+        logging.info("Connecting to hardware monitor")
+        ser = serial.Serial('/dev/ttyUSB0', baudrate=9600, timeout=1)
+        try:
+            print("Press 'r' key to send bytes.")
+            while True:
+                if ser.in_waiting > 0:
+                    line = ser.readline().decode('utf-8').strip()  # Read a line
+                    logging.info("Received: %s", line)
+        finally:
+            ser.close()  # Don't forget to close the port
 
     async def refresh_lap_data(self):
         lap_display_events = self.query_one(LapDataDisplay)
@@ -245,10 +254,7 @@ class HardwareMonitorGUI(App):
     async def on_mount(self) -> None:
         asyncio.create_task(self.update_race_time())
         asyncio.create_task(self.refresh_lap_data())
-
-        # if not fake race mode, start hardware monitor task by default?
-        if not self.fake_race_mode:
-            asyncio.create_task(self.hardware_monitor_task())
+        asyncio.create_task(self.hardware_monitor_task())
 
     async def play_fake_race(self, fake_race):
         """
@@ -265,7 +271,6 @@ class HardwareMonitorGUI(App):
             start_time = asyncio.get_event_loop().time()
 
         sorted_laps = order_laps_by_occurrence(fake_race.laps)
-
 
         logging.info("Sorted laps:\n%s", pprint.pformat(sorted_laps))
         cumulative_elapsed = 0.0

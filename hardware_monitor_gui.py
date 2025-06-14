@@ -108,7 +108,7 @@ class HardwareMonitorGUI(App):
 
     BINDINGS = [
         Binding("ctrl+s", "start_race", "Start Race"),
-        Binding("ctrl+x", "stop_race", "Stop Race"),
+        Binding("ctrl+x", "end_race", "End Race"),
     ]
 
     def __init__(self, **kwargs):
@@ -163,7 +163,7 @@ class HardwareMonitorGUI(App):
             with Horizontal():
                 with Vertical(id="race_controls"):
                     yield Button("Start Race", id="start_btn")
-                    yield Button("Stop Race", id="stop_btn", disabled=True)
+                    yield Button("End Race", id="stop_btn", disabled=True)
                 yield RaceTimeDisplay(name="Race Time", id="race_time", classes="box")
                 yield RaceStatusDisplay(id="race_status", classes="box")
             with TabbedContent(id="tabbed_content"):
@@ -196,7 +196,7 @@ class HardwareMonitorGUI(App):
                 self._playback_task.cancel()
             self._playback_task = asyncio.create_task(self.play_fake_race(fake_race))
 
-    def action_stop_race(self) -> None:
+    def action_end_race(self) -> None:
         status_display = self.query_one(RaceStatusDisplay)
         start_btn = self.query_one("#start_btn", Button)
         stop_btn = self.query_one("#stop_btn", Button)
@@ -214,7 +214,7 @@ class HardwareMonitorGUI(App):
         if button_id == "start_btn":
             self.action_start_race()
         elif button_id == "stop_btn":
-            self.action_stop_race()
+            self.action_end_race()
 
     async def on_mount(self) -> None:
         asyncio.create_task(self.update_race_time())

@@ -17,11 +17,11 @@ class TestRaceLeaderboard(unittest.TestCase):
         self.assertEqual(leaderboard, [(1, 1, 1, 10.0, 10.0)])
 
     def test_multiple_laps_single_racer(self):
-        laps = [Lap(racer_id=1, lap_number=i, lap_time=10.0 + i) for i in range(1, 4)]
+        laps = [Lap(racer_id=1, lap_number=i, lap_time=9.0 + i) for i in range(1, 4)]
         for lap in laps:
             self.race.add_fake_lap(lap)
         leaderboard = self.race.leaderboard()
-        expected = [(1, 1, 3, 11.0, 11.0+12.0+13.0)]
+        expected = [(1, 1, 3, 10.0, 10.0+11.0+12.0)]
         self.assertEqual(leaderboard, expected)
 
     def test_multiple_racers_sort_by_laps(self):

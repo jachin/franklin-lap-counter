@@ -51,43 +51,33 @@ class RaceTimeDisplay(Digits):
 
     def watch_elapsed_time(self, elapsed_time: float) -> None:
         """Called when the time attribute changes."""
-        self.update(f"Race Time: {elapsed_time}")
-
-    # def render(self) -> str:
-    #     seconds = int(self.elapsed_time)
-    #     tenths = int((self.elapsed_time - seconds)*10)
-    #     return f"Race Time: {seconds}.{tenths}s"
+        minutes = int(self.elapsed_time // 60)
+        seconds = int(self.elapsed_time % 60)
+        tenths = int((self.elapsed_time - seconds)*10)
+        self.update(f"{minutes}:{seconds}:{tenths}")
 
 class HardwareMonitorGUI(App):
     CSS = """
     Screen {
         align: center middle;
     }
-    #main_container {
-        width: 80%;
-        height: 80%;
-        border: heavy green;
-    }
     #race_controls {
         height: 10;
-        content-align: center middle;
+        width: 1fr;
     }
-    #race_time {
-        height: 3;
-        content-align: center middle;
-        border: magenta;
+    RaceTimeDisplay {
         padding: 1 1;
-        margin-top: 0;
-        max-width: 20;
+        background: $primary;
+        color: $foreground;
+        width: 1fr;
     }
-    #race_status {
-        height: 3;
-        content-align: center middle;
-        border: heavy blue;
-        padding: 1 2;
-        margin-bottom: 1;
-        max-width: 20;
+    RaceStatusDisplay {
+        padding: 1 1;
+        background: $primary;
+        color: $foreground;
+        width: 1fr;
     }
+
     #tabbed_content {
         border: heavy cyan;
         height: 1fr;
@@ -100,7 +90,6 @@ class HardwareMonitorGUI(App):
         super().__init__(**kwargs)
         self.lap_queue = asyncio.Queue()
         self.race = Race()
-        self._racer_ids = [101, 102, 103, 104, 105]
 
         # Setup logging
         logging.basicConfig(
@@ -146,8 +135,8 @@ class HardwareMonitorGUI(App):
     def compose(self) -> ComposeResult:
         yield Header()
         with Vertical():
-            with Horizontal(id="race_controls"):
-                with Vertical():
+            with Horizontal():
+                with Vertical(id="race_controls"):
                     yield Button("Start Race", id="start_btn")
                     yield Button("Stop Race", id="stop_btn", disabled=True)
                 yield RaceTimeDisplay(name="Race Time", id="race_time", classes="box")

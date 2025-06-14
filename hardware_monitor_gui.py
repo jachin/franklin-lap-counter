@@ -63,7 +63,8 @@ class RaceTimeDisplay(Digits):
 
 class HardwareMonitorGUI(App):
     TITLE = "Franklin Lap Counter"
-    SUB_TITLE = "RC Lap Counter"
+    SUB_TITLE = "RC Lap Counter - Fake Race Mode"
+    # Note: will be overridden dynamically in update_subtitle
     CSS = """
     Screen {
         align: center middle;
@@ -109,12 +110,14 @@ class HardwareMonitorGUI(App):
     BINDINGS = [
         Binding("ctrl+s", "start_race", "Start Race"),
         Binding("ctrl+x", "end_race", "End Race"),
+        Binding("ctrl+t", "toggle_mode", "Toggle Race Mode"),
     ]
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.lap_queue = asyncio.Queue()
         self.race = Race()
+        self.fake_race_mode = True  # Default to fake race mode
 
         # Setup logging
         logging.basicConfig(
@@ -124,6 +127,22 @@ class HardwareMonitorGUI(App):
             level=logging.INFO
         )
         logging.info("HardwareMonitorGUI initialized")
+
+    def update_subtitle(self) -> None:
+        mode_str = "Fake Race Mode" if self.fake_race_mode else "Real Race Mode"
+        self.sub_title = f"RC Lap Counter - {mode_str}"
+        try:
+            header = self.query_one(Header)
+            header.refresh()
+        except Exception:
+            # Header widget not found yet
+            pass
+
+    def action_toggle_mode(self) -> None:
+        self.fake_race_mode = not self.fake_race_mode
+        mode_str = "Fake Race Mode" if self.fake_race_mode else "Real Race Mode"
+        logging.info(f"Toggled race mode to: {mode_str}")
+        self.update_subtitle()
 
     async def update_race_time(self):
         # TODO this works for now but we should probably use the time that's coming
@@ -177,24 +196,31 @@ class HardwareMonitorGUI(App):
         status_display = self.query_one(RaceStatusDisplay)
         start_btn = self.query_one("#start_btn", Button)
         stop_btn = self.query_one("#stop_btn", Button)
+
         if self.race.state != RaceState.RUNNING:
             current_time = asyncio.get_event_loop().time()
             self.race.start(start_time=current_time)
-
-            # Generate a fake race
-            fake_race = generate_fake_race()
-
-            logging.info("fake_race %s", fake_race)
-            logging.info("self.race %s", self.race)
 
             status_display.race_state = self.race.state
             start_btn.disabled = True
             stop_btn.disabled = False
 
-            # Start playback task
             if hasattr(self, "_playback_task") and not self._playback_task.done():
                 self._playback_task.cancel()
-            self._playback_task = asyncio.create_task(self.play_fake_race(fake_race))
+
+            if self.fake_race_mode:
+                # Generate a fake race
+                fake_race = generate_fake_race()
+                logging.info("Starting fake race")
+                logging.info("fake_race %s", fake_race)
+                logging.info("self.race %s", self.race)
+                # Start playback task
+                self._playback_task = asyncio.create_task(self.play_fake_race(fake_race))
+            else:
+                # Real race mode - prepare / start real hardware monitoring or race input
+                logging.info("Starting real race mode")
+                # For now just simulate continuous monitoring, actual implementation can be added later
+                self._playback_task = asyncio.create_task(self.hardware_monitor_task())
 
     def action_end_race(self) -> None:
         status_display = self.query_one(RaceStatusDisplay)
@@ -220,7 +246,9 @@ class HardwareMonitorGUI(App):
         asyncio.create_task(self.update_race_time())
         asyncio.create_task(self.refresh_lap_data())
 
-        asyncio.create_task(self.hardware_monitor_task())
+        # if not fake race mode, start hardware monitor task by default?
+        if not self.fake_race_mode:
+            asyncio.create_task(self.hardware_monitor_task())
 
     async def play_fake_race(self, fake_race):
         """

@@ -2,7 +2,7 @@ import asyncio
 import logging
 from textual.app import App, ComposeResult
 from textual.containers import Vertical, Horizontal
-from textual.widgets import Header, Footer, Static, Button, TabbedContent, TabPane, Digits
+from textual.widgets import Header, Footer, Static, Button, TabbedContent, TabPane, Digits, DataTable
 from textual.reactive import reactive
 from race.lap import Lap
 from race.race import Race, RaceState
@@ -34,18 +34,20 @@ class RaceStatusDisplay(Static):
         else:
             return "Race not started"
 
-class LeaderboardDisplay(Static):
+class LeaderboardDisplay(DataTable):
     leaderboard = reactive([])
 
-    def render(self) -> str:
+    def on_leaderboard_changed(self) -> None:
+        self.clear(columns=True)
+        self.add_columns("Position", "Racer ID", "Lap Count", "Best Lap Time (s)", "Total Time (s)")
         if not self.leaderboard:
-            return "No laps completed yet."
-        lines = ["Leaderboard:"]
+            return
         for pos, (racer_id, lap_count, best_lap_time, total_time) in enumerate(self.leaderboard, 1):
-            lines.append(
-                f" {pos}. Racer {racer_id}: Lap {lap_count}, Best Lap {best_lap_time:.2f}s, Total Time {total_time:.2f}s"
-            )
-        return "\n".join(lines)
+            row = (pos, racer_id, lap_count, f"{best_lap_time:.2f}", f"{total_time:.2f}")
+            self.add_row(*row)
+
+    def watch_leaderboard(self, leaderboard) -> None:
+        self.on_leaderboard_changed()
 
 class RaceTimeDisplay(Digits):
     BORDER_TITLE = "Race Time"

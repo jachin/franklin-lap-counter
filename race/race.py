@@ -59,8 +59,9 @@ class Race:
     def leaderboard(self) -> List:
         """
         Returns a leaderboard as a list of tuples:
-        (racer_id, lap_count, best_lap_time, total_time)
-        sorted by lap_count descending, then best_lap_time ascending.
+        (position, racer_id, lap_count, best_lap_time, total_time)
+        sorted by lap_count descending, then best_lap_time ascending,
+        with explicit position assigned.
         """
         stats = {}
         for lap in self.laps:
@@ -80,10 +81,14 @@ class Race:
             stats.items(),
             key=lambda item: (-item[1]["lap_count"], item[1]["best_lap_time"]),
         )
-        return [
-            (racer_id, data["lap_count"], data["best_lap_time"], data["total_time"])
-            for racer_id, data in sorted_stats
-        ]
+        leaderboard_with_position = []
+        position = 1
+        for racer_id, data in sorted_stats:
+            leaderboard_with_position.append(
+                (position, racer_id, data["lap_count"], data["best_lap_time"], data["total_time"])
+            )
+            position += 1
+        return leaderboard_with_position
 
     def best_lap(self) -> Optional[Lap]:
         """Returns the best (fastest) lap out of all laps in the race, or None if no laps."""

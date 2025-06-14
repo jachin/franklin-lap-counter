@@ -21,6 +21,7 @@ class LapDataDisplay(Static):
         return "\n".join(lines)
 
 class RaceStatusDisplay(Static):
+    BORDER_TITLE = "Race Status"
     race_state = reactive(RaceState.NOT_STARTED)
 
     def render(self) -> str:
@@ -47,6 +48,7 @@ class LeaderboardDisplay(Static):
         return "\n".join(lines)
 
 class RaceTimeDisplay(Digits):
+    BORDER_TITLE = "Race Time"
     elapsed_time = reactive(0.0)
 
     def watch_elapsed_time(self, elapsed_time: float) -> None:
@@ -83,9 +85,11 @@ class HardwareMonitorGUI(App):
     RaceStatusDisplay {
         padding: 1;
         margin: 1;
-        background: $primary;
+        background: $surface;
         color: $foreground;
         width: 1fr;
+        content-align: center middle;
+        border: $secondary tall;
     }
 
     #tabbed_content {

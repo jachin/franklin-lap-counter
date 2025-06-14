@@ -2,7 +2,7 @@ import asyncio
 import logging
 from textual.app import App, ComposeResult
 from textual.containers import Vertical, Horizontal
-from textual.widgets import Header, Footer, Static, Button, TabbedContent, TabPane
+from textual.widgets import Header, Footer, Static, Button, TabbedContent, TabPane, Digits
 from textual.reactive import reactive
 from race.lap import Lap
 from race.race import Race, RaceState
@@ -46,13 +46,17 @@ class LeaderboardDisplay(Static):
             )
         return "\n".join(lines)
 
-class RaceTimeDisplay(Static):
+class RaceTimeDisplay(Digits):
     elapsed_time = reactive(0.0)
 
-    def render(self) -> str:
-        seconds = int(self.elapsed_time)
-        tenths = int((self.elapsed_time - seconds)*10)
-        return f"Race Time: {seconds}.{tenths}s"
+    def watch_elapsed_time(self, elapsed_time: float) -> None:
+        """Called when the time attribute changes."""
+        self.update(f"Race Time: {elapsed_time}")
+
+    # def render(self) -> str:
+    #     seconds = int(self.elapsed_time)
+    #     tenths = int((self.elapsed_time - seconds)*10)
+    #     return f"Race Time: {seconds}.{tenths}s"
 
 class HardwareMonitorGUI(App):
     CSS = """

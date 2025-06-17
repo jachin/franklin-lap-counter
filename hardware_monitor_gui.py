@@ -122,6 +122,7 @@ class HardwareMonitorGUI(App):
         self.fake_race_mode = True  # Default to fake race mode
         self.lap_counter_detected = reactive(False)
         self._last_lap_counter_signal_time = None
+        self._playback_task = None
 
         # Setup logging
         logging.basicConfig(
@@ -285,7 +286,7 @@ class HardwareMonitorGUI(App):
                 start_btn.disabled = True
                 stop_btn.disabled = False
 
-                if hasattr(self, "_playback_task") and not self._playback_task.done():
+                if hasattr(self, "_playback_task") and self._playback_task is not None and not self._playback_task.done():
                     self._playback_task.cancel()
 
                 if self.fake_race_mode:
@@ -310,7 +311,7 @@ class HardwareMonitorGUI(App):
         stop_btn = self.query_one("#stop_btn", Button)
         if self.race.state == RaceState.RUNNING:
             # Stop playback and reset race state
-            if hasattr(self, "_playback_task") and not self._playback_task.done():
+            if hasattr(self, "_playback_task") and self._playback_task is not None and not self._playback_task.done():
                 self._playback_task.cancel()
             self.race.reset()
             status_display.race_state = self.race.state

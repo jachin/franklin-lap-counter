@@ -354,7 +354,7 @@ class HardwareMonitorGUI(App):
     async def on_mount(self) -> None:
         asyncio.create_task(self.update_race_time())
         asyncio.create_task(self.refresh_lap_data())
-        asyncio.create_task(self.hardware_monitor_task())
+        asyncio.create_task(self.hardware_reconnect_task())
 
     async def play_fake_race(self, fake_race):
         """

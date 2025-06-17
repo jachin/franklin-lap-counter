@@ -162,6 +162,8 @@ class HardwareMonitorGUI(App):
                 if ser.in_waiting > 0:
                     line = ser.readline().decode('utf-8').strip()  # Read a line
                     logging.info("Received: %s", line)
+                else:
+                    await asyncio.sleep(0.1)
         finally:
             ser.close()  # Don't forget to close the port
 

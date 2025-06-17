@@ -9,7 +9,7 @@ from race.race import Race, RaceState
 from race.race import generate_fake_race, order_laps_by_occurrence
 from textual.binding import Binding
 import pprint
-import serial
+import serial_asyncio
 
 class LapDataDisplay(Static):
     laps = reactive([])
@@ -155,17 +155,24 @@ class HardwareMonitorGUI(App):
 
     async def hardware_monitor_task(self):
         logging.info("Connecting to hardware monitor")
-        ser = serial.Serial('/dev/ttyUSB0', baudrate=9600, timeout=1)
+        self.lap_counter_reader, self.lap_counter_writer = await serial_asyncio.open_serial_connection(
+                    url='/dev/ttyUSB0', baudrate=9600)
         try:
             print("Press 'r' key to send bytes.")
             while True:
-                if ser.in_waiting > 0:
-                    line = ser.readline().decode('utf-8').strip()  # Read a line
-                    logging.info("Received: %s", line)
-                else:
-                    await asyncio.sleep(0.1)
+                try:
+                    line_bytes = await asyncio.wait_for(self.lap_counter_reader.readline(), timeout=0.1)
+                    if line_bytes:
+                        line = line_bytes.decode('utf-8').strip()
+                        logging.info("Received: %s", line)
+                    else:
+                        # EOF or no data
+                        await asyncio.sleep(0.1)
+                except asyncio.TimeoutError:
+                    # No data received within timeout
+                    pass
         finally:
-            ser.close()  # Don't forget to close the port
+            self.lap_counter_writer.close()
 
     async def refresh_lap_data(self):
         lap_display_events = self.query_one(LapDataDisplay)

@@ -253,35 +253,56 @@ class HardwareMonitorGUI(App):
                     yield LapDataDisplay(id="lap_data")
         yield Footer()
 
+    async def send_command_to_lap_counter(self):
+        if (hasattr(self, 'lap_counter_writer') and self.lap_counter_writer is not None
+                and not self.fake_race_mode and self.lap_counter_detected):
+            try:
+                # Send the byte series commands from the prototype
+                commands = [
+                    b'\x01\x3f\x2c\x32\x33\x32\x2c\x30\x2c\x31\x34\x2c\x30\x2c\x31\x2c\x0d\x0a',
+                    b'\x01\x3f\x2c\x32\x33\x32\x2c\x30\x2c\x32\x34\x2c\x30\x2c\x0d\x0a',
+                    b'\x01\x3f\x2c\x32\x33\x32\x2c\x30\x2c\x39\x2c\x30\x2c\x0d\x0a',
+                    b'\x01\x3f\x2c\x32\x33\x32\x2c\x30\x2c\x31\x34\x2c\x31\x2c\x30\x0d\x0a',
+                ]
+                for command in commands:
+                    self.lap_counter_writer.write(command)
+                    await self.lap_counter_writer.drain()
+                logging.info("Sent start race commands to lap counter")
+            except Exception as e:
+                logging.error(f"Error sending command to lap counter: {e}")
+
     def action_start_race(self) -> None:
-        status_display = self.query_one(RaceStatusDisplay)
-        start_btn = self.query_one("#start_btn", Button)
-        stop_btn = self.query_one("#stop_btn", Button)
+        async def start_race_and_send_command():
+            status_display = self.query_one(RaceStatusDisplay)
+            start_btn = self.query_one("#start_btn", Button)
+            stop_btn = self.query_one("#stop_btn", Button)
 
-        if self.race.state != RaceState.RUNNING:
-            current_time = asyncio.get_event_loop().time()
-            self.race.start(start_time=current_time)
+            if self.race.state != RaceState.RUNNING:
+                current_time = asyncio.get_event_loop().time()
+                self.race.start(start_time=current_time)
 
-            status_display.race_state = self.race.state
-            start_btn.disabled = True
-            stop_btn.disabled = False
+                status_display.race_state = self.race.state
+                start_btn.disabled = True
+                stop_btn.disabled = False
 
-            if hasattr(self, "_playback_task") and not self._playback_task.done():
-                self._playback_task.cancel()
+                if hasattr(self, "_playback_task") and not self._playback_task.done():
+                    self._playback_task.cancel()
 
-            if self.fake_race_mode:
-                # Generate a fake race
-                fake_race = generate_fake_race()
-                logging.info("Starting fake race")
-                logging.info("fake_race %s", fake_race)
-                logging.info("self.race %s", self.race)
-                # Start playback task
-                self._playback_task = asyncio.create_task(self.play_fake_race(fake_race))
-            else:
-                # Real race mode - prepare / start real hardware monitoring or race input
-                logging.info("Starting real race mode")
-                # For now just simulate continuous monitoring, actual implementation can be added later
-                self._playback_task = asyncio.create_task(self.hardware_monitor_task())
+                if self.fake_race_mode:
+                    # Generate a fake race
+                    fake_race = generate_fake_race()
+                    logging.info("Starting fake race")
+                    logging.info("fake_race %s", fake_race)
+                    logging.info("self.race %s", self.race)
+                    # Start playback task
+                    self._playback_task = asyncio.create_task(self.play_fake_race(fake_race))
+                else:
+                    # Real race mode - prepare / start real hardware monitoring or race input
+                    logging.info("Starting real race")
+                    # Send command to lap counter after starting hardware monitor
+                    await self.send_command_to_lap_counter()
+
+        asyncio.create_task(start_race_and_send_command())
 
     def action_end_race(self) -> None:
         status_display = self.query_one(RaceStatusDisplay)

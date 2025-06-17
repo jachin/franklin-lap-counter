@@ -119,6 +119,8 @@ class HardwareMonitorGUI(App):
         self.lap_queue = asyncio.Queue()
         self.race = Race()
         self.fake_race_mode = True  # Default to fake race mode
+        self.lap_counter_detected = reactive(False)
+        self._last_lap_counter_signal_time = None
 
         # Setup logging
         logging.basicConfig(
@@ -165,12 +167,33 @@ class HardwareMonitorGUI(App):
                     if line_bytes:
                         line = line_bytes.decode('utf-8').strip()
                         logging.info("Received: %s", line)
+
+                        # Check if the line matches the lap counter detected signal pattern
+                        # Example expected pattern: "#        202     14272   0       xC249"
+                        if line.startswith("#") and "xC249" in line:
+                            if not self.lap_counter_detected:
+                                logging.info("Lap counter detected (signal received)")
+                            self.lap_counter_detected = True
+                            self._last_lap_counter_signal_time = asyncio.get_event_loop().time()
+
+                        # Check if more than 2 seconds have elapsed without signal
+                        if self._last_lap_counter_signal_time is not None:
+                            elapsed = asyncio.get_event_loop().time() - self._last_lap_counter_signal_time
+                            if elapsed > 2 and self.lap_counter_detected:
+                                logging.info("Lap counter lost (no signal for > 2 seconds)")
+                                self.lap_counter_detected = False
+
                     else:
                         # EOF or no data
                         await asyncio.sleep(0.1)
                 except asyncio.TimeoutError:
                     # No data received within timeout
-                    pass
+                    # Also check if more than 2 seconds have elapsed without signal
+                    if self._last_lap_counter_signal_time is not None:
+                        elapsed = asyncio.get_event_loop().time() - self._last_lap_counter_signal_time
+                        if elapsed > 2 and self.lap_counter_detected:
+                            logging.info("Lap counter lost (no signal for > 2 seconds)")
+                            self.lap_counter_detected = False
         finally:
             self.lap_counter_writer.close()
 

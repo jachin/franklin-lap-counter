@@ -48,7 +48,10 @@ class HardwareCommProcess:
         ]
         try:
             for command in commands:
-                self.ser.write(command)
+                if self.ser is not None:
+                    self.ser.write(command)
+                else:
+                    self.out_queue.put({"type": "status", "message": "Serial port not open"})
         except Exception as e:
             self.out_queue.put({"type": "status", "message": f"Error sending commands: {e}"})
 
@@ -63,7 +66,7 @@ class HardwareCommProcess:
                     msg = self.in_queue.get()
                     if msg.get("type") == "command":
                         if msg.get("command") == "start_race":
-                            self.send_command_bytes()
+                            self.send_reset_command()
                             self.out_queue.put({"type": "status", "message": "Start race commands sent"})
                         elif msg.get("command") == "stop_race":
                             # Implement if needed

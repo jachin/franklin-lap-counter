@@ -146,7 +146,7 @@ def order_laps_by_occurrence(laps: List[Lap]) -> List[Tuple[float, Lap]]:
 
 def make_lap_from_sensor_data_and_race(sensor_data: Tuple[int, float], race: Race) -> Lap:
     racer_id, sensor_time = sensor_data
-    lap_number = sum(1 for lap in race.laps if lap.racer_id == racer_id)
+    lap_number = sum(1 for lap in race.laps if lap.racer_id == racer_id) or 0
     if race.start_time is None:
         raise ValueError("Race has not started")
     lap_time = sensor_time - race.start_time

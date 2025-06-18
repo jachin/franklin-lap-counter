@@ -193,7 +193,6 @@ class HardwareMonitorGUI(App):
                             break  # Exit to reconnect
 
                 else:
-                    logging.info("Notthing from the lap counter")
                     await asyncio.sleep(0.1)
         except asyncio.TimeoutError:
             logging.error("Hardware monitor task timeout exception")

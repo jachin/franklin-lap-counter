@@ -187,7 +187,7 @@ class HardwareMonitorGUI(App):
         self._last_lap_counter_signal_time = None
 
         try:
-            while True:
+            while True and self._hardware_async_bridge is not None:
                 # Get next hardware message async
                 msg = await self._hardware_async_bridge.get()
 
@@ -201,8 +201,18 @@ class HardwareMonitorGUI(App):
                     self._last_lap_counter_signal_time = asyncio.get_event_loop().time()
 
                 elif msg_type == "lap":
-                    # You can add lap processing logic here or emit events
+                    # Add lap to race if race running; else log error
                     logging.info(f"Lap message received: {msg}")
+                    from race.lap import Lap
+                    if self.race.state == self.race.state.RUNNING:
+                        racer_id = msg.get("racer_id")
+                        lap_time = msg.get("lap_time")
+                        lap_number = msg.get("lap_number", None)
+                        if racer_id is not None and lap_time is not None:
+                            lap = Lap(racer_id=racer_id, lap_number=lap_number, lap_time=lap_time)
+                            self.race.add_lap(lap)
+                    else:
+                        logging.error("Cannot add lap - race is not running")
 
                 elif msg_type == "new_msg":
                     # Handle your new message type here

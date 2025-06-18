@@ -6,7 +6,7 @@ from textual.widgets import Header, Footer, Static, Button, TabbedContent, TabPa
 from textual.reactive import reactive
 from race.lap import Lap
 from race.race import Race, RaceState
-from race.race import generate_fake_race, order_laps_by_occurrence
+from race.race import generate_fake_race, order_laps_by_occurrence, make_lap_from_sensor_data_and_race
 from textual.binding import Binding
 import pprint
 import multiprocessing
@@ -213,9 +213,8 @@ class HardwareMonitorGUI(App):
                     if self.race.state == self.race.state.RUNNING:
                         racer_id = msg.get("racer_id")
                         lap_time = msg.get("lap_time")
-                        lap_number = msg.get("lap_number", None)
                         if racer_id is not None and lap_time is not None:
-                            lap = Lap(racer_id=racer_id, lap_number=lap_number, lap_time=lap_time)
+                            lap = make_lap_from_sensor_data_and_race((racer_id, lap_time), self.race)
                             await self.lap_queue.put(lap)
                     else:
                         logging.error("Cannot add lap - race is not running")

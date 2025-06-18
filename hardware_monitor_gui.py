@@ -172,7 +172,7 @@ class HardwareMonitorGUI(App):
 
         try:
             while True:
-                line_bytes = await asyncio.wait_for(self.lap_counter_serial_reader.readline(), timeout=0.1)
+                line_bytes = await asyncio.wait_for(self.lap_counter_serial_reader.readline(), timeout=2)
                 if line_bytes:
                     logging.info("Bytes received from lap counter")
                     line = line_bytes.decode('utf-8').strip()

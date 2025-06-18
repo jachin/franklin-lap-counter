@@ -23,6 +23,7 @@ class HardwareCommProcess:
             handler.setFormatter(formatter)
             self.logger.addHandler(handler)
             self.logger.setLevel(logging.DEBUG)
+            self.logger.propagate = False
 
         self.serial_port = serial_port
         self.baudrate = baudrate
@@ -33,6 +34,8 @@ class HardwareCommProcess:
 
     def open_connection(self):
         self.logger.debug(f"Opening serial connection to {self.serial_port} at {self.baudrate} baud")
+        for handler in self.logger.handlers:
+            handler.flush()
         self.ser = serial.Serial(self.serial_port, self.baudrate, timeout=1)
 
     def close_connection(self):

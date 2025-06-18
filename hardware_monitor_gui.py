@@ -168,6 +168,8 @@ class HardwareMonitorGUI(App):
         self.lap_counter_detected = False
         self._last_lap_counter_signal_time = None
 
+        logging.info("Hardware monitor task started")
+
         try:
             while True:
                 line_bytes = await asyncio.wait_for(self.lap_counter_serial_reader.readline(), timeout=0.1)
@@ -234,7 +236,7 @@ class HardwareMonitorGUI(App):
 
     async def hardware_reconnect_task(self):
         """
-        Attempts to reconnect to the lap counter hardware repeatedly until success.
+        Attempts to (re)connect to the lap counter hardware repeatedly until success.
         Upon successful connection, cancels itself and starts hardware_monitor_task.
         """
         while True:
@@ -244,7 +246,7 @@ class HardwareMonitorGUI(App):
                     url='/dev/ttyUSB0', baudrate=9600)
 
                 logging.info("Successfully connected to lap counter hardware")
-                self.lap_counter_detected = False
+                self.lap_counter_detected = True
                 self._last_lap_counter_signal_time = None
 
                 # Cancel this reconnect task (caller should cancel it) and start monitor task

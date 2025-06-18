@@ -77,7 +77,9 @@ class HardwareCommProcess:
 
                 if line:
                     # Heartbeat example check
-                    if line.startswith("#") and "xC249" in line:
+                    # The device prepends each line with \x01 (SOH - Start of Heading) control character,
+                    # so we check for "\x01#" instead of just "#" to detect heartbeats accurately.
+                    if line.startswith("\x01#") and "xC249" in line:
                         last_heartbeat_time = time.time()
                         self.out_queue.put({"type": "heartbeat"})
                     else:
@@ -85,7 +87,7 @@ class HardwareCommProcess:
                         self.out_queue.put({"type": "raw", "line": line})
 
                 # Heartbeat timeout
-                if time.time() - last_heartbeat_time > 2:
+                if time.time() - last_heartbeat_time > 10:
                     self.out_queue.put({"type": "status", "message": "Heartbeat lost"})
 
                 time.sleep(0.05)

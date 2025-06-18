@@ -253,7 +253,6 @@ class HardwareMonitorGUI(App):
                 self._last_lap_counter_signal_time = None
 
                 # Cancel this reconnect task (caller should cancel it) and start monitor task
-                self._reconnect_task = None
                 self._monitor_task = asyncio.create_task(self.hardware_monitor_task())
                 break
             except SerialException as e:

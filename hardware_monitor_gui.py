@@ -11,6 +11,8 @@ from textual.binding import Binding
 import pprint
 import serial_asyncio
 from serial.serialutil import SerialException
+import multiprocessing
+from async_multiprocessing_bridge import AsyncMultiprocessingQueueBridge
 
 class LapDataDisplay(Static):
     laps = reactive([])
@@ -133,6 +135,12 @@ class HardwareMonitorGUI(App):
         )
         logging.info("HardwareMonitorGUI initialized")
 
+        # Multiprocessing communication setup
+        self._hardware_in_queue = multiprocessing.Queue()
+        self._hardware_out_queue = multiprocessing.Queue()
+        self._hardware_process = None
+        self._hardware_async_bridge = None
+
     def update_subtitle(self) -> None:
         mode_str = "Fake Race Mode" if self.fake_race_mode else "Real Race Mode"
         self.sub_title = f"RC Lap Counter - {mode_str}"
@@ -159,63 +167,75 @@ class HardwareMonitorGUI(App):
 
     async def hardware_monitor_task(self):
         """
-        Task that reads data from the lap counter serial connection while connected,
-        detects heartbeat signals, and updates detection state.
-
-        Cancels itself when connection is lost or heartbeat is missing,
-        should be restarted by reconnect task.
+        Async consume hardware process messages via AsyncMultiprocessingQueueBridge,
+        handle the structured messages accordingly.
         """
+        logging.info("Hardware monitor task started")
+
+        # Start hardware process if not already started
+        if self._hardware_process is None:
+            from hardware_comm_process import start_hardware_comm_process
+            self._hardware_process = multiprocessing.Process(
+                target=start_hardware_comm_process,
+                args=(self._hardware_in_queue, self._hardware_out_queue),
+                daemon=True
+            )
+            self._hardware_process.start()
+
+            # Create async bridge to out_queue
+            self._hardware_async_bridge = AsyncMultiprocessingQueueBridge(self._hardware_out_queue, loop=asyncio.get_event_loop())
+
         self.lap_counter_detected = False
         self._last_lap_counter_signal_time = None
 
-        logging.info("Hardware monitor task started")
-
         try:
-            while True:
-                line_bytes = await asyncio.wait_for(self.lap_counter_serial_reader.readline(), timeout=10)
-                if line_bytes:
-                    logging.info("Bytes received from lap counter")
-                    line = line_bytes.decode('utf-8').strip()
-                    logging.info("Received: %s", line)
+            while True and self._hardware_async_bridge is not None:
+                # Get next hardware message async
+                msg = await self._hardware_async_bridge.get()
 
-                    if line.startswith("#") and "xC249" in line:
-                        if not self.lap_counter_detected:
-                            logging.info("Lap counter detected (signal received)")
-                        self.lap_counter_detected = True
-                        self._last_lap_counter_signal_time = asyncio.get_event_loop().time()
+                msg_type = msg.get("type")
 
-                    # Check for heartbeat timeout
-                    if self._last_lap_counter_signal_time is not None:
-                        elapsed = asyncio.get_event_loop().time() - self._last_lap_counter_signal_time
-                        if elapsed > 2 and self.lap_counter_detected:
-                            logging.info("Lap counter lost (no signal for > 2 seconds)")
-                            self.lap_counter_detected = False
-                            break  # Exit to reconnect
+                if msg_type == "heartbeat":
+                    if not self.lap_counter_detected:
+                        logging.info("Lap counter detected (heartbeat)")
+                    self.lap_counter_detected = True
+                    self._last_lap_counter_signal_time = asyncio.get_event_loop().time()
+
+                elif msg_type == "lap":
+                    # You can add lap processing logic here or emit events
+                    logging.info(f"Lap message received: {msg}")
+
+                elif msg_type == "new_msg":
+                    # Handle your new message type here
+                    logging.info(f"New message received: {msg}")
+
+                elif msg_type == "status":
+                    logging.info(f"Status message: {msg.get('message','')}")
+
+                elif msg_type == "raw":
+                    logging.debug(f"Raw message: {msg.get('line','')}")
 
                 else:
-                    await asyncio.sleep(0.1)
-        except asyncio.TimeoutError:
-            logging.error("Hardware monitor task timeout exception")
-            # Timeout waiting for data, check heartbeats anyway
-            if self._last_lap_counter_signal_time is not None:
-                elapsed = asyncio.get_event_loop().time() - self._last_lap_counter_signal_time
-                if elapsed > 2 and self.lap_counter_detected:
-                    logging.info("Lap counter lost (no signal for > 2 seconds)")
-                    self.lap_counter_detected = False
-            # Continue reading loop
-        except SerialException as e:
-            logging.error(f"SerialException in hardware_monitor_task: {e}")
-            if self.lap_counter_detected:
-                logging.info("Lap counter lost (SerialException detected)")
-            self.lap_counter_detected = False
+                    logging.debug(f"Unknown message type: {msg}")
 
-        # Clean up connection resources on exit
-        try:
-            if hasattr(self, 'lap_counter_serial_writer') and self.lap_counter_serial_writer is not None:
-                self.lap_counter_serial_writer.close()
-                await self.lap_counter_serial_writer.wait_closed()
-        except Exception as close_exc:
-            logging.warning(f"Exception while closing serial connection after hardware monitor exit: {close_exc}")
+                # Check heartbeat timeout
+                if self._last_lap_counter_signal_time is not None:
+                    elapsed = asyncio.get_event_loop().time() - self._last_lap_counter_signal_time
+                    if elapsed > 2 and self.lap_counter_detected:
+                        logging.info("Lap counter lost (no signal for > 2 seconds)")
+                        self.lap_counter_detected = False
+                        # Optionally handle disconnection or reset logic here
+
+        except asyncio.CancelledError:
+            logging.info("Hardware monitor task cancelled")
+
+        finally:
+            # Cleanup bridge and process on exit
+            if self._hardware_async_bridge:
+                self._hardware_async_bridge.stop()
+            if self._hardware_process:
+                self._hardware_process.terminate()
+                self._hardware_process.join()
 
     async def refresh_lap_data(self):
         lap_display_events = self.query_one(LapDataDisplay)

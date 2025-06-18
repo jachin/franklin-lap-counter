@@ -38,8 +38,8 @@ class HardwareCommProcess:
             self.out_queue.put({"type": "status", "message": f"Error reading serial: {e}"})
         return None
 
-    def send_command_bytes(self):
-        # These are the commands from your prototype
+    def send_reset_command(self):
+        # These are the commands from your prototype that perform a reset/start
         commands = [
             b'\x01\x3f\x2c\x32\x33\x32\x2c\x30\x2c\x31\x34\x2c\x30\x2c\x31\x2c\x0d\x0a',
             b'\x01\x3f\x2c\x32\x33\x32\x2c\x30\x2c\x32\x34\x2c\x30\x2c\x0d\x0a',
@@ -47,9 +47,8 @@ class HardwareCommProcess:
             b'\x01\x3f\x2c\x32\x33\x32\x2c\x30\x2c\x31\x34\x2c\x31\x2c\x30\x0d\x0a',
         ]
         try:
-            if self.ser:
-                for command in commands:
-                    self.ser.write(command)
+            for command in commands:
+                self.ser.write(command)
         except Exception as e:
             self.out_queue.put({"type": "status", "message": f"Error sending commands: {e}"})
 
@@ -128,16 +127,41 @@ def start_hardware_comm_process(in_queue, out_queue):
 
 # Example minimal usage test if run standalone
 if __name__ == '__main__':
+    import sys
+    import tty
+    import termios
+
     in_q = multiprocessing.Queue()
     out_q = multiprocessing.Queue()
     p = multiprocessing.Process(target=start_hardware_comm_process, args=(in_q, out_q))
     p.start()
+
+    def get_char():
+        fd = sys.stdin.fileno()
+        old_settings = termios.tcgetattr(fd)
+        try:
+            tty.setraw(fd)
+            ch = sys.stdin.read(1)
+        finally:
+            termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+        return ch
+
+    print("Press 'r' to send reset command, 'q' to quit.")
 
     try:
         while True:
             while not out_q.empty():
                 msg = out_q.get()
                 print(f"Received from hardware process: {msg}")
+
+            if sys.stdin in select.select([sys.stdin], [], [], 0)[0]:
+                c = get_char()
+                if c == "r":
+                    print("Sending reset command to hardware...")
+                    in_q.put({"type": "command", "command": "start_race"})
+                elif c == "q":
+                    raise KeyboardInterrupt
+
             time.sleep(0.1)
     except KeyboardInterrupt:
         print("Terminating")

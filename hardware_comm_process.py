@@ -143,23 +143,34 @@ if __name__ == '__main__':
         curses.curs_set(0)  # Hide cursor
         stdscr.nodelay(True)  # getch non-blocking
 
-        print("Press Ctrl+R to send reset command, Ctrl+Q to quit.")
+        # Call endwin once to release terminal for printing before loop
+        curses.endwin()
+        print("Press Ctrl+R to send reset command, Ctrl+Q to quit.", flush=True)
 
         try:
             while True:
-                # Print messages normally via print()
+                # Exit curses mode before printing to prevent terminal corruption
+                curses.endwin()
                 while not out_q.empty():
                     msg = out_q.get()
                     print(f"Hardware message: {msg}", flush=True)
 
+                # Reinitialize curses to continue reading keyboard input
+                stdscr.refresh()
+
                 # Capture keys
                 c = stdscr.getch()
                 if c != -1:
-                    # Debug output normally
+                    # Exit curses mode before printing debug info
+                    curses.endwin()
                     print(f"Debug: got char code {c}", flush=True)
+                    # Reinit curses again
+                    stdscr.refresh()
 
                     if c == 18:  # Ctrl+R
+                        curses.endwin()
                         print("Sending reset command to hardware...", flush=True)
+                        stdscr.refresh()
                         in_q.put({"type": "command", "command": "start_race"})
                     elif c == 17:  # Ctrl+Q
                         break
@@ -167,6 +178,7 @@ if __name__ == '__main__':
                 time.sleep(0.1)
 
         finally:
+            curses.endwin()
             print("Terminating...", flush=True)
 
         p.terminate()

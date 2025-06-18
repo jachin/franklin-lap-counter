@@ -108,6 +108,32 @@ class HardwareCommProcess:
                                 self.out_queue.put({"type": "status", "message": f"Malformed lap line: {line}"})
                         except Exception as e:
                             self.out_queue.put({"type": "status", "message": f"Error parsing lap line: {e} - {line}"})
+                    elif line.startswith("\x01$"):
+                        # Parse new message lines starting with \x01$
+                        parts = line.split("\t")
+                        try:
+                            # Defensive: basic sanity check on parts count
+                            if len(parts) >= 5:
+                                # Example contents are like:
+                                # \x01$\t202\t941,14\t0\t1x
+                                # Extract sensor_id, and custom fields, example parse with defensive fallback for comma decimal
+                                sensor_id = int(parts[1])
+                                raw_time_str = parts[2].replace(",", ".")  # comma decimal to dot decimal
+                                raw_time = float(raw_time_str)
+                                status_flag1 = parts[3]
+                                status_flag2 = parts[4]
+                                new_message = {
+                                    "type": "new_msg",
+                                    "sensor_id": sensor_id,
+                                    "raw_time": raw_time,
+                                    "flag1": status_flag1,
+                                    "flag2": status_flag2,
+                                }
+                                self.out_queue.put(new_message)
+                            else:
+                                self.out_queue.put({"type": "status", "message": f"Malformed new_msg line: {line}"})
+                        except Exception as e:
+                            self.out_queue.put({"type": "status", "message": f"Error parsing new_msg line: {e} - {line}"})
                     else:
                         # You can parse other outputs here or send as raw
                         self.out_queue.put({"type": "raw", "line": line})
@@ -184,7 +210,7 @@ if __name__ == '__main__':
                         status_win.refresh()
                         in_q.put({"type": "command", "command": "start_race"})
                     elif c == 17:  # Ctrl+Q
-                        break
+                        raise KeyboardInterrupt
 
                 curses.napms(100)
 

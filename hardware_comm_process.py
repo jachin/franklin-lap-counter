@@ -1,6 +1,7 @@
 import serial
 import multiprocessing
 import time
+import logging
 
 # Message format examples:
 # From hardware process to GUI:
@@ -14,6 +15,15 @@ import time
 
 class HardwareCommProcess:
     def __init__(self, serial_port, baudrate, in_queue, out_queue):
+        # Setup logger for hardware process
+        self.logger = logging.getLogger("hardware_comm_process")
+        if not self.logger.hasHandlers():
+            handler = logging.FileHandler("hardware.log", mode="a")
+            formatter = logging.Formatter('%(asctime)s %(levelname)s:%(message)s')
+            handler.setFormatter(formatter)
+            self.logger.addHandler(handler)
+            self.logger.setLevel(logging.DEBUG)
+
         self.serial_port = serial_port
         self.baudrate = baudrate
         self.in_queue: multiprocessing.Queue = in_queue
@@ -22,10 +32,12 @@ class HardwareCommProcess:
         self.running = False
 
     def open_connection(self):
+        self.logger.debug(f"Opening serial connection to {self.serial_port} at {self.baudrate} baud")
         self.ser = serial.Serial(self.serial_port, self.baudrate, timeout=1)
 
     def close_connection(self):
         if self.ser and self.ser.is_open:
+            self.logger.debug("Closing serial connection")
             self.ser.close()
 
     def read_line(self):
@@ -33,12 +45,17 @@ class HardwareCommProcess:
             if self.ser:
                 line = self.ser.readline()
                 if line:
-                    return line.decode('utf-8').strip()
+                    decoded_line = line.decode('utf-8').strip()
+                    self.logger.debug(f"Read line from serial: {decoded_line}")
+                    return decoded_line
         except Exception as e:
-            self.out_queue.put({"type": "status", "message": f"Error reading serial: {e}"})
+            error_msg = f"Error reading serial: {e}"
+            self.logger.error(error_msg)
+            self.out_queue.put({"type": "status", "message": error_msg})
         return None
 
     def send_reset_command(self):
+        self.logger.debug("Sending reset commands to hardware")
         # These are the commands from your prototype that perform a reset/start
         commands = [
             b'\x01\x3f\x2c\x32\x33\x32\x2c\x30\x2c\x31\x34\x2c\x30\x2c\x31\x2c\x0d\x0a',
@@ -50,32 +67,43 @@ class HardwareCommProcess:
             for command in commands:
                 if self.ser is not None:
                     self.ser.write(command)
+                    self.logger.debug(f"Sent command: {command}")
                 else:
-                    self.out_queue.put({"type": "status", "message": "Serial port not open"})
+                    msg = "Serial port not open"
+                    self.logger.error(msg)
+                    self.out_queue.put({"type": "status", "message": msg})
         except Exception as e:
-            self.out_queue.put({"type": "status", "message": f"Error sending commands: {e}"})
+            err_msg = f"Error sending commands: {e}"
+            self.logger.error(err_msg)
+            self.out_queue.put({"type": "status", "message": err_msg})
 
     def run(self):
         self.running = True
         try:
+            self.logger.info("HardwareCommProcess starting run loop")
             self.open_connection()
             last_heartbeat_time = time.time()
             while self.running:
                 # Check input queue for commands
                 while not self.in_queue.empty():
                     msg = self.in_queue.get()
+                    self.logger.debug(f"Received command from in_queue: {msg}")
                     if msg.get("type") == "command":
                         if msg.get("command") == "start_race":
+                            self.logger.info("Received start_race command - sending reset commands")
                             self.send_reset_command()
                             self.out_queue.put({"type": "status", "message": "Start race commands sent"})
+                            self.logger.info("Start race commands sent")
                         elif msg.get("command") == "stop_race":
                             # Implement if needed
                             self.out_queue.put({"type": "status", "message": "Stop race command received"})
+                            self.logger.info("Stop race command received")
 
                 # Read lines from serial
                 line = self.read_line()
 
                 self.out_queue.put({"type": "debug", "message": "Read line: {}".format(line)})
+                self.logger.debug(f"Read line processed: {line}")
 
                 if line:
                     # Heartbeat example check
@@ -84,6 +112,7 @@ class HardwareCommProcess:
                     if line.startswith("\x01#") and "xC249" in line:
                         last_heartbeat_time = time.time()
                         self.out_queue.put({"type": "heartbeat"})
+                        self.logger.debug("Heartbeat detected")
                     elif line.startswith("\x01@"):
                         # Parse lap signal line
                         parts = line.split("\t")
@@ -104,10 +133,15 @@ class HardwareCommProcess:
                                     "lap_time": lap_time,
                                 }
                                 self.out_queue.put(lap_message)
+                                self.logger.debug(f"Lap message parsed and sent: {lap_message}")
                             else:
-                                self.out_queue.put({"type": "status", "message": f"Malformed lap line: {line}"})
+                                msg = f"Malformed lap line: {line}"
+                                self.out_queue.put({"type": "status", "message": msg})
+                                self.logger.error(msg)
                         except Exception as e:
-                            self.out_queue.put({"type": "status", "message": f"Error parsing lap line: {e} - {line}"})
+                            err_msg = f"Error parsing lap line: {e} - {line}"
+                            self.out_queue.put({"type": "status", "message": err_msg})
+                            self.logger.error(err_msg)
                     elif line.startswith("\x01$"):
                         # Parse new message lines starting with \x01$
                         parts = line.split("\t")
@@ -130,22 +164,32 @@ class HardwareCommProcess:
                                     "flag2": status_flag2,
                                 }
                                 self.out_queue.put(new_message)
+                                self.logger.debug(f"New message parsed and sent: {new_message}")
                             else:
-                                self.out_queue.put({"type": "status", "message": f"Malformed new_msg line: {line}"})
+                                msg = f"Malformed new_msg line: {line}"
+                                self.out_queue.put({"type": "status", "message": msg})
+                                self.logger.error(msg)
                         except Exception as e:
-                            self.out_queue.put({"type": "status", "message": f"Error parsing new_msg line: {e} - {line}"})
+                            err_msg = f"Error parsing new_msg line: {e} - {line}"
+                            self.out_queue.put({"type": "status", "message": err_msg})
+                            self.logger.error(err_msg)
                     else:
                         # You can parse other outputs here or send as raw
                         self.out_queue.put({"type": "raw", "line": line})
+                        self.logger.debug(f"Raw line sent: {line}")
 
                 # Heartbeat timeout
                 if time.time() - last_heartbeat_time > 10:
-                    self.out_queue.put({"type": "status", "message": "Heartbeat lost"})
+                    msg = "Heartbeat lost"
+                    self.out_queue.put({"type": "status", "message": msg})
+                    self.logger.warning(msg)
 
                 time.sleep(0.05)
 
         except Exception as e:
-            self.out_queue.put({"type": "status", "message": f"Exception in hardware comm process: {e}"})
+            err_msg = f"Exception in hardware comm process: {e}"
+            self.out_queue.put({"type": "status", "message": err_msg})
+            self.logger.error(err_msg)
         finally:
             self.close_connection()
 

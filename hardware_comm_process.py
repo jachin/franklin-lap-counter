@@ -139,51 +139,59 @@ if __name__ == '__main__':
         p = multiprocessing.Process(target=start_hardware_comm_process, args=(in_q, out_q))
         p.start()
 
-        # Minimal curses initialization for keyboard input only
+        # Configure curses
         curses.curs_set(0)  # Hide cursor
-        stdscr.nodelay(True)  # getch non-blocking
+        stdscr.nodelay(True)  # Non-blocking getch
+        stdscr.clear()
+        height, width = stdscr.getmaxyx()
 
-        # Call endwin once to release terminal for printing before loop
-        curses.endwin()
-        print("Press Ctrl+R to send reset command, Ctrl+Q to quit.", flush=True)
+        # Instruction line at top
+        stdscr.addstr(0, 0, "Press Ctrl+R to send reset command, Ctrl+Q to quit.")
+        stdscr.hline(1, 0, curses.ACS_HLINE, width)
+
+        # Create a window for output below the line, leaving 2 lines for debug and status at bottom
+        output_height = height - 4
+        output_win = curses.newwin(output_height, width, 2, 0)
+        output_win.scrollok(True)  # Enable scrolling
+        output_win.idlok(True)
+
+        # Status window at bottom for debug/key info
+        status_win = curses.newwin(2, width, height - 2, 0)
+        status_win.nodelay(True)
+        status_win.timeout(100)
+
+        stdscr.refresh()
+        output_win.refresh()
+        status_win.refresh()
 
         try:
             while True:
-                # Exit curses mode before printing to prevent terminal corruption
-                curses.endwin()
+                # Handle hardware messages
                 while not out_q.empty():
                     msg = out_q.get()
-                    print(f"Hardware message: {msg}", flush=True)
+                    output_win.addstr(f"Hardware message: {msg}\n")
+                    output_win.refresh()
 
-                # Reinitialize curses to continue reading keyboard input
-                stdscr.refresh()
-
-                # Capture keys
+                # Handle keyboard input
                 c = stdscr.getch()
                 if c != -1:
-                    # Exit curses mode before printing debug info
-                    curses.endwin()
-                    print(f"Debug: got char code {c}", flush=True)
-                    # Reinit curses again
-                    stdscr.refresh()
+                    status_win.clear()
+                    status_win.addstr(0, 0, f"Debug: got char code {c}    ")
+                    status_win.refresh()
 
                     if c == 18:  # Ctrl+R
-                        curses.endwin()
-                        print("Sending reset command to hardware...", flush=True)
-                        stdscr.refresh()
+                        status_win.addstr(1, 0, "Sending reset command to hardware...")
+                        status_win.refresh()
                         in_q.put({"type": "command", "command": "start_race"})
                     elif c == 17:  # Ctrl+Q
                         break
 
-                time.sleep(0.1)
+                curses.napms(100)
 
+        except KeyboardInterrupt:
+            pass
         finally:
-            curses.endwin()
-            print("Terminating...", flush=True)
-
-        p.terminate()
-        p.join()
-
-    curses.wrapper(main)
+            p.terminate()
+            p.join()
 
     curses.wrapper(main)

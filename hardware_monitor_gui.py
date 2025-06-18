@@ -9,8 +9,6 @@ from race.race import Race, RaceState
 from race.race import generate_fake_race, order_laps_by_occurrence
 from textual.binding import Binding
 import pprint
-import serial_asyncio
-from serial.serialutil import SerialException
 import multiprocessing
 from async_multiprocessing_bridge import AsyncMultiprocessingQueueBridge
 
@@ -189,12 +187,13 @@ class HardwareMonitorGUI(App):
         self._last_lap_counter_signal_time = None
 
         try:
-            while True and self._hardware_async_bridge is not None:
+            while True:
                 # Get next hardware message async
                 msg = await self._hardware_async_bridge.get()
 
                 msg_type = msg.get("type")
 
+                # Rely only on heartbeat message to update detection
                 if msg_type == "heartbeat":
                     if not self.lap_counter_detected:
                         logging.info("Lap counter detected (heartbeat)")
@@ -217,14 +216,6 @@ class HardwareMonitorGUI(App):
 
                 else:
                     logging.debug(f"Unknown message type: {msg}")
-
-                # Check heartbeat timeout
-                if self._last_lap_counter_signal_time is not None:
-                    elapsed = asyncio.get_event_loop().time() - self._last_lap_counter_signal_time
-                    if elapsed > 2 and self.lap_counter_detected:
-                        logging.info("Lap counter lost (no signal for > 2 seconds)")
-                        self.lap_counter_detected = False
-                        # Optionally handle disconnection or reset logic here
 
         except asyncio.CancelledError:
             logging.info("Hardware monitor task cancelled")
@@ -257,37 +248,6 @@ class HardwareMonitorGUI(App):
 
             await asyncio.sleep(0.1)
 
-    async def hardware_reconnect_task(self):
-        """
-        Attempts to (re)connect to the lap counter hardware repeatedly until success.
-        Upon successful connection, cancels itself and starts hardware_monitor_task.
-        """
-        while True:
-            try:
-                logging.info("Trying to connect to lap counter hardware...")
-                self.lap_counter_serial_reader, self.lap_counter_serial_writer = await serial_asyncio.open_serial_connection(
-                    url='/dev/ttyUSB0', baudrate=9600)
-
-                logging.info("Successfully connected to lap counter hardware")
-                self.lap_counter_detected = True
-                self._last_lap_counter_signal_time = None
-
-                # Cancel this reconnect task (caller should cancel it) and start monitor task
-                self._monitor_task = asyncio.create_task(self.hardware_monitor_task())
-                break
-            except SerialException as e:
-                logging.error(f"SerialException in hardware_reconnect_task: {e}")
-                self.lap_counter_detected = False
-
-                if hasattr(self, 'lap_counter_serial_writer') and self.lap_counter_serial_writer is not None:
-                    try:
-                        self.lap_counter_serial_writer.close()
-                        await self.lap_counter_serial_writer.wait_closed()
-                    except Exception as close_exc:
-                        logging.warning(f"Exception closing serial connection in reconnect task: {close_exc}")
-
-                await asyncio.sleep(2)
-
     def compose(self) -> ComposeResult:
         yield Header()
         with Vertical():
@@ -303,24 +263,6 @@ class HardwareMonitorGUI(App):
                 with TabPane("Events", id="events_tab"):
                     yield LapDataDisplay(id="lap_data")
         yield Footer()
-
-    async def send_command_to_lap_counter(self):
-        if (hasattr(self, 'lap_counter_serial_writer') and self.lap_counter_serial_writer is not None
-                and not self.fake_race_mode and self.lap_counter_detected):
-            try:
-                # Send the byte series commands from the prototype
-                commands = [
-                    b'\x01\x3f\x2c\x32\x33\x32\x2c\x30\x2c\x31\x34\x2c\x30\x2c\x31\x2c\x0d\x0a',
-                    b'\x01\x3f\x2c\x32\x33\x32\x2c\x30\x2c\x32\x34\x2c\x30\x2c\x0d\x0a',
-                    b'\x01\x3f\x2c\x32\x33\x32\x2c\x30\x2c\x39\x2c\x30\x2c\x0d\x0a',
-                    b'\x01\x3f\x2c\x32\x33\x32\x2c\x30\x2c\x31\x34\x2c\x31\x2c\x30\x0d\x0a',
-                ]
-                for command in commands:
-                    self.lap_counter_serial_writer.write(command)
-                    await self.lap_counter_serial_writer.drain()
-                logging.info("Sent start race commands to lap counter")
-            except Exception as e:
-                logging.error(f"Error sending command to lap counter: {e}")
 
     def action_start_race(self) -> None:
         async def start_race_and_send_command():
@@ -350,8 +292,8 @@ class HardwareMonitorGUI(App):
                 else:
                     # Real race mode - prepare / start real hardware monitoring or race input
                     logging.info("Starting real race")
-                    # Send command to lap counter after starting hardware monitor
-                    await self.send_command_to_lap_counter()
+                    # Send reset command to hardware_comm_process using multiprocessing queue
+                    self._hardware_in_queue.put({"type": "command", "command": "start_race"})
 
         asyncio.create_task(start_race_and_send_command())
 
@@ -378,7 +320,6 @@ class HardwareMonitorGUI(App):
     async def on_mount(self) -> None:
         asyncio.create_task(self.update_race_time())
         asyncio.create_task(self.refresh_lap_data())
-        asyncio.create_task(self.hardware_reconnect_task())
 
     async def play_fake_race(self, fake_race):
         """

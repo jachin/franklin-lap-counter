@@ -72,6 +72,9 @@ class HardwareCommProcess:
 
                 # Read lines from serial
                 line = self.read_line()
+
+                self.out_queue.put({"type": "debug", "message": "Read line: {}".format(line)})
+
                 if line:
                     # Heartbeat example check
                     if line.startswith("#") and "xC249" in line:

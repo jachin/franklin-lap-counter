@@ -194,6 +194,7 @@ class HardwareMonitorGUI(App):
                 else:
                     await asyncio.sleep(0.1)
         except asyncio.TimeoutError:
+            logging.error("Hardware monitor task timeout exception")
             # Timeout waiting for data, check heartbeats anyway
             if self._last_lap_counter_signal_time is not None:
                 elapsed = asyncio.get_event_loop().time() - self._last_lap_counter_signal_time

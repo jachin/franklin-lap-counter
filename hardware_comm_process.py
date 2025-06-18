@@ -139,46 +139,37 @@ if __name__ == '__main__':
         p = multiprocessing.Process(target=start_hardware_comm_process, args=(in_q, out_q))
         p.start()
 
-        # Don't display the cursor
+        # Configure curses for keyboard only
         curses.curs_set(0)
         stdscr.nodelay(True)  # Make getch non-blocking
-        stdscr.clear()
-        stdscr.addstr(0, 0, "Press Ctrl+R to send reset command, Ctrl+Q to quit.")
+
+        print("Press Ctrl+R to send reset command, Ctrl+Q to quit.")
 
         try:
             while True:
-                # Process messages from hardware
+                # Print messages without curses screen control
                 while not out_q.empty():
                     msg = out_q.get()
-                    # Get current cursor position
-                    y,x = stdscr.getyx()
-                    # Move to a lower line to append the message
-                    stdscr.move(y + 1, 0)
-                    stdscr.addstr(f"Hardware message: {msg}\n")
-                    stdscr.refresh()
+                    print(f"Hardware message: {msg}")
 
                 # Capture key presses
                 c = stdscr.getch()
                 if c != -1:
-                    # Debug output for the key code
-                    stdscr.addstr(1, 0, f"Debug: got char code {c}                ")
-                    stdscr.clrtoeol()
-                    stdscr.refresh()
+                    # Print debug information normally
+                    print(f"Debug: got char code {c}")
 
                     if c == 18:  # Ctrl+R
-                        stdscr.addstr(3, 0, "Sending reset command to hardware...           ")
-                        stdscr.clrtoeol()
-                        stdscr.refresh()
+                        print("Sending reset command to hardware...")
                         in_q.put({"type": "command", "command": "start_race"})
                     elif c == 17:  # Ctrl+Q
                         break
 
-                curses.napms(100)
+                time.sleep(0.1)
 
         finally:
-            stdscr.addstr(4, 0, "Terminating...                              ")
-            stdscr.refresh()
-            p.terminate()
-            p.join()
+            print("Terminating...")
+
+        p.terminate()
+        p.join()
 
     curses.wrapper(main)

@@ -185,6 +185,8 @@ class HardwareMonitorGUI(App):
             # Create async bridge to out_queue
             self._hardware_async_bridge = AsyncMultiprocessingQueueBridge(self._hardware_out_queue, loop=asyncio.get_event_loop())
 
+        logging.info(f"hardware_comm_process running with PID: {self._hardware_process.pid}")
+
         self.lap_counter_detected = False
         self._last_lap_counter_signal_time = None
 

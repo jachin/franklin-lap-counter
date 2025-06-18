@@ -180,6 +180,8 @@ class HardwareMonitorGUI(App):
             )
             self._hardware_process.start()
 
+            logging.info(f"Started hardware_comm_process with PID: {self._hardware_process.pid}")
+
             # Create async bridge to out_queue
             self._hardware_async_bridge = AsyncMultiprocessingQueueBridge(self._hardware_out_queue, loop=asyncio.get_event_loop())
 
@@ -192,6 +194,8 @@ class HardwareMonitorGUI(App):
                 msg = await self._hardware_async_bridge.get()
 
                 msg_type = msg.get("type")
+
+                logging.debug(f"Received hardware message of type '{msg_type}': {msg}")
 
                 # Rely only on heartbeat message to update detection
                 if msg_type == "heartbeat":

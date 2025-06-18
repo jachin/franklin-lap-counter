@@ -82,8 +82,32 @@ class HardwareCommProcess:
                     if line.startswith("\x01#") and "xC249" in line:
                         last_heartbeat_time = time.time()
                         self.out_queue.put({"type": "heartbeat"})
+                    elif line.startswith("\x01@"):
+                        # Parse lap signal line
+                        parts = line.split("\t")
+                        try:
+                            # Defensive: ensure enough parts for indexes we use
+                            if len(parts) >= 6:
+                                # Example line parts indexes:
+                                # parts[1]: racer_id (int)
+                                # parts[2]: sensor_id (int)
+                                # parts[4]: lap_time (float seconds)
+                                racer_id = int(parts[3])
+                                sensor_id = int(parts[1])
+                                lap_time = float(parts[4])
+                                lap_message = {
+                                    "type": "lap",
+                                    "racer_id": racer_id,
+                                    "sensor_id": sensor_id,
+                                    "lap_time": lap_time,
+                                }
+                                self.out_queue.put(lap_message)
+                            else:
+                                self.out_queue.put({"type": "status", "message": f"Malformed lap line: {line}"})
+                        except Exception as e:
+                            self.out_queue.put({"type": "status", "message": f"Error parsing lap line: {e} - {line}"})
                     else:
-                        # You can parse lap outputs here and send lap messages
+                        # You can parse other outputs here or send as raw
                         self.out_queue.put({"type": "raw", "line": line})
 
                 # Heartbeat timeout

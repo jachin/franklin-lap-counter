@@ -161,10 +161,10 @@ if __name__ == '__main__':
 
                 if sys.stdin in select.select([sys.stdin], [], [], 0)[0]:
                     c = get_char()
-                    if c == "r":
+                    if c == "\x12":  # Ctrl+R ASCII code 18
                         print("Sending reset command to hardware...")
                         in_q.put({"type": "command", "command": "start_race"})
-                    elif c == "q":
+                    elif c == "\x11":  # Ctrl+Q ASCII code 17 for quit alternative, also detect Ctrl+Q common abort
                         raise KeyboardInterrupt
 
                 time.sleep(0.1)

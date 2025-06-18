@@ -174,6 +174,7 @@ class HardwareMonitorGUI(App):
             while True:
                 line_bytes = await asyncio.wait_for(self.lap_counter_serial_reader.readline(), timeout=0.1)
                 if line_bytes:
+                    logging.info("Bytes received from lap counter")
                     line = line_bytes.decode('utf-8').strip()
                     logging.info("Received: %s", line)
 
@@ -221,7 +222,8 @@ class HardwareMonitorGUI(App):
         lap_display_leaderboard = self.query_one(LeaderboardDisplay)
         race_time_display = self.query_one(RaceTimeDisplay)
         while True:
-            logging.info("refresh_lap_data loop %s", self.race.elapsed_time)
+            if self.race.elapsed_time > 0:
+                logging.info("refresh_lap_data loop %s", self.race.elapsed_time)
             race_time_display.elapsed_time = self.race.elapsed_time
             try:
                 lap = await asyncio.wait_for(self.lap_queue.get(), timeout=0.1)

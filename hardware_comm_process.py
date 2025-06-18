@@ -139,27 +139,27 @@ if __name__ == '__main__':
         p = multiprocessing.Process(target=start_hardware_comm_process, args=(in_q, out_q))
         p.start()
 
-        # Configure curses for keyboard only
-        curses.curs_set(0)
-        stdscr.nodelay(True)  # Make getch non-blocking
+        # Minimal curses initialization for keyboard input only
+        curses.curs_set(0)  # Hide cursor
+        stdscr.nodelay(True)  # getch non-blocking
 
         print("Press Ctrl+R to send reset command, Ctrl+Q to quit.")
 
         try:
             while True:
-                # Print messages without curses screen control
+                # Print messages normally via print()
                 while not out_q.empty():
                     msg = out_q.get()
-                    print(f"Hardware message: {msg}")
+                    print(f"Hardware message: {msg}", flush=True)
 
-                # Capture key presses
+                # Capture keys
                 c = stdscr.getch()
                 if c != -1:
-                    # Print debug information normally
-                    print(f"Debug: got char code {c}")
+                    # Debug output normally
+                    print(f"Debug: got char code {c}", flush=True)
 
                     if c == 18:  # Ctrl+R
-                        print("Sending reset command to hardware...")
+                        print("Sending reset command to hardware...", flush=True)
                         in_q.put({"type": "command", "command": "start_race"})
                     elif c == 17:  # Ctrl+Q
                         break
@@ -167,9 +167,11 @@ if __name__ == '__main__':
                 time.sleep(0.1)
 
         finally:
-            print("Terminating...")
+            print("Terminating...", flush=True)
 
         p.terminate()
         p.join()
+
+    curses.wrapper(main)
 
     curses.wrapper(main)

@@ -151,8 +151,6 @@ if __name__ == '__main__':
                 termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
             return ch
 
-        print("Press 'r' to send reset command, 'q' to quit.")
-
         try:
             while True:
                 while not out_q.empty():
@@ -161,6 +159,7 @@ if __name__ == '__main__':
 
                 if sys.stdin in select.select([sys.stdin], [], [], 0)[0]:
                     c = get_char()
+                    print(f"Debug: got char '{c}' (ord {ord(c)})")
                     if c == "\x12":  # Ctrl+R ASCII code 18
                         print("Sending reset command to hardware...")
                         in_q.put({"type": "command", "command": "start_race"})

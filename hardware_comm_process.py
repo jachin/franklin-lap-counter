@@ -150,8 +150,11 @@ if __name__ == '__main__':
                 # Process messages from hardware
                 while not out_q.empty():
                     msg = out_q.get()
-                    stdscr.addstr(2, 0, f"Hardware message: {msg}                ")
-                    stdscr.clrtoeol()
+                    # Get current cursor position
+                    y,x = stdscr.getyx()
+                    # Move to a lower line to append the message
+                    stdscr.move(y + 1, 0)
+                    stdscr.addstr(f"Hardware message: {msg}\n")
                     stdscr.refresh()
 
                 # Capture key presses

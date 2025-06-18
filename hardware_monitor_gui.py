@@ -168,10 +168,11 @@ class HardwareMonitorGUI(App):
         Async consume hardware process messages via AsyncMultiprocessingQueueBridge,
         handle the structured messages accordingly.
         """
-        logging.info("Hardware monitor task started")
+        logging.info("Hardware monitor task starting up")
 
         # Start hardware process if not already started
         if self._hardware_process is None:
+            logging.info("Hardware monitor task has not been started yet, let's start it")
             from hardware_comm_process import start_hardware_comm_process
             self._hardware_process = multiprocessing.Process(
                 target=start_hardware_comm_process,

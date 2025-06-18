@@ -214,7 +214,7 @@ class HardwareMonitorGUI(App):
                         racer_id = msg.get("racer_id")
                         lap_time = msg.get("lap_time")
                         if racer_id is not None and lap_time is not None:
-                            lap = make_lap_from_sensor_data_and_race((racer_id, lap_time), self.race)
+                            lap = make_lap_from_sensor_data_and_race((racer_id, asyncio.get_event_loop().time()), self.race)
                             await self.lap_queue.put(lap)
                     else:
                         logging.error("Cannot add lap - race is not running")

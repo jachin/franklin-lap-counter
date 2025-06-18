@@ -286,6 +286,8 @@ class HardwareMonitorGUI(App):
             stop_btn = self.query_one("#stop_btn", Button)
 
             if self.race.state != RaceState.RUNNING:
+
+                self.race.state = RaceState.RUNNING
                 current_time = asyncio.get_event_loop().time()
                 self.race.start(start_time=current_time)
 

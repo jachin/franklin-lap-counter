@@ -130,44 +130,52 @@ def start_hardware_comm_process(in_queue, out_queue):
 
 # Example minimal usage test if run standalone
 if __name__ == '__main__':
-    import sys
-    import tty
-    import termios
-    import select
+    import curses
 
-    if __name__ == '__main__':
+    def main(stdscr):
+        # Initialize multiprocessing queues and start hardware process
         in_q = multiprocessing.Queue()
         out_q = multiprocessing.Queue()
         p = multiprocessing.Process(target=start_hardware_comm_process, args=(in_q, out_q))
         p.start()
 
-        def get_char():
-            fd = sys.stdin.fileno()
-            old_settings = termios.tcgetattr(fd)
-            try:
-                tty.setraw(fd)
-                ch = sys.stdin.read(1)
-            finally:
-                termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
-            return ch
+        # Don't display the cursor
+        curses.curs_set(0)
+        stdscr.nodelay(True)  # Make getch non-blocking
+        stdscr.clear()
+        stdscr.addstr(0, 0, "Press Ctrl+R to send reset command, Ctrl+Q to quit.")
 
         try:
             while True:
+                # Process messages from hardware
                 while not out_q.empty():
                     msg = out_q.get()
-                    print(f"Received from hardware process: {msg}")
+                    stdscr.addstr(2, 0, f"Hardware message: {msg}                ")
+                    stdscr.clrtoeol()
+                    stdscr.refresh()
 
-                if sys.stdin in select.select([sys.stdin], [], [], 0)[0]:
-                    c = get_char()
-                    print(f"Debug: got char '{c}' (ord {ord(c)})")
-                    if c == "\x12":  # Ctrl+R ASCII code 18
-                        print("Sending reset command to hardware...")
+                # Capture key presses
+                c = stdscr.getch()
+                if c != -1:
+                    # Debug output for the key code
+                    stdscr.addstr(1, 0, f"Debug: got char code {c}                ")
+                    stdscr.clrtoeol()
+                    stdscr.refresh()
+
+                    if c == 18:  # Ctrl+R
+                        stdscr.addstr(3, 0, "Sending reset command to hardware...           ")
+                        stdscr.clrtoeol()
+                        stdscr.refresh()
                         in_q.put({"type": "command", "command": "start_race"})
-                    elif c == "\x11":  # Ctrl+Q ASCII code 17 for quit alternative, also detect Ctrl+Q common abort
-                        raise KeyboardInterrupt
+                    elif c == 17:  # Ctrl+Q
+                        break
 
-                time.sleep(0.1)
-        except KeyboardInterrupt:
-            print("Terminating")
+                curses.napms(100)
+
+        finally:
+            stdscr.addstr(4, 0, "Terminating...                              ")
+            stdscr.refresh()
             p.terminate()
             p.join()
+
+    curses.wrapper(main)

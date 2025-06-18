@@ -9,8 +9,8 @@ class Lap:
     lap_time: float
 
     def __post_init__(self):
-        if self.lap_number < 1:
-            raise ValueError("Lap number must be >= 1")
+        if self.lap_number < 0:
+            raise ValueError("Lap number must be >= 0")
         if self.lap_time <= 0:
             raise ValueError("Lap time must be positive")
 

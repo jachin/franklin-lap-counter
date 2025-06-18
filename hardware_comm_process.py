@@ -32,6 +32,10 @@ class HardwareCommProcess:
         self.ser = None
         self.running = False
 
+        self.logger.info("HardwareCommProcess __init__")
+        for handler in self.logger.handlers:
+            handler.flush()
+
     def open_connection(self):
         self.logger.debug(f"Opening serial connection to {self.serial_port} at {self.baudrate} baud")
         for handler in self.logger.handlers:
@@ -82,6 +86,9 @@ class HardwareCommProcess:
 
     def run(self):
         self.running = True
+        self.logger.info("HardwareCommProcess started running")
+        for handler in self.logger.handlers:
+            handler.flush()
         try:
             self.logger.info("HardwareCommProcess starting run loop")
             self.open_connection()

@@ -287,8 +287,9 @@ class HardwareMonitorGUI(App):
 
             if self.race.state != RaceState.RUNNING:
 
-                self.race.state = RaceState.RUNNING
                 current_time = asyncio.get_event_loop().time()
+
+                # This call updates the state of the race
                 self.race.start(start_time=current_time)
 
                 status_display.race_state = self.race.state

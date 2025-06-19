@@ -87,7 +87,7 @@ class Race:
                 }
             else:
                 stats[rid]["lap_count"] += 1
-                stats[rid]["total_time"] += lap.seconds_from_race_start
+                stats[rid]["total_time"] = lap.seconds_from_race_start
                 if lap.seconds_from_race_start < stats[rid]["best_lap_time"]:
                     stats[rid]["best_lap_time"] = lap.seconds_from_race_start
         sorted_stats = sorted(

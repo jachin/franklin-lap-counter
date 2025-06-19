@@ -84,6 +84,104 @@ class HardwareCommProcess:
             self.logger.error(err_msg)
             self.out_queue.put({"type": "status", "message": err_msg})
 
+    def _handle_input_queue(self):
+        """Handle messages from the input queue."""
+        while not self.in_queue.empty():
+            msg = self.in_queue.get()
+            self.logger.debug(f"Received command from in_queue: {msg}")
+            if msg.get("type") == "command":
+                if msg.get("command") == "start_race":
+                    self.logger.info("Received start_race command - sending reset commands")
+                    self.send_reset_command()
+                    self.out_queue.put({"type": "status", "message": "Start race commands sent"})
+                    self.logger.info("Start race commands sent")
+                elif msg.get("command") == "stop_race":
+                    # Implement if needed
+                    self.out_queue.put({"type": "status", "message": "Stop race command received"})
+                    self.logger.info("Stop race command received")
+
+    def _handle_output_line(self, line, last_heartbeat_time):
+        """Process a line of output from the hardware and return updated heartbeat time."""
+        if not line:
+            return last_heartbeat_time
+
+        self.out_queue.put({"type": "debug", "message": "Read line: {}".format(line)})
+        self.logger.debug(f"Read line processed: {line}")
+
+        # Heartbeat example check
+        # The device prepends each line with \x01 (SOH - Start of Heading) control character,
+        # so we check for "\x01#" instead of just "#" to detect heartbeats accurately.
+        if line.startswith("\x01#") and "xC249" in line:
+            last_heartbeat_time = time.time()
+            self.out_queue.put({"type": "heartbeat"})
+            self.logger.debug("Heartbeat detected")
+        elif line.startswith("\x01@"):
+            # Parse lap signal line
+            parts = line.split("\t")
+            try:
+                # Defensive: ensure enough parts for indexes we use
+                if len(parts) >= 6:
+                    # Example line parts indexes:
+                    # parts[1]: racer_id (int)
+                    # parts[2]: sensor_id (int)
+                    # parts[4]: race_time (float seconds)
+                    racer_id = int(parts[3])
+                    sensor_id = int(parts[1])
+                    race_time = float(parts[4])
+                    lap_message = {
+                        "type": "lap",
+                        "racer_id": racer_id,
+                        "sensor_id": sensor_id,
+                        "race_time": race_time,
+                    }
+                    self.out_queue.put(lap_message)
+                    self.logger.debug(f"Lap message parsed and sent: {lap_message}")
+                else:
+                    msg = f"Malformed lap line: {line}"
+                    self.out_queue.put({"type": "status", "message": msg})
+                    self.logger.error(msg)
+            except Exception as e:
+                err_msg = f"Error parsing lap line: {e} - {line}"
+                self.out_queue.put({"type": "status", "message": err_msg})
+                self.logger.error(err_msg)
+        elif line.startswith("\x01$"):
+            # Parse new message lines starting with \x01$
+            parts = line.split("\t")
+            try:
+                # Defensive: basic sanity check on parts count
+                if len(parts) >= 5:
+                    # Example contents are like:
+                    # \x01$\t202\t941,14\t0\t1x
+                    # Extract sensor_id, and custom fields, example parse with defensive fallback for comma decimal
+                    sensor_id = int(parts[1])
+                    raw_time_str = parts[2].replace(",", ".")  # comma decimal to dot decimal
+                    raw_time = float(raw_time_str)
+                    status_flag1 = parts[3]
+                    status_flag2 = parts[4]
+                    new_message = {
+                        "type": "new_msg",
+                        "sensor_id": sensor_id,
+                        "raw_time": raw_time,
+                        "flag1": status_flag1,
+                        "flag2": status_flag2,
+                    }
+                    self.out_queue.put(new_message)
+                    self.logger.debug(f"New message parsed and sent: {new_message}")
+                else:
+                    msg = f"Malformed new_msg line: {line}"
+                    self.out_queue.put({"type": "status", "message": msg})
+                    self.logger.error(msg)
+            except Exception as e:
+                err_msg = f"Error parsing new_msg line: {e} - {line}"
+                self.out_queue.put({"type": "status", "message": err_msg})
+                self.logger.error(err_msg)
+        else:
+            # You can parse other outputs here or send as raw
+            self.out_queue.put({"type": "raw", "line": line})
+            self.logger.debug(f"Raw line sent: {line}")
+
+        return last_heartbeat_time
+
     def run(self):
         self.running = True
         self.logger.info("HardwareCommProcess started running")
@@ -94,99 +192,12 @@ class HardwareCommProcess:
             self.open_connection()
             last_heartbeat_time = time.time()
             while self.running:
-                # Check input queue for commands
-                while not self.in_queue.empty():
-                    msg = self.in_queue.get()
-                    self.logger.debug(f"Received command from in_queue: {msg}")
-                    if msg.get("type") == "command":
-                        if msg.get("command") == "start_race":
-                            self.logger.info("Received start_race command - sending reset commands")
-                            self.send_reset_command()
-                            self.out_queue.put({"type": "status", "message": "Start race commands sent"})
-                            self.logger.info("Start race commands sent")
-                        elif msg.get("command") == "stop_race":
-                            # Implement if needed
-                            self.out_queue.put({"type": "status", "message": "Stop race command received"})
-                            self.logger.info("Stop race command received")
+                # Handle input queue messages
+                self._handle_input_queue()
 
-                # Read lines from serial
+                # Read and process lines from serial
                 line = self.read_line()
-
-                self.out_queue.put({"type": "debug", "message": "Read line: {}".format(line)})
-                self.logger.debug(f"Read line processed: {line}")
-
-                if line:
-                    # Heartbeat example check
-                    # The device prepends each line with \x01 (SOH - Start of Heading) control character,
-                    # so we check for "\x01#" instead of just "#" to detect heartbeats accurately.
-                    if line.startswith("\x01#") and "xC249" in line:
-                        last_heartbeat_time = time.time()
-                        self.out_queue.put({"type": "heartbeat"})
-                        self.logger.debug("Heartbeat detected")
-                    elif line.startswith("\x01@"):
-                        # Parse lap signal line
-                        parts = line.split("\t")
-                        try:
-                            # Defensive: ensure enough parts for indexes we use
-                            if len(parts) >= 6:
-                                # Example line parts indexes:
-                                # parts[1]: racer_id (int)
-                                # parts[2]: sensor_id (int)
-                                # parts[4]: race_time (float seconds)
-                                racer_id = int(parts[3])
-                                sensor_id = int(parts[1])
-                                race_time = float(parts[4])
-                                lap_message = {
-                                    "type": "lap",
-                                    "racer_id": racer_id,
-                                    "sensor_id": sensor_id,
-                                    "race_time": race_time,
-                                }
-                                self.out_queue.put(lap_message)
-                                self.logger.debug(f"Lap message parsed and sent: {lap_message}")
-                            else:
-                                msg = f"Malformed lap line: {line}"
-                                self.out_queue.put({"type": "status", "message": msg})
-                                self.logger.error(msg)
-                        except Exception as e:
-                            err_msg = f"Error parsing lap line: {e} - {line}"
-                            self.out_queue.put({"type": "status", "message": err_msg})
-                            self.logger.error(err_msg)
-                    elif line.startswith("\x01$"):
-                        # Parse new message lines starting with \x01$
-                        parts = line.split("\t")
-                        try:
-                            # Defensive: basic sanity check on parts count
-                            if len(parts) >= 5:
-                                # Example contents are like:
-                                # \x01$\t202\t941,14\t0\t1x
-                                # Extract sensor_id, and custom fields, example parse with defensive fallback for comma decimal
-                                sensor_id = int(parts[1])
-                                raw_time_str = parts[2].replace(",", ".")  # comma decimal to dot decimal
-                                raw_time = float(raw_time_str)
-                                status_flag1 = parts[3]
-                                status_flag2 = parts[4]
-                                new_message = {
-                                    "type": "new_msg",
-                                    "sensor_id": sensor_id,
-                                    "raw_time": raw_time,
-                                    "flag1": status_flag1,
-                                    "flag2": status_flag2,
-                                }
-                                self.out_queue.put(new_message)
-                                self.logger.debug(f"New message parsed and sent: {new_message}")
-                            else:
-                                msg = f"Malformed new_msg line: {line}"
-                                self.out_queue.put({"type": "status", "message": msg})
-                                self.logger.error(msg)
-                        except Exception as e:
-                            err_msg = f"Error parsing new_msg line: {e} - {line}"
-                            self.out_queue.put({"type": "status", "message": err_msg})
-                            self.logger.error(err_msg)
-                    else:
-                        # You can parse other outputs here or send as raw
-                        self.out_queue.put({"type": "raw", "line": line})
-                        self.logger.debug(f"Raw line sent: {line}")
+                last_heartbeat_time = self._handle_output_line(line, last_heartbeat_time)
 
                 # Heartbeat timeout
                 if time.time() - last_heartbeat_time > 10:

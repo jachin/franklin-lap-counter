@@ -132,15 +132,15 @@ class HardwareCommProcess:
                                 # Example line parts indexes:
                                 # parts[1]: racer_id (int)
                                 # parts[2]: sensor_id (int)
-                                # parts[4]: lap_time (float seconds)
+                                # parts[4]: race_time (float seconds)
                                 racer_id = int(parts[3])
                                 sensor_id = int(parts[1])
-                                lap_time = float(parts[4])
+                                race_time = float(parts[4])
                                 lap_message = {
                                     "type": "lap",
                                     "racer_id": racer_id,
                                     "sensor_id": sensor_id,
-                                    "lap_time": lap_time,
+                                    "race_time": race_time,
                                 }
                                 self.out_queue.put(lap_message)
                                 self.logger.debug(f"Lap message parsed and sent: {lap_message}")

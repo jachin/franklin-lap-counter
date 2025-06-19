@@ -3,7 +3,8 @@
   "packages": [
     "python@3.13.3",
     "python313Packages.pyserial@latest",
-    "python313Packages.textual@latest"
+    "python313Packages.textual@latest",
+    "pyright@1.1.399"
   ],
   "shell": {
     "init_hook": [". $VENV_DIR/bin/activate"],

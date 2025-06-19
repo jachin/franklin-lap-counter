@@ -4,9 +4,8 @@ from textual.app import App, ComposeResult
 from textual.containers import Vertical, Horizontal
 from textual.widgets import Header, Footer, Static, Button, TabbedContent, TabPane, Digits, DataTable
 from textual.reactive import reactive
-from race.lap import Lap
 from race.race import Race, RaceState
-from race.race import generate_fake_race, order_laps_by_occurrence, make_lap_from_sensor_data_and_race
+from race.race import generate_fake_race, order_laps_by_occurrence, make_lap_from_sensor_data_and_race, make_fake_lap
 from textual.binding import Binding
 import pprint
 import multiprocessing
@@ -208,14 +207,18 @@ class HardwareMonitorGUI(App):
                     self._last_lap_counter_signal_time = asyncio.get_event_loop().time()
 
                 elif msg_type == "lap":
-                    # Add lap message to lap_queue for further processing
                     logging.info(f"Lap message received: {msg}")
                     if self.race.state == self.race.state.RUNNING:
                         racer_id = msg.get("racer_id")
-                        lap_time = msg.get("lap_time")
-                        if racer_id is not None and lap_time is not None:
-                            lap = make_lap_from_sensor_data_and_race((racer_id, asyncio.get_event_loop().time()), self.race)
+                        hardware_lap_time = msg.get("lap_time")
+                        if racer_id is not None and hardware_lap_time is not None:
+                            # Capture the internal (monotonic) time from the event loop.
+                            internal_time = asyncio.get_event_loop().time()
+
+                            lap = make_lap_from_sensor_data_and_race((racer_id, hardware_lap_time), internal_time, self.race)
                             await self.lap_queue.put(lap)
+                        else:
+                            logging.error("Invalid lap data received")
                     else:
                         logging.error("Cannot add lap - race is not running")
 
@@ -365,11 +368,7 @@ class HardwareMonitorGUI(App):
                 wait_time = ts - elapsed_time
                 if wait_time > 0:
                     await asyncio.sleep(wait_time)
-                lap_event = Lap(
-                    racer_id=lap.racer_id,
-                    lap_number=lap.lap_number,
-                    lap_time=lap.lap_time,
-                )
+                lap_event = make_fake_lap(lap.racer_id, lap.lap_number, lap.lap_time)
                 logging.info("fake lap %s", lap_event)
                 await self.lap_queue.put(lap_event)
                 cumulative_elapsed += lap.lap_time

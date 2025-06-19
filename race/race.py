@@ -156,12 +156,10 @@ def order_laps_by_occurrence(laps: List[Lap]) -> List[Tuple[float, Lap]]:
             f"laps=[{', '.join(repr(lap) for lap in self.laps)}])"
         )
 
-def make_lap_from_sensor_data_and_race(sensor_data: Tuple[int, float], interal_time: float, race: Race) -> Lap:
-    racer_id, race_time = sensor_data
+def make_lap_from_sensor_data_and_race(racer_id: int, race_time: float, interal_time: float, race: Race) -> Lap:
     lap_number = sum(1 for lap in race.laps if lap.racer_id == racer_id) or 0
     if race.start_time is None:
         raise ValueError("Race has not started")
-
 
     # Get the race_time for the last lap for this racer_id
     # if we don't have one then this must be the first lap to it should be zero.
@@ -170,16 +168,17 @@ def make_lap_from_sensor_data_and_race(sensor_data: Tuple[int, float], interal_t
     if len(laps) == 0:
         lap_time = LapTime(race_time)
     else:
-        lap_time = race_time -laps[-1].seconds_from_race_start
+        lap_time = race_time - laps[-1].seconds_from_race_start
 
-    # For simplicity in this helper, we set internal time equal to hardware time.
-    return Lap(
+    new_lap = Lap(
         racer_id=racer_id,
         lap_number=lap_number,
         seconds_from_race_start=SecondsFromRaceStart(race_time),
         internal_lap_time=InternalLapTime(interal_time),
         lap_time=LapTime(lap_time)
     )
+
+    return new_lap
 
 def make_fake_lap(racer_id: int, lap_number: int, lap_time: float) -> Lap:
     return Lap(

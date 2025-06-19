@@ -16,7 +16,6 @@ class Lap:
     """
     racer_id: int = field(compare=False)
     lap_number: int
-
     seconds_from_race_start: SecondsFromRaceStart
     internal_lap_time: InternalLapTime = field(compare=False)
     lap_time: LapTime = field(compare=False)
@@ -29,15 +28,15 @@ class Lap:
         if self.internal_lap_time <= 0:
             raise ValueError("Internal lap time must be positive")
 
-    def __str__(self):
-        return (f"Racer {self.racer_id} Lap {self.lap_number} | "
-                f"Hardware: {self.seconds_from_race_start:.2f}s, "
-                f"Internal: {self.internal_lap_time:.2f}s")
+    def __str__(self):return (f"Racer {self.racer_id} Lap {self.lap_number} | "
+            f"Hardware: {self.seconds_from_race_start:.2f}s, "
+            f"Internal: {self.internal_lap_time:.2f}s, "
+            f"Lap Time: {self.lap_time:.2f}s")
 
-    def __repr__(self):
-        return (f"Lap(racer_id={self.racer_id}, lap_number={self.lap_number}, "
-                f"seconds_from_race_start={self.seconds_from_race_start}, "
-                f"internal_lap_time={self.internal_lap_time})")
+    def __repr__(self):return (f"Lap(racer_id={self.racer_id}, lap_number={self.lap_number}, "
+            f"seconds_from_race_start={self.seconds_from_race_start}, "
+            f"internal_lap_time={self.internal_lap_time}, "
+            f"lap_time={self.lap_time})")
 
     def is_better_than(self, other: "Lap") -> bool:
         """

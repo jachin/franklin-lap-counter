@@ -215,7 +215,8 @@ class HardwareMonitorGUI(App):
                             # Capture the internal (monotonic) time from the event loop.
                             internal_time = asyncio.get_event_loop().time()
 
-                            lap = make_lap_from_sensor_data_and_race((racer_id, hardware_lap_time), internal_time, self.race)
+                            lap = make_lap_from_sensor_data_and_race(racer_id, hardware_lap_time, internal_time, self.race)
+                            logging.info("new lap %s", pprint.pformat(lap))
                             await self.lap_queue.put(lap)
                         else:
                             logging.error("Invalid lap data received")
@@ -251,8 +252,6 @@ class HardwareMonitorGUI(App):
         lap_display_leaderboard = self.query_one(LeaderboardDisplay)
         race_time_display = self.query_one(RaceTimeDisplay)
         while True:
-            if self.race.elapsed_time > 0:
-                logging.info("refresh_lap_data loop %s", self.race.elapsed_time)
             race_time_display.elapsed_time = self.race.elapsed_time
             try:
                 lap = await asyncio.wait_for(self.lap_queue.get(), timeout=0.1)

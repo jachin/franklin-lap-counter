@@ -210,12 +210,12 @@ class HardwareMonitorGUI(App):
                     logging.info(f"Lap message received: {msg}")
                     if self.race.state == self.race.state.RUNNING:
                         racer_id = msg.get("racer_id")
-                        hardware_lap_time = msg.get("lap_time")
-                        if racer_id is not None and hardware_lap_time is not None:
+                        hardware_race_time = msg.get("race_time")
+                        if racer_id is not None and hardware_race_time is not None:
                             # Capture the internal (monotonic) time from the event loop.
                             internal_time = asyncio.get_event_loop().time()
 
-                            lap = make_lap_from_sensor_data_and_race(racer_id, hardware_lap_time, internal_time, self.race)
+                            lap = make_lap_from_sensor_data_and_race(racer_id, hardware_race_time, internal_time, self.race)
                             logging.info("new lap %s", pprint.pformat(lap))
                             await self.lap_queue.put(lap)
                         else:

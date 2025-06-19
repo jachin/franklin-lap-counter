@@ -1,17 +1,30 @@
 from enum import Enum, auto
 from typing import List, Optional, Tuple
 import random
-from .lap import Lap
+from .lap import Lap, SecondsFromRaceStart, InternalLapTime, LapTime
 
 def generate_fake_race():
-   """Generates a fake race with 5 drivers, 10 laps each, and random lap times between 5 and 6 seconds."""
-   fake_race = Race()
-   racer_ids = [1, 2, 3, 4, 5]
-   for lap_number in range(1, 11):
-       for racer_id in racer_ids:
-           lap_time = random.uniform(5, 6)
-           fake_race.add_fake_lap(Lap(racer_id=racer_id, lap_number=lap_number, lap_time=lap_time))
-   return fake_race
+    """Generates a fake race with 5 drivers, 10 laps each, and random lap times between 5 and 6 seconds."""
+    fake_race = Race()
+    racer_ids = [1, 2, 3, 4, 5]
+    for lap_number in range(1, 11):
+        seconds_from_race_start = 0
+        for racer_id in racer_ids:
+            lap_time = random.uniform(5, 6)
+
+            seconds_from_race_start += lap_time
+
+            # For a fake lap, use the same value for hardware and internal times.
+            fake_race.add_fake_lap(
+                Lap(
+                    racer_id=racer_id,
+                    lap_number=lap_number,
+                    seconds_from_race_start=SecondsFromRaceStart(seconds_from_race_start),
+                    internal_lap_time=InternalLapTime(lap_time),
+                    lap_time=LapTime(lap_time)
+                )
+            )
+    return fake_race
 
 
 class RaceState(Enum):
@@ -69,14 +82,14 @@ class Race:
             if rid not in stats:
                 stats[rid] = {
                     "lap_count": 1,
-                    "best_lap_time": lap.lap_time,
-                    "total_time": lap.lap_time,
+                    "best_lap_time": lap.seconds_from_race_start,
+                    "total_time": lap.seconds_from_race_start,
                 }
             else:
                 stats[rid]["lap_count"] += 1
-                stats[rid]["total_time"] += lap.lap_time
-                if lap.lap_time < stats[rid]["best_lap_time"]:
-                    stats[rid]["best_lap_time"] = lap.lap_time
+                stats[rid]["total_time"] = lap.seconds_from_race_start
+                if lap.seconds_from_race_start < stats[rid]["best_lap_time"]:
+                    stats[rid]["best_lap_time"] = lap.seconds_from_race_start
         sorted_stats = sorted(
             stats.items(),
             key=lambda item: (-item[1]["lap_count"], item[1]["best_lap_time"]),
@@ -142,3 +155,37 @@ def order_laps_by_occurrence(laps: List[Lap]) -> List[Tuple[float, Lap]]:
             f"elapsed_time={self.elapsed_time!r}, "
             f"laps=[{', '.join(repr(lap) for lap in self.laps)}])"
         )
+
+def make_lap_from_sensor_data_and_race(sensor_data: Tuple[int, float], interal_time: float, race: Race) -> Lap:
+    racer_id, race_time = sensor_data
+    lap_number = sum(1 for lap in race.laps if lap.racer_id == racer_id) or 0
+    if race.start_time is None:
+        raise ValueError("Race has not started")
+
+
+    # Get the race_time for the last lap for this racer_id
+    # if we don't have one then this must be the first lap to it should be zero.
+    laps = list(filter(lambda lap: lap.racer_id == racer_id, race.laps))
+
+    if len(laps) == 0:
+        lap_time = LapTime(race_time)
+    else:
+        lap_time = race_time -laps[-1].seconds_from_race_start
+
+    # For simplicity in this helper, we set internal time equal to hardware time.
+    return Lap(
+        racer_id=racer_id,
+        lap_number=lap_number,
+        seconds_from_race_start=SecondsFromRaceStart(race_time),
+        internal_lap_time=InternalLapTime(interal_time),
+        lap_time=LapTime(lap_time)
+    )
+
+def make_fake_lap(racer_id: int, lap_number: int, lap_time: float) -> Lap:
+    return Lap(
+        racer_id=racer_id,
+        lap_number=lap_number,
+        seconds_from_race_start=SecondsFromRaceStart(lap_time),
+        internal_lap_time=InternalLapTime(lap_time),
+        lap_time=LapTime(lap_time)
+    )

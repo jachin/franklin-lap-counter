@@ -5,6 +5,54 @@
       "last_modified": "2025-06-12T15:53:38Z",
       "resolved": "github:NixOS/nixpkgs/8d6cdc7756817e0c4b24567271634a44bcf80752?lastModified=1749743618&narHash=sha256-ibsz06u1jlWyH7YURnRhLQn38Tuc5zwknr00suFjvfA%3D"
     },
+    "pyright@1.1.399": {
+      "last_modified": "2025-05-16T20:19:48Z",
+      "resolved": "github:NixOS/nixpkgs/12a55407652e04dcf2309436eb06fef0d3713ef3#pyright",
+      "source": "devbox-search",
+      "version": "1.1.399",
+      "systems": {
+        "aarch64-darwin": {
+          "outputs": [
+            {
+              "name": "out",
+              "path": "/nix/store/mxkg78zd4j8ds2mfj56dccx66nif1wag-pyright-1.1.399",
+              "default": true
+            }
+          ],
+          "store_path": "/nix/store/mxkg78zd4j8ds2mfj56dccx66nif1wag-pyright-1.1.399"
+        },
+        "aarch64-linux": {
+          "outputs": [
+            {
+              "name": "out",
+              "path": "/nix/store/kn710vcfmid1q4bhfyaxymkbyd3g29ms-pyright-1.1.399",
+              "default": true
+            }
+          ],
+          "store_path": "/nix/store/kn710vcfmid1q4bhfyaxymkbyd3g29ms-pyright-1.1.399"
+        },
+        "x86_64-darwin": {
+          "outputs": [
+            {
+              "name": "out",
+              "path": "/nix/store/j1fq3cpgjdw2yfslzkgkazbm9pi2h1cl-pyright-1.1.399",
+              "default": true
+            }
+          ],
+          "store_path": "/nix/store/j1fq3cpgjdw2yfslzkgkazbm9pi2h1cl-pyright-1.1.399"
+        },
+        "x86_64-linux": {
+          "outputs": [
+            {
+              "name": "out",
+              "path": "/nix/store/z0vamvqdhkg3riyq9qjhpcrxhxd1w9ph-pyright-1.1.399",
+              "default": true
+            }
+          ],
+          "store_path": "/nix/store/z0vamvqdhkg3riyq9qjhpcrxhxd1w9ph-pyright-1.1.399"
+        }
+      }
+    },
     "python313Packages.pyserial@latest": {
       "last_modified": "2025-05-16T20:19:48Z",
       "resolved": "github:NixOS/nixpkgs/12a55407652e04dcf2309436eb06fef0d3713ef3#python313Packages.pyserial",

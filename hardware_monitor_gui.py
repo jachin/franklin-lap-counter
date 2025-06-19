@@ -4,12 +4,12 @@ from textual.app import App, ComposeResult
 from textual.containers import Vertical, Horizontal
 from textual.widgets import Header, Footer, Static, Button, TabbedContent, TabPane, Digits, DataTable
 from textual.reactive import reactive
-from race.lap import Lap
 from race.race import Race, RaceState
-from race.race import generate_fake_race, order_laps_by_occurrence
+from race.race import generate_fake_race, order_laps_by_occurrence, make_lap_from_sensor_data_and_race, make_fake_lap
 from textual.binding import Binding
 import pprint
-import serial
+import multiprocessing
+from async_multiprocessing_bridge import AsyncMultiprocessingQueueBridge
 
 class LapDataDisplay(Static):
     laps = reactive([])
@@ -119,6 +119,9 @@ class HardwareMonitorGUI(App):
         self.lap_queue = asyncio.Queue()
         self.race = Race()
         self.fake_race_mode = True  # Default to fake race mode
+        self.lap_counter_detected = reactive(False)
+        self._last_lap_counter_signal_time = None
+        self._playback_task = None
 
         # Setup logging
         logging.basicConfig(
@@ -128,6 +131,12 @@ class HardwareMonitorGUI(App):
             level=logging.INFO
         )
         logging.info("HardwareMonitorGUI initialized")
+
+        # Multiprocessing communication setup
+        self._hardware_in_queue = multiprocessing.Queue()
+        self._hardware_out_queue = multiprocessing.Queue()
+        self._hardware_process = None
+        self._hardware_async_bridge = None
 
     def update_subtitle(self) -> None:
         mode_str = "Fake Race Mode" if self.fake_race_mode else "Real Race Mode"
@@ -154,23 +163,96 @@ class HardwareMonitorGUI(App):
             await asyncio.sleep(0.1)
 
     async def hardware_monitor_task(self):
-        logging.info("Connecting to hardware monitor")
-        ser = serial.Serial('/dev/ttyUSB0', baudrate=9600, timeout=1)
+        """
+        Async consume hardware process messages via AsyncMultiprocessingQueueBridge,
+        handle the structured messages accordingly.
+        """
+        logging.info("Hardware monitor task starting up")
+
+        # Start hardware process if not already started
+        if self._hardware_process is None:
+            logging.info("Hardware monitor task has not been started yet, let's start it")
+            from hardware_comm_process import start_hardware_comm_process
+            self._hardware_process = multiprocessing.Process(
+                target=start_hardware_comm_process,
+                args=(self._hardware_in_queue, self._hardware_out_queue),
+                daemon=True
+            )
+            self._hardware_process.start()
+
+            logging.info(f"Started hardware_comm_process with PID: {self._hardware_process.pid}")
+
+            # Create async bridge to out_queue
+            self._hardware_async_bridge = AsyncMultiprocessingQueueBridge(self._hardware_out_queue, loop=asyncio.get_event_loop())
+
+        logging.info(f"hardware_comm_process running with PID: {self._hardware_process.pid}")
+
+        self.lap_counter_detected = False
+        self._last_lap_counter_signal_time = None
+
         try:
-            print("Press 'r' key to send bytes.")
-            while True:
-                if ser.in_waiting > 0:
-                    line = ser.readline().decode('utf-8').strip()  # Read a line
-                    logging.info("Received: %s", line)
+            while True and self._hardware_async_bridge is not None:
+                # Get next hardware message async
+                msg = await self._hardware_async_bridge.get()
+
+                msg_type = msg.get("type")
+
+                logging.debug(f"Received hardware message of type '{msg_type}': {msg}")
+
+                # Rely only on heartbeat message to update detection
+                if msg_type == "heartbeat":
+                    if not self.lap_counter_detected:
+                        logging.info("Lap counter detected (heartbeat)")
+                    self.lap_counter_detected = True
+                    self._last_lap_counter_signal_time = asyncio.get_event_loop().time()
+
+                elif msg_type == "lap":
+                    logging.info(f"Lap message received: {msg}")
+                    if self.race.state == self.race.state.RUNNING:
+                        racer_id = msg.get("racer_id")
+                        hardware_lap_time = msg.get("lap_time")
+                        if racer_id is not None and hardware_lap_time is not None:
+                            # Capture the internal (monotonic) time from the event loop.
+                            internal_time = asyncio.get_event_loop().time()
+
+                            lap = make_lap_from_sensor_data_and_race((racer_id, hardware_lap_time), internal_time, self.race)
+                            await self.lap_queue.put(lap)
+                        else:
+                            logging.error("Invalid lap data received")
+                    else:
+                        logging.error("Cannot add lap - race is not running")
+
+                elif msg_type == "new_msg":
+                    # Handle your new message type here
+                    logging.info(f"New message received: {msg}")
+
+                elif msg_type == "status":
+                    logging.info(f"Status message: {msg.get('message','')}")
+
+                elif msg_type == "raw":
+                    logging.debug(f"Raw message: {msg.get('line','')}")
+
+                else:
+                    logging.debug(f"Unknown message type: {msg}")
+
+        except asyncio.CancelledError:
+            logging.info("Hardware monitor task cancelled")
+
         finally:
-            ser.close()  # Don't forget to close the port
+            # Cleanup bridge and process on exit
+            if self._hardware_async_bridge:
+                self._hardware_async_bridge.stop()
+            if self._hardware_process:
+                self._hardware_process.terminate()
+                self._hardware_process.join()
 
     async def refresh_lap_data(self):
         lap_display_events = self.query_one(LapDataDisplay)
         lap_display_leaderboard = self.query_one(LeaderboardDisplay)
         race_time_display = self.query_one(RaceTimeDisplay)
         while True:
-            logging.info("refresh_lap_data loop %s", self.race.elapsed_time)
+            if self.race.elapsed_time > 0:
+                logging.info("refresh_lap_data loop %s", self.race.elapsed_time)
             race_time_display.elapsed_time = self.race.elapsed_time
             try:
                 lap = await asyncio.wait_for(self.lap_queue.get(), timeout=0.1)
@@ -181,7 +263,6 @@ class HardwareMonitorGUI(App):
                 # No new lap data, just refresh displays
                 lap_display_events.laps = self.race.laps.copy()
                 lap_display_leaderboard.leaderboard = self.race.leaderboard()
-
 
             await asyncio.sleep(0.1)
 
@@ -202,34 +283,40 @@ class HardwareMonitorGUI(App):
         yield Footer()
 
     def action_start_race(self) -> None:
-        status_display = self.query_one(RaceStatusDisplay)
-        start_btn = self.query_one("#start_btn", Button)
-        stop_btn = self.query_one("#stop_btn", Button)
+        async def start_race_and_send_command():
+            status_display = self.query_one(RaceStatusDisplay)
+            start_btn = self.query_one("#start_btn", Button)
+            stop_btn = self.query_one("#stop_btn", Button)
 
-        if self.race.state != RaceState.RUNNING:
-            current_time = asyncio.get_event_loop().time()
-            self.race.start(start_time=current_time)
+            if self.race.state != RaceState.RUNNING:
 
-            status_display.race_state = self.race.state
-            start_btn.disabled = True
-            stop_btn.disabled = False
+                current_time = asyncio.get_event_loop().time()
 
-            if hasattr(self, "_playback_task") and not self._playback_task.done():
-                self._playback_task.cancel()
+                # This call updates the state of the race
+                self.race.start(start_time=current_time)
 
-            if self.fake_race_mode:
-                # Generate a fake race
-                fake_race = generate_fake_race()
-                logging.info("Starting fake race")
-                logging.info("fake_race %s", fake_race)
-                logging.info("self.race %s", self.race)
-                # Start playback task
-                self._playback_task = asyncio.create_task(self.play_fake_race(fake_race))
-            else:
-                # Real race mode - prepare / start real hardware monitoring or race input
-                logging.info("Starting real race mode")
-                # For now just simulate continuous monitoring, actual implementation can be added later
-                self._playback_task = asyncio.create_task(self.hardware_monitor_task())
+                status_display.race_state = self.race.state
+                start_btn.disabled = True
+                stop_btn.disabled = False
+
+                if hasattr(self, "_playback_task") and self._playback_task is not None and not self._playback_task.done():
+                    self._playback_task.cancel()
+
+                if self.fake_race_mode:
+                    # Generate a fake race
+                    fake_race = generate_fake_race()
+                    logging.info("Starting fake race")
+                    logging.info("fake_race %s", fake_race)
+                    logging.info("self.race %s", self.race)
+                    # Start playback task
+                    self._playback_task = asyncio.create_task(self.play_fake_race(fake_race))
+                else:
+                    # Real race mode - prepare / start real hardware monitoring or race input
+                    logging.info("Starting real race")
+                    # Send reset command to hardware_comm_process using multiprocessing queue
+                    self._hardware_in_queue.put({"type": "command", "command": "start_race"})
+
+        asyncio.create_task(start_race_and_send_command())
 
     def action_end_race(self) -> None:
         status_display = self.query_one(RaceStatusDisplay)
@@ -237,7 +324,7 @@ class HardwareMonitorGUI(App):
         stop_btn = self.query_one("#stop_btn", Button)
         if self.race.state == RaceState.RUNNING:
             # Stop playback and reset race state
-            if hasattr(self, "_playback_task") and not self._playback_task.done():
+            if hasattr(self, "_playback_task") and self._playback_task is not None and not self._playback_task.done():
                 self._playback_task.cancel()
             self.race.reset()
             status_display.race_state = self.race.state
@@ -281,11 +368,7 @@ class HardwareMonitorGUI(App):
                 wait_time = ts - elapsed_time
                 if wait_time > 0:
                     await asyncio.sleep(wait_time)
-                lap_event = Lap(
-                    racer_id=lap.racer_id,
-                    lap_number=lap.lap_number,
-                    lap_time=lap.lap_time,
-                )
+                lap_event = make_fake_lap(lap.racer_id, lap.lap_number, lap.lap_time)
                 logging.info("fake lap %s", lap_event)
                 await self.lap_queue.put(lap_event)
                 cumulative_elapsed += lap.lap_time

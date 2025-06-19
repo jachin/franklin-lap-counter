@@ -327,7 +327,7 @@ class HardwareMonitorGUI(App):
             # Stop playback and reset race state
             if hasattr(self, "_playback_task") and self._playback_task is not None and not self._playback_task.done():
                 self._playback_task.cancel()
-
+            self.race.state = RaceState.FINISHED
             status_display.race_state = self.race.state
             start_btn.disabled = False
             stop_btn.disabled = True

@@ -287,6 +287,8 @@ class HardwareMonitorGUI(App):
             start_btn = self.query_one("#start_btn", Button)
             stop_btn = self.query_one("#stop_btn", Button)
 
+            self.race.reset()
+
             if self.race.state != RaceState.RUNNING:
 
                 current_time = asyncio.get_event_loop().time()
@@ -325,7 +327,7 @@ class HardwareMonitorGUI(App):
             # Stop playback and reset race state
             if hasattr(self, "_playback_task") and self._playback_task is not None and not self._playback_task.done():
                 self._playback_task.cancel()
-            self.race.reset()
+
             status_display.race_state = self.race.state
             start_btn.disabled = False
             stop_btn.disabled = True

@@ -57,6 +57,25 @@ class TestRaceLeaderboard(unittest.TestCase):
         self.assertEqual(leaderboard[0][1], 2)
         self.assertEqual(leaderboard[1][1], 1)
 
+    def test_lap_zero_start_is_not_counted(self):
+        # Add lap 0 for racer 1 (start lap)
+        self.race.add_fake_lap(Lap(racer_id=1, lap_number=0, seconds_from_race_start=SecondsFromRaceStart(0.5), internal_lap_time=InternalLapTime(0.5), lap_time=LapTime(0.5)))
+        # Add lap 1 for racer 1
+        self.race.add_fake_lap(Lap(racer_id=1, lap_number=1, seconds_from_race_start=SecondsFromRaceStart(10.0), internal_lap_time=InternalLapTime(10.0), lap_time=LapTime(9.5)))
+
+        # Add lap 0 for racer 2 (start lap)
+        self.race.add_fake_lap(Lap(racer_id=2, lap_number=0, seconds_from_race_start=SecondsFromRaceStart(0.7), internal_lap_time=InternalLapTime(0.7), lap_time=LapTime(0.7)))
+        # Add lap 1 for racer 2
+        self.race.add_fake_lap(Lap(racer_id=2, lap_number=1, seconds_from_race_start=SecondsFromRaceStart(9.0), internal_lap_time=InternalLapTime(9.0), lap_time=LapTime(8.3)))
+
+        leaderboard = self.race.leaderboard()
+        # Lap count should be 1 for both (lap 0 not counted)
+        self.assertEqual(leaderboard[0][2], 1)
+        self.assertEqual(leaderboard[1][2], 1)
+        # Leader should be racer 2 (better lap time)
+        self.assertEqual(leaderboard[0][1], 2)
+        self.assertEqual(leaderboard[1][1], 1)
+
     def test_positions_are_correct(self):
         from .lap import SecondsFromRaceStart, InternalLapTime
         # 3 racers with different laps and times

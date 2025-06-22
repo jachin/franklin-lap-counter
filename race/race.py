@@ -87,15 +87,17 @@ class Race:
             rid = lap.racer_id
             if rid not in stats:
                 stats[rid] = {
-                    "lap_count": 1,
-                    "best_lap_time": lap.seconds_from_race_start,
+                    # Skip lap 0 from lap count but include in total time
+                    "lap_count": 0 if lap.lap_number == 0 else 1,
+                    "best_lap_time": lap.lap_time if lap.lap_number > 0 else float('inf'),
                     "total_time": lap.seconds_from_race_start,
                 }
             else:
-                stats[rid]["lap_count"] += 1
+                if lap.lap_number > 0:  # Only count non-zero laps towards lap count and best lap
+                    stats[rid]["lap_count"] += 1
+                    if lap.lap_time < stats[rid]["best_lap_time"]:
+                        stats[rid]["best_lap_time"] = lap.lap_time
                 stats[rid]["total_time"] = lap.seconds_from_race_start
-                if lap.seconds_from_race_start < stats[rid]["best_lap_time"]:
-                    stats[rid]["best_lap_time"] = lap.seconds_from_race_start
         sorted_stats = sorted(
             stats.items(),
             key=lambda item: (-item[1]["lap_count"], item[1]["best_lap_time"]),

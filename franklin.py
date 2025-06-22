@@ -33,6 +33,7 @@ class RaceStatusDisplay(Static):
         status = []
         if self.race_state == RaceState.RUNNING:
             status.append("Race in progress")
+            status.append("(Lap 0 = Race Start Trigger)")
             status.append(f"Leader: {self.leader_laps_remaining} laps remaining")
             status.append(f"Last Place: {self.last_place_laps_remaining} laps remaining")
         elif self.race_state == RaceState.PAUSED:

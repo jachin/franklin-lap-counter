@@ -42,6 +42,7 @@ class Race:
         self.state: RaceState = RaceState.NOT_STARTED
         self.start_time: Optional[float] = None
         self.elapsed_time: float = 0.0
+        self.total_laps: int = 10  # Race ends after 10 laps
 
     def start(self, start_time: float) -> None:
         if self.state in (RaceState.NOT_STARTED, RaceState.PAUSED):
@@ -65,6 +66,11 @@ class Race:
         if self.state != RaceState.RUNNING:
             raise RuntimeError("Cannot add lap unless race is running")
         self.laps.append(lap)
+
+        # Check if lead racer has completed the race
+        leaderboard = self.leaderboard()
+        if leaderboard and leaderboard[0][2] >= self.total_laps:
+            self.finish()
 
     def add_fake_lap(self, lap: Lap) -> None:
         self.laps.append(lap)
@@ -140,12 +146,29 @@ def order_laps_by_occurrence(laps: List[Lap]) -> List[Tuple[float, Lap]]:
 
     return laps_with_cumulative_time
 
+    def laps_remaining(self) -> Tuple[int, int]:
+        """Returns tuple of (leader_laps_remaining, last_place_laps_remaining)"""
+        leaderboard = self.leaderboard()
+        if not leaderboard:
+            return (self.total_laps, self.total_laps)
+
+        leader_laps = leaderboard[0][2]
+        last_place_laps = leaderboard[-1][2]
+
+        leader_remaining = max(0, self.total_laps - leader_laps)
+        last_remaining = max(0, self.total_laps - last_place_laps)
+
+        return (leader_remaining, last_remaining)
+
     def __str__(self) -> str:
+        leader_remaining, last_remaining = self.laps_remaining()
         return (
             f"Race(state={self.state.name}, "
             f"laps={len(self.laps)}, "
             f"start_time={self.start_time}, "
-            f"elapsed_time={self.elapsed_time:.2f})"
+            f"elapsed_time={self.elapsed_time:.2f}, "
+            f"leader_remaining={leader_remaining}, "
+            f"last_remaining={last_remaining})"
         )
 
     def __repr__(self) -> str:

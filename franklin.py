@@ -26,16 +26,22 @@ class LapDataDisplay(Static):
 class RaceStatusDisplay(Static):
     BORDER_TITLE = "Race Status"
     race_state = reactive(RaceState.NOT_STARTED)
+    leader_laps_remaining = reactive(10)
+    last_place_laps_remaining = reactive(10)
 
     def render(self) -> str:
+        status = []
         if self.race_state == RaceState.RUNNING:
-            return "Race started"
+            status.append("Race in progress")
+            status.append(f"Leader: {self.leader_laps_remaining} laps remaining")
+            status.append(f"Last Place: {self.last_place_laps_remaining} laps remaining")
         elif self.race_state == RaceState.PAUSED:
-            return "Race paused"
+            status.append("Race paused")
         elif self.race_state == RaceState.FINISHED:
-            return "Race finished"
+            status.append("Race finished")
         else:
-            return "Race not started"
+            status.append("Race not started")
+        return "\n".join(status)
 
 class LeaderboardDisplay(DataTable):
     leaderboard = reactive([])
@@ -261,6 +267,7 @@ class HardwareMonitorGUI(App):
         lap_display_events = self.query_one(LapDataDisplay)
         lap_display_leaderboard = self.query_one(LeaderboardDisplay)
         race_time_display = self.query_one(RaceTimeDisplay)
+        race_status_display = self.query_one(RaceStatusDisplay)
         while True:
             race_time_display.elapsed_time = self.race.elapsed_time
             try:
@@ -268,10 +275,18 @@ class HardwareMonitorGUI(App):
                 self.race.add_lap(lap)
                 lap_display_events.laps = self.race.laps.copy()
                 lap_display_leaderboard.leaderboard = self.race.leaderboard()
+                leader_remaining, last_remaining = self.race.laps_remaining()
+                race_status_display.leader_laps_remaining = leader_remaining
+                race_status_display.last_place_laps_remaining = last_remaining
+                race_status_display.race_state = self.race.state
             except asyncio.TimeoutError:
                 # No new lap data, just refresh displays
                 lap_display_events.laps = self.race.laps.copy()
                 lap_display_leaderboard.leaderboard = self.race.leaderboard()
+                leader_remaining, last_remaining = self.race.laps_remaining()
+                race_status_display.leader_laps_remaining = leader_remaining
+                race_status_display.last_place_laps_remaining = last_remaining
+                race_status_display.race_state = self.race.state
 
             await asyncio.sleep(0.1)
 

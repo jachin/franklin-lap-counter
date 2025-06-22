@@ -6,6 +6,7 @@ from textual.widgets import Header, Footer, Static, Button, TabbedContent, TabPa
 from textual.reactive import reactive
 from race.race import Race, RaceState
 from race.race import generate_fake_race, order_laps_by_occurrence, make_lap_from_sensor_data_and_race, make_fake_lap
+from race.race_mode import RaceMode
 from textual.binding import Binding
 import pprint
 import multiprocessing
@@ -118,7 +119,7 @@ class HardwareMonitorGUI(App):
         super().__init__(**kwargs)
         self.lap_queue = asyncio.Queue()
         self.race = Race()
-        self.fake_race_mode = True  # Default to fake race mode
+        self.race_mode = RaceMode.FAKE  # Default to fake race mode
         self.lap_counter_detected = reactive(False)
         self._last_lap_counter_signal_time = None
         self._playback_task = None
@@ -139,8 +140,7 @@ class HardwareMonitorGUI(App):
         self._hardware_async_bridge = None
 
     def update_subtitle(self) -> None:
-        mode_str = "Fake Race Mode" if self.fake_race_mode else "Real Race Mode"
-        self.sub_title = f"RC Lap Counter - {mode_str}"
+        self.sub_title = f"RC Lap Counter - {self.race_mode.value}"
         try:
             header = self.query_one(Header)
             header.refresh()
@@ -149,9 +149,19 @@ class HardwareMonitorGUI(App):
             pass
 
     def action_toggle_mode(self) -> None:
-        self.fake_race_mode = not self.fake_race_mode
-        mode_str = "Fake Race Mode" if self.fake_race_mode else "Real Race Mode"
-        logging.info(f"Toggled race mode to: {mode_str}")
+        if self.race.state == RaceState.RUNNING:
+            logging.info("Cannot change race mode while race is running")
+            self.notify("Cannot change race mode while race is running", severity="error")
+            return
+
+        # Cycle through modes: FAKE -> REAL -> TRAINING -> FAKE
+        if self.race_mode == RaceMode.FAKE:
+            self.race_mode = RaceMode.REAL
+        elif self.race_mode == RaceMode.REAL:
+            self.race_mode = RaceMode.TRAINING
+        else:
+            self.race_mode = RaceMode.FAKE
+        logging.info(f"Toggled race mode to: {self.race_mode.value}")
         self.update_subtitle()
 
     async def update_race_time(self):
@@ -303,7 +313,7 @@ class HardwareMonitorGUI(App):
                 if hasattr(self, "_playback_task") and self._playback_task is not None and not self._playback_task.done():
                     self._playback_task.cancel()
 
-                if self.fake_race_mode:
+                if self.race_mode == RaceMode.FAKE:
                     # Generate a fake race
                     fake_race = generate_fake_race()
                     logging.info("Starting fake race")

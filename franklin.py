@@ -10,6 +10,7 @@ from textual.reactive import reactive
 from race.race import Race, RaceState
 from race.race import generate_fake_race, order_laps_by_occurrence, make_lap_from_sensor_data_and_race, make_fake_lap
 from race.race_mode import RaceMode
+from race.race_contestants import RaceContestants
 from textual.binding import Binding
 import pprint
 import multiprocessing
@@ -18,12 +19,18 @@ from async_multiprocessing_bridge import AsyncMultiprocessingQueueBridge
 class LapDataDisplay(Static):
     laps = reactive([])
 
+    def __init__(self, *args, contestants: RaceContestants, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        self.contestants = contestants
+
     def render(self) -> str:
         if not self.laps:
             return "No lap data yet."
         lines = ["Lap Events:"]
         for lap in self.laps:
-            lines.append(str(lap))
+            display_name = self.contestants.get_contestant_name(lap.racer_id) if lap.racer_id in self.contestants else str(lap.racer_id)
+            # Replace racer ID with contestant name if available
+            lines.append(f"Racer {display_name} Lap {lap.lap_number} | Hardware: {lap.seconds_from_race_start:.2f}s, Internal: {lap.internal_lap_time:.2f}s, Lap Time: {lap.lap_time:.2f}s")
         return "\n".join(lines)
 
 class RaceStatusDisplay(Static):
@@ -50,13 +57,18 @@ class RaceStatusDisplay(Static):
 class LeaderboardDisplay(DataTable):
     leaderboard = reactive([])
 
+    def __init__(self, *args, contestants: RaceContestants, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        self.contestants = contestants
+
     def on_leaderboard_changed(self) -> None:
         self.clear(columns=True)
-        self.add_columns("Position", "Racer ID", "Lap Count", "Best Lap Time (s)", "Total Time (s)")
+        self.add_columns("Position", "Racer", "Lap Count", "Best Lap Time (s)", "Total Time (s)")
         if not self.leaderboard:
             return
         for position, racer_id, lap_count, best_lap_time, total_time in self.leaderboard:
-            row = (position, racer_id, lap_count, f"{best_lap_time:.2f}", f"{total_time:.2f}")
+            display_name = self.contestants.get_contestant_name(racer_id)
+            row = (position, display_name, lap_count, f"{best_lap_time:.2f}", f"{total_time:.2f}")
             self.add_row(*row)
 
     def watch_leaderboard(self, leaderboard) -> None:
@@ -73,7 +85,7 @@ class RaceTimeDisplay(Digits):
         tenths = int((self.elapsed_time - seconds)*10)
         self.update(f"{minutes}:{seconds}:{tenths}")
 
-class HardwareMonitorGUI(App):
+class Franklin(App):
     TITLE = "Franklin Lap Counter"
     SUB_TITLE = "RC Lap Counter - Fake Race Mode"
     # Note: will be overridden dynamically in update_subtitle
@@ -125,38 +137,31 @@ class HardwareMonitorGUI(App):
         Binding("ctrl+t", "toggle_mode", "Toggle Race Mode"),
     ]
 
-    def __init__(self, *, initial_mode: RaceMode = RaceMode.TRAINING, **kwargs):
-        def __init__(self, **kwargs):
-            super().__init__(**kwargs)
-            self.lap_queue = asyncio.Queue()
+    def __init__(self, *, initial_mode: RaceMode = RaceMode.TRAINING, total_laps = 10, contestants_data = [], **kwargs):
 
-            config_path = Path("config.json")
-            default_laps = 10
-            self.total_laps = default_laps
-            if config_path.exists():
-                try:
-                    config_data = json.loads(config_path.read_text())
-                    self.total_laps = config_data.get("total_laps", default_laps)
-                except Exception as e:
-                    logging.error(f"Failed to read config.json: {e}")
+        super().__init__(**kwargs)
+        self.lap_queue = asyncio.Queue()
 
-            self.race = Race()
-            self.race.total_laps = self.total_laps
+        self.total_laps = total_laps
+        self.race_contestants = RaceContestants(contestants_data)
 
-            self.race_mode = RaceMode.TRAINING  # Default to training mode
-            self.lap_counter_detected = reactive(False)
-            self._last_lap_counter_signal_time = None
-            self._playback_task = None
+        self.race = Race()
+        self.race.total_laps = self.total_laps
+        self.race.mode = initial_mode
 
-            # Setup logging
-            logging.basicConfig(
-                filename='race.log',
-                filemode='a',
-                format='%(asctime)s %(levelname)s:%(message)s',
-                level=logging.INFO
-            )
-            logging.info("HardwareMonitorGUI initialized")
-        logging.info(f"HardwareMonitorGUI initialized: {self.race_mode.value}")
+        self.lap_counter_detected = reactive(False)
+        self._last_lap_counter_signal_time = None
+        self._playback_task = None
+
+        # Setup logging
+        logging.basicConfig(
+            filename='race.log',
+            filemode='a',
+            format='%(asctime)s %(levelname)s:%(message)s',
+            level=logging.INFO
+        )
+        logging.info("HardwareMonitorGUI initialized")
+        logging.info(f"HardwareMonitorGUI initialized: {self.race.mode}")
 
         # Multiprocessing communication setup
         self._hardware_in_queue = multiprocessing.Queue()
@@ -166,7 +171,7 @@ class HardwareMonitorGUI(App):
         self.update_subtitle()
 
     def update_subtitle(self) -> None:
-        mode_str = f"RC Lap Counter - {self.race_mode.value}"
+        mode_str = f"RC Lap Counter - {self.race.mode}"
         self.sub_title = mode_str
         try:
             header = self.query_one(Header)
@@ -182,13 +187,13 @@ class HardwareMonitorGUI(App):
             return
 
         # Cycle through modes: FAKE -> REAL -> TRAINING -> FAKE
-        if self.race_mode == RaceMode.FAKE:
-            self.race_mode = RaceMode.REAL
-        elif self.race_mode == RaceMode.REAL:
-            self.race_mode = RaceMode.TRAINING
+        if self.race.mode == RaceMode.FAKE:
+            self.race.mode = RaceMode.REAL
+        elif self.race.mode == RaceMode.REAL:
+            self.race.mode = RaceMode.TRAINING
         else:
-            self.race_mode = RaceMode.FAKE
-        logging.info(f"Toggled race mode to: {self.race_mode.value}")
+            self.race.mode = RaceMode.FAKE
+        logging.info(f"Toggled race mode to: {self.race.mode}")
         self.update_subtitle()
 
     async def update_race_time(self):
@@ -312,6 +317,7 @@ class HardwareMonitorGUI(App):
             await asyncio.sleep(0.1)
 
     def compose(self) -> ComposeResult:
+        # Use RaceContestants instance for contestant data
         yield Header()
         with Vertical():
             with Horizontal():
@@ -322,9 +328,9 @@ class HardwareMonitorGUI(App):
                 yield RaceStatusDisplay(id="race_status", classes="box")
             with TabbedContent(id="tabbed_content"):
                 with TabPane("Leaderboard", id="leaderboard_tab"):
-                    yield LeaderboardDisplay(id="leaderboard")
+                    yield LeaderboardDisplay(id="leaderboard", contestants=self.race_contestants)
                 with TabPane("Events", id="events_tab"):
-                    yield LapDataDisplay(id="lap_data")
+                    yield LapDataDisplay(id="lap_data", contestants=self.race_contestants)
         yield Footer()
 
     def action_start_race(self) -> None:
@@ -349,7 +355,7 @@ class HardwareMonitorGUI(App):
                 if hasattr(self, "_playback_task") and self._playback_task is not None and not self._playback_task.done():
                     self._playback_task.cancel()
 
-                if self.race_mode == RaceMode.FAKE:
+                if self.race.mode == RaceMode.FAKE:
                     # Generate a fake race
                     fake_race = generate_fake_race()
                     logging.info("Starting fake race")
@@ -447,5 +453,18 @@ if __name__ == "__main__":
     else:
         initial_mode = RaceMode.TRAINING
 
-    app = HardwareMonitorGUI(initial_mode=initial_mode)
+    config_path = Path("config.json")
+
+    total_laps = 10
+    contestants_data = []
+
+    if config_path.exists():
+        try:
+            config_data = json.loads(config_path.read_text())
+            total_laps = config_data.get("total_laps", 10)
+            contestants_data = config_data.get("contestants", [])
+        except Exception as e:
+            logging.error(f"Failed to read config.json: {e}")
+
+    app = Franklin(initial_mode=initial_mode, total_laps=total_laps, contestants_data=contestants_data)
     app.run()

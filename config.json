@@ -1,0 +1,25 @@
+{
+  "total_laps": 10,
+  "contestants": [
+    {
+      "transmitter_id": 1,
+      "name": "Speedy McZoom"
+    },
+    {
+      "transmitter_id": 2,
+      "name": "Turbo Tortoise"
+    },
+    {
+      "transmitter_id": 3,
+      "name": "The Flash"
+    },
+    {
+      "transmitter_id": 4,
+      "name": "Lightning Legs"
+    },
+    {
+      "transmitter_id": 5,
+      "name": "Rocket Racer"
+    }
+  ]
+}

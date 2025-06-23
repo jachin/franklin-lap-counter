@@ -2,6 +2,7 @@ from enum import Enum, auto
 from typing import List, Optional, Tuple
 import random
 from race.lap import Lap, SecondsFromRaceStart, InternalLapTime, LapTime
+from race.race_mode import RaceMode
 
 def generate_fake_race():
     """Generates a fake race with 5 drivers, 10 laps each, and random lap times between 5 and 6 seconds."""
@@ -44,6 +45,7 @@ class Race:
         self.start_time: Optional[float] = None
         self.elapsed_time: float = 0.0
         self.total_laps: int = 10  # Race ends after 10 laps
+        self.mode: RaceMode = RaceMode.TRAINING
 
     def start(self, start_time: float) -> None:
         if self.state in (RaceState.NOT_STARTED, RaceState.PAUSED):

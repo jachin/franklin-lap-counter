@@ -1,3 +1,4 @@
+import argparse
 import asyncio
 import logging
 from textual.app import App, ComposeResult
@@ -6,9 +7,9 @@ from textual.widgets import Header, Footer, Static, Button, TabbedContent, TabPa
 from textual.reactive import reactive
 from race.race import Race, RaceState
 from race.race import generate_fake_race, order_laps_by_occurrence, make_lap_from_sensor_data_and_race, make_fake_lap
-from race.race_mode import RaceMode
 from textual.binding import Binding
 import pprint
+from race.race_mode import RaceMode
 import multiprocessing
 from async_multiprocessing_bridge import AsyncMultiprocessingQueueBridge
 
@@ -122,11 +123,11 @@ class HardwareMonitorGUI(App):
         Binding("ctrl+t", "toggle_mode", "Toggle Race Mode"),
     ]
 
-    def __init__(self, **kwargs):
+    def __init__(self, *, initial_mode: RaceMode = RaceMode.TRAINING, **kwargs):
         super().__init__(**kwargs)
         self.lap_queue = asyncio.Queue()
         self.race = Race()
-+        self.race_mode = RaceMode.TRAINING  # Default to training mode
+        self.race_mode = initial_mode  # Use provided initial mode or default to training mode
         self.lap_counter_detected = reactive(False)
         self._last_lap_counter_signal_time = None
         self._playback_task = None
@@ -138,16 +139,18 @@ class HardwareMonitorGUI(App):
             format='%(asctime)s %(levelname)s:%(message)s',
             level=logging.INFO
         )
-        logging.info("HardwareMonitorGUI initialized")
+        logging.info(f"HardwareMonitorGUI initialized: {self.race_mode.value}")
 
         # Multiprocessing communication setup
         self._hardware_in_queue = multiprocessing.Queue()
         self._hardware_out_queue = multiprocessing.Queue()
         self._hardware_process = None
         self._hardware_async_bridge = None
+        self.update_subtitle()
 
     def update_subtitle(self) -> None:
-        self.sub_title = f"RC Lap Counter - {self.race_mode.value}"
+        mode_str = f"RC Lap Counter - {self.race_mode.value}"
+        self.sub_title = mode_str
         try:
             header = self.query_one(Header)
             header.refresh()
@@ -406,5 +409,26 @@ class HardwareMonitorGUI(App):
 
 
 if __name__ == "__main__":
-    app = HardwareMonitorGUI()
+    parser = argparse.ArgumentParser(description="Start Franklin Lap Counter in chosen initial mode.")
+    group = parser.add_mutually_exclusive_group()
+    group.add_argument('--race', action='store_true', help='Start in Race Mode (Real Race Mode)')
+    group.add_argument('--fake', action='store_true', help='Start in Fake Race Mode')
+    group.add_argument('--training', action='store_true', help='Start in Training Mode')
+    args = parser.parse_args()
+
+    # Determine initial mode based on args
+    selected_modes = sum([args.race, args.fake, args.training])
+    if selected_modes > 1:
+        raise Exception("Only one of --race, --fake, or --training can be specified")
+
+    if args.race:
+        initial_mode = RaceMode.REAL
+    elif args.fake:
+        initial_mode = RaceMode.FAKE
+    elif args.training:
+        initial_mode = RaceMode.TRAINING
+    else:
+        initial_mode = RaceMode.TRAINING
+
+    app = HardwareMonitorGUI(initial_mode=initial_mode)
     app.run()

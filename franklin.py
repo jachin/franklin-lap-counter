@@ -1,15 +1,17 @@
 import argparse
 import asyncio
 import logging
+import json
+from pathlib import Path
 from textual.app import App, ComposeResult
 from textual.containers import Vertical, Horizontal
 from textual.widgets import Header, Footer, Static, Button, TabbedContent, TabPane, Digits, DataTable
 from textual.reactive import reactive
 from race.race import Race, RaceState
 from race.race import generate_fake_race, order_laps_by_occurrence, make_lap_from_sensor_data_and_race, make_fake_lap
+from race.race_mode import RaceMode
 from textual.binding import Binding
 import pprint
-from race.race_mode import RaceMode
 import multiprocessing
 from async_multiprocessing_bridge import AsyncMultiprocessingQueueBridge
 
@@ -124,21 +126,36 @@ class HardwareMonitorGUI(App):
     ]
 
     def __init__(self, *, initial_mode: RaceMode = RaceMode.TRAINING, **kwargs):
-        super().__init__(**kwargs)
-        self.lap_queue = asyncio.Queue()
-        self.race = Race()
-        self.race_mode = initial_mode  # Use provided initial mode or default to training mode
-        self.lap_counter_detected = reactive(False)
-        self._last_lap_counter_signal_time = None
-        self._playback_task = None
+        def __init__(self, **kwargs):
+            super().__init__(**kwargs)
+            self.lap_queue = asyncio.Queue()
 
-        # Setup logging
-        logging.basicConfig(
-            filename='race.log',
-            filemode='a',
-            format='%(asctime)s %(levelname)s:%(message)s',
-            level=logging.INFO
-        )
+            config_path = Path("config.json")
+            default_laps = 10
+            self.total_laps = default_laps
+            if config_path.exists():
+                try:
+                    config_data = json.loads(config_path.read_text())
+                    self.total_laps = config_data.get("total_laps", default_laps)
+                except Exception as e:
+                    logging.error(f"Failed to read config.json: {e}")
+
+            self.race = Race()
+            self.race.total_laps = self.total_laps
+
+            self.race_mode = RaceMode.TRAINING  # Default to training mode
+            self.lap_counter_detected = reactive(False)
+            self._last_lap_counter_signal_time = None
+            self._playback_task = None
+
+            # Setup logging
+            logging.basicConfig(
+                filename='race.log',
+                filemode='a',
+                format='%(asctime)s %(levelname)s:%(message)s',
+                level=logging.INFO
+            )
+            logging.info("HardwareMonitorGUI initialized")
         logging.info(f"HardwareMonitorGUI initialized: {self.race_mode.value}")
 
         # Multiprocessing communication setup

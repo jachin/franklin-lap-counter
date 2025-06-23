@@ -31,6 +31,7 @@ class RaceState(Enum):
     NOT_STARTED = auto()
     RUNNING = auto()
     PAUSED = auto()
+    WINNER_DECLARED = auto()
     FINISHED = auto()
 
 
@@ -67,9 +68,11 @@ class Race:
             raise RuntimeError("Cannot add lap unless race is running")
         self.laps.append(lap)
 
-        # Check if lead racer has completed the race
         leaderboard = self.leaderboard()
-        if leaderboard and leaderboard[0][2] >= self.total_laps:
+        if leaderboard and leaderboard[0][2] >= self.total_laps and self.state != RaceState.WINNER_DECLARED:
+            # Declare winner as leader reached total laps but race not finished yet
+            self.state = RaceState.WINNER_DECLARED
+        elif leaderboard and all(position[2] >= self.total_laps for position in leaderboard):
             self.finish()
 
     def add_fake_lap(self, lap: Lap) -> None:

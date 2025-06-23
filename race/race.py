@@ -1,7 +1,7 @@
 from enum import Enum, auto
 from typing import List, Optional, Tuple
 import random
-from .lap import Lap, SecondsFromRaceStart, InternalLapTime, LapTime
+from race.lap import Lap, SecondsFromRaceStart, InternalLapTime, LapTime
 
 def generate_fake_race():
     """Generates a fake race with 5 drivers, 10 laps each, and random lap times between 5 and 6 seconds."""
@@ -86,18 +86,20 @@ class Race:
         for lap in self.laps:
             rid = lap.racer_id
             if rid not in stats:
+                # Exclude lap 0 from lap count and best lap time
                 stats[rid] = {
-                    # Skip lap 0 from lap count but include in total time
                     "lap_count": 0 if lap.lap_number == 0 else 1,
-                    "best_lap_time": lap.lap_time if lap.lap_number > 0 else float('inf'),
+                    "best_lap_time": float('inf') if lap.lap_number == 0 else lap.lap_time,
                     "total_time": lap.seconds_from_race_start,
                 }
             else:
-                if lap.lap_number > 0:  # Only count non-zero laps towards lap count and best lap
+                if lap.lap_number > 0:
                     stats[rid]["lap_count"] += 1
                     if lap.lap_time < stats[rid]["best_lap_time"]:
                         stats[rid]["best_lap_time"] = lap.lap_time
-                stats[rid]["total_time"] = lap.seconds_from_race_start
+                # Always update total_time to the latest lap's seconds_from_race_start
+                if lap.seconds_from_race_start > stats[rid]["total_time"]:
+                    stats[rid]["total_time"] = lap.seconds_from_race_start
         sorted_stats = sorted(
             stats.items(),
             key=lambda item: (-item[1]["lap_count"], item[1]["best_lap_time"]),
@@ -110,6 +112,20 @@ class Race:
             )
             position += 1
         return leaderboard_with_position
+
+    def laps_remaining(self) -> Tuple[int, int]:
+        """Returns tuple of (leader_laps_remaining, last_place_laps_remaining)"""
+        leaderboard = self.leaderboard()
+        if not leaderboard:
+            return (self.total_laps, self.total_laps)
+
+        leader_laps = leaderboard[0][2]
+        last_place_laps = leaderboard[-1][2]
+
+        leader_remaining = max(0, self.total_laps - leader_laps)
+        last_remaining = max(0, self.total_laps - last_place_laps)
+
+        return (leader_remaining, last_remaining)
 
     def best_lap(self) -> Optional[Lap]:
         """Returns the best (fastest) lap out of all laps in the race, or None if no laps."""

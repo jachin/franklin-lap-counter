@@ -1,6 +1,6 @@
 import unittest
-from .race import Race
-from .lap import Lap, SecondsFromRaceStart, InternalLapTime, LapTime
+from race.race import Race
+from race.lap import Lap, SecondsFromRaceStart, InternalLapTime, LapTime
 
 class TestRaceLeaderboard(unittest.TestCase):
     def setUp(self):
@@ -12,12 +12,19 @@ class TestRaceLeaderboard(unittest.TestCase):
 
     def test_single_lap(self):
 
+        # Add lap 0 start lap
+        self.race.add_fake_lap(Lap(racer_id=1, lap_number=0, seconds_from_race_start=SecondsFromRaceStart(0.5), internal_lap_time=InternalLapTime(0.5), lap_time=LapTime(0.5)))
+
         lap = Lap(racer_id=1, lap_number=1, seconds_from_race_start=SecondsFromRaceStart(10.0), internal_lap_time=InternalLapTime(10.0), lap_time=LapTime(10.0))
         self.race.add_fake_lap(lap)
+
         leaderboard = self.race.leaderboard()
         self.assertEqual(leaderboard, [(1, 1, 1, 10.0, 10.0)])
 
     def test_multiple_laps_single_racer(self):
+        # Add lap 0 start lap
+        self.race.add_fake_lap(Lap(racer_id=1, lap_number=0, seconds_from_race_start=SecondsFromRaceStart(0.5), internal_lap_time=InternalLapTime(0.5), lap_time=LapTime(0.5)))
+
         laps = [Lap(racer_id=1, lap_number=1,
                     seconds_from_race_start=SecondsFromRaceStart(9.0),
                     internal_lap_time=InternalLapTime(9.0), lap_time=LapTime(9.0)),
@@ -34,6 +41,10 @@ class TestRaceLeaderboard(unittest.TestCase):
         self.assertEqual(leaderboard, expected)
 
     def test_multiple_racers_sort_by_laps(self):
+        # Add lap 0 start laps
+        self.race.add_fake_lap(Lap(racer_id=1, lap_number=0, seconds_from_race_start=SecondsFromRaceStart(0.5), internal_lap_time=InternalLapTime(0.5), lap_time=LapTime(0.5)))
+        self.race.add_fake_lap(Lap(racer_id=2, lap_number=0, seconds_from_race_start=SecondsFromRaceStart(0.5), internal_lap_time=InternalLapTime(0.5), lap_time=LapTime(0.5)))
+
         # Racer 1: 3 laps
         for i in range(1, 4):
             self.race.add_fake_lap(Lap(racer_id=1, lap_number=i, seconds_from_race_start=SecondsFromRaceStart(10.0), internal_lap_time=InternalLapTime(10.0), lap_time=LapTime(10.0)))
@@ -45,6 +56,10 @@ class TestRaceLeaderboard(unittest.TestCase):
         self.assertEqual(leaderboard[1][1], 2)  # Racer 2 second
 
     def test_tie_on_laps_sort_by_best_lap_time(self):
+        # Add lap 0 start laps
+        self.race.add_fake_lap(Lap(racer_id=1, lap_number=0, seconds_from_race_start=SecondsFromRaceStart(0.5), internal_lap_time=InternalLapTime(0.5), lap_time=LapTime(0.5)))
+        self.race.add_fake_lap(Lap(racer_id=2, lap_number=0, seconds_from_race_start=SecondsFromRaceStart(0.5), internal_lap_time=InternalLapTime(0.5), lap_time=LapTime(0.5)))
+
         # Racer 1: 2 laps, best lap 9.0
         self.race.add_fake_lap(Lap(racer_id=1, lap_number=1, seconds_from_race_start=SecondsFromRaceStart(10.0), internal_lap_time=InternalLapTime(10.0), lap_time=LapTime(10.0)))
         self.race.add_fake_lap(Lap(racer_id=1, lap_number=2, seconds_from_race_start=SecondsFromRaceStart(19.0), internal_lap_time=InternalLapTime(9.0), lap_time=LapTime(9.0)))

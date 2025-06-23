@@ -126,7 +126,7 @@ class HardwareMonitorGUI(App):
         super().__init__(**kwargs)
         self.lap_queue = asyncio.Queue()
         self.race = Race()
-        self.race_mode = RaceMode.FAKE  # Default to fake race mode
++        self.race_mode = RaceMode.TRAINING  # Default to training mode
         self.lap_counter_detected = reactive(False)
         self._last_lap_counter_signal_time = None
         self._playback_task = None

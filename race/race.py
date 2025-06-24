@@ -221,6 +221,27 @@ class Race:
             return None
         return min(self.laps, key=lambda lap: lap.lap_time)
 
+    def __str__(self) -> str:
+        leader_remaining, last_remaining = self.laps_remaining()
+        return (
+            f"Race(state={self.state.name}, "
+            f"laps={len(self.laps)}, "
+            f"start_time={self.start_time}, "
+            f"elapsed_time={self.elapsed_time:.2f}, "
+            f"leader_remaining={leader_remaining}, "
+            f"last_remaining={last_remaining}, "
+            f"active_contestants={len(self.active_contestants)})"
+        )
+
+    def __repr__(self) -> str:
+        return (
+            f"Race(state={self.state}, "
+            f"start_time={self.start_time!r}, "
+            f"elapsed_time={self.elapsed_time!r}, "
+            f"laps=[{', '.join(repr(lap) for lap in self.laps)}], "
+            f"active_contestants={self.active_contestants!r})"
+        )
+
 def order_laps_by_occurrence(laps: List[Lap]) -> List[Tuple[float, Lap]]:
     """
     Given a list of Lap objects, returns a list of tuples ordered by the time
@@ -252,40 +273,6 @@ def order_laps_by_occurrence(laps: List[Lap]) -> List[Tuple[float, Lap]]:
 
     return laps_with_cumulative_time
 
-    def laps_remaining(self) -> Tuple[int, int]:
-        """Returns tuple of (leader_laps_remaining, last_place_laps_remaining)"""
-        leaderboard = self.leaderboard()
-        if not leaderboard:
-            return (self.total_laps, self.total_laps)
-
-        leader_laps = leaderboard[0][2]
-        last_place_laps = leaderboard[-1][2]
-
-        leader_remaining = max(0, self.total_laps - leader_laps)
-        last_remaining = max(0, self.total_laps - last_place_laps)
-
-        return (leader_remaining, last_remaining)
-
-    def __str__(self) -> str:
-        leader_remaining, last_remaining = self.laps_remaining()
-        return (
-            f"Race(state={self.state.name}, "
-            f"laps={len(self.laps)}, "
-            f"start_time={self.start_time}, "
-            f"elapsed_time={self.elapsed_time:.2f}, "
-            f"leader_remaining={leader_remaining}, "
-            f"last_remaining={last_remaining}, "
-            f"active_contestants={len(self.active_contestants)})"
-        )
-
-    def __repr__(self) -> str:
-        return (
-            f"Race(state={self.state}, "
-            f"start_time={self.start_time!r}, "
-            f"elapsed_time={self.elapsed_time!r}, "
-            f"laps=[{', '.join(repr(lap) for lap in self.laps)}], "
-            f"active_contestants={self.active_contestants!r})"
-        )
 
 def make_lap_from_sensor_data_and_race(racer_id: int, race_time: float, interal_time: float, race: Race) -> Lap:
     lap_number = sum(1 for lap in race.laps if lap.racer_id == racer_id) or 0
@@ -311,7 +298,7 @@ def make_lap_from_sensor_data_and_race(racer_id: int, race_time: float, interal_
 
     return new_lap
 
-def make_fake_lap(racer_id: int, lap_number: int, lap_time: float, seconds_from_start: float = 0.0) -> Lap:
+def make_fake_lap(racer_id: int, lap_number: int, lap_time: float, seconds_from_start: float) -> Lap:
     """
     Create a fake lap with proper timing values.
 
@@ -319,11 +306,8 @@ def make_fake_lap(racer_id: int, lap_number: int, lap_time: float, seconds_from_
     - racer_id: The ID of the racer
     - lap_number: The lap number (0 for start trigger)
     - lap_time: The time for this individual lap
-    - seconds_from_start: Cumulative time since race start (if None, uses lap_time)
+    - seconds_from_start: Cumulative time since race start
     """
-    if seconds_from_start is None:
-        seconds_from_start = lap_time
-
     return Lap(
         racer_id=racer_id,
         lap_number=lap_number,

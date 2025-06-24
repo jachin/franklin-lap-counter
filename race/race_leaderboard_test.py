@@ -19,7 +19,7 @@ class TestRaceLeaderboard(unittest.TestCase):
         self.race.add_fake_lap(lap)
 
         leaderboard = self.race.leaderboard()
-        self.assertEqual(leaderboard, [(1, 1, 1, 10.0, 10.0)])
+        self.assertEqual(leaderboard, [(1, 1, 1, 10.0, 10.0, 10.0)])
 
     def test_multiple_laps_single_racer(self):
         # Add lap 0 start lap
@@ -37,7 +37,7 @@ class TestRaceLeaderboard(unittest.TestCase):
         for lap in laps:
             self.race.add_fake_lap(lap)
         leaderboard = self.race.leaderboard()
-        expected = [(1, 1, 3, 9.0, 9.0+10.0+11.0)]
+        expected = [(1, 1, 3, 9.0, 11.0, 30.0)]
         self.assertEqual(leaderboard, expected)
 
     def test_multiple_racers_sort_by_laps(self):

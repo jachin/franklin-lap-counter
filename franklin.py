@@ -7,8 +7,7 @@ from textual.app import App, ComposeResult
 from textual.containers import Vertical, Horizontal
 from textual.widgets import Header, Footer, Static, Button, TabbedContent, TabPane, Digits, DataTable
 from textual.reactive import reactive
-from race.race import Race, RaceState
-from race.race import generate_fake_race, order_laps_by_occurrence, make_lap_from_sensor_data_and_race, make_fake_lap
+from race.race import Race, RaceState, is_race_going, generate_fake_race, order_laps_by_occurrence, make_lap_from_sensor_data_and_race, make_fake_lap
 from race.race_mode import RaceMode
 from race.race_contestants import RaceContestants
 from textual.binding import Binding
@@ -19,18 +18,22 @@ from async_multiprocessing_bridge import AsyncMultiprocessingQueueBridge
 class LapDataDisplay(Static):
     laps = reactive([])
 
-    def __init__(self, *args, contestants: RaceContestants, **kwargs) -> None:
+    def __init__(self, *args, contestants: RaceContestants, race: Race, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self.contestants = contestants
+        self.race = race
 
     def render(self) -> str:
         if not self.laps:
             return "No lap data yet."
         lines = ["Lap Events:"]
         for lap in self.laps:
-            display_name = self.contestants.get_contestant_name(lap.racer_id) if lap.racer_id in self.contestants else str(lap.racer_id)
+            display_name = self.contestants.get_contestant_name(lap.racer_id)
             # Replace racer ID with contestant name if available
-            lines.append(f"Racer {display_name} Lap {lap.lap_number} | Hardware: {lap.seconds_from_race_start:.2f}s, Internal: {lap.internal_lap_time:.2f}s, Lap Time: {lap.lap_time:.2f}s")
+            if lap.lap_number == 0:
+                lines.append(f"Racer {display_name} START TRIGGER | Time: {lap.seconds_from_race_start:.2f}s")
+            else:
+                lines.append(f"Racer {display_name} Lap {lap.lap_number} | Hardware: {lap.seconds_from_race_start:.2f}s, Internal: {lap.internal_lap_time:.2f}s, Lap Time: {lap.lap_time:.2f}s")
         return "\n".join(lines)
 
 class RaceStatusDisplay(Static):
@@ -48,6 +51,8 @@ class RaceStatusDisplay(Static):
             status.append(f"Last Place: {self.last_place_laps_remaining} laps remaining")
         elif self.race_state == RaceState.PAUSED:
             status.append("Race paused")
+        elif self.race_state == RaceState.WINNER_DECLARED:
+            status.append("Race won, wrapping up")
         elif self.race_state == RaceState.FINISHED:
             status.append("Race finished")
         else:
@@ -57,9 +62,10 @@ class RaceStatusDisplay(Static):
 class LeaderboardDisplay(DataTable):
     leaderboard = reactive([])
 
-    def __init__(self, *args, contestants: RaceContestants, **kwargs) -> None:
+    def __init__(self, *args, contestants: RaceContestants, race: Race, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self.contestants = contestants
+        self.race = race
 
     def on_leaderboard_changed(self) -> None:
         self.clear(columns=True)
@@ -137,17 +143,16 @@ class Franklin(App):
         Binding("ctrl+t", "toggle_mode", "Toggle Race Mode"),
     ]
 
-    def __init__(self, *, initial_mode: RaceMode = RaceMode.TRAINING, total_laps = 10, contestants_data = [], **kwargs):
-
+    def __init__(self, *, initial_mode: RaceMode, total_laps, contestants_data, **kwargs):
         super().__init__(**kwargs)
         self.lap_queue = asyncio.Queue()
 
         self.total_laps = total_laps
-        self.race_contestants = RaceContestants(contestants_data)
-
-        self.race = Race()
+        self.race_mode = initial_mode
+        self.global_contestants = RaceContestants(contestants_data)
+        self.previous_race = None
+        self.race = Race(previous_race=None)
         self.race.total_laps = self.total_laps
-        self.race.mode = initial_mode
 
         self.lap_counter_detected = reactive(False)
         self._last_lap_counter_signal_time = None
@@ -161,7 +166,7 @@ class Franklin(App):
             level=logging.INFO
         )
         logging.info("HardwareMonitorGUI initialized")
-        logging.info(f"HardwareMonitorGUI initialized: {self.race.mode}")
+        logging.info(f"HardwareMonitorGUI initialized: {self.race_mode}")
 
         # Multiprocessing communication setup
         self._hardware_in_queue = multiprocessing.Queue()
@@ -171,7 +176,7 @@ class Franklin(App):
         self.update_subtitle()
 
     def update_subtitle(self) -> None:
-        mode_str = f"RC Lap Counter - {self.race.mode}"
+        mode_str = f"RC Lap Counter - {self.race_mode}"
         self.sub_title = mode_str
         try:
             header = self.query_one(Header)
@@ -187,13 +192,13 @@ class Franklin(App):
             return
 
         # Cycle through modes: FAKE -> REAL -> TRAINING -> FAKE
-        if self.race.mode == RaceMode.FAKE:
-            self.race.mode = RaceMode.REAL
-        elif self.race.mode == RaceMode.REAL:
-            self.race.mode = RaceMode.TRAINING
+        if self.race_mode == RaceMode.FAKE:
+            self.race_mode = RaceMode.REAL
+        elif self.race_mode == RaceMode.REAL:
+            self.race_mode = RaceMode.TRAINING
         else:
-            self.race.mode = RaceMode.FAKE
-        logging.info(f"Toggled race mode to: {self.race.mode}")
+            self.race_mode = RaceMode.FAKE
+        logging.info(f"Toggled race mode to: {self.race_mode}")
         self.update_subtitle()
 
     async def update_race_time(self):
@@ -298,6 +303,7 @@ class Franklin(App):
             race_time_display.elapsed_time = self.race.elapsed_time
             try:
                 lap = await asyncio.wait_for(self.lap_queue.get(), timeout=0.1)
+                logging.info("adding lap: %s", self.race.state)
                 self.race.add_lap(lap)
                 lap_display_events.laps = self.race.laps.copy()
                 lap_display_leaderboard.leaderboard = self.race.leaderboard()
@@ -328,9 +334,9 @@ class Franklin(App):
                 yield RaceStatusDisplay(id="race_status", classes="box")
             with TabbedContent(id="tabbed_content"):
                 with TabPane("Leaderboard", id="leaderboard_tab"):
-                    yield LeaderboardDisplay(id="leaderboard", contestants=self.race_contestants)
+                    yield LeaderboardDisplay(id="leaderboard", contestants=self.global_contestants, race=self.race)
                 with TabPane("Events", id="events_tab"):
-                    yield LapDataDisplay(id="lap_data", contestants=self.race_contestants)
+                    yield LapDataDisplay(id="lap_data", contestants=self.global_contestants, race=self.race)
         yield Footer()
 
     def action_start_race(self) -> None:
@@ -339,7 +345,9 @@ class Franklin(App):
             start_btn = self.query_one("#start_btn", Button)
             stop_btn = self.query_one("#stop_btn", Button)
 
-            self.race.reset()
+            # Create a new race instance with current app settings
+            self.race = Race(previous_race=self.previous_race)
+            self.race.total_laps = self.total_laps
 
             if self.race.state != RaceState.RUNNING:
 
@@ -355,12 +363,15 @@ class Franklin(App):
                 if hasattr(self, "_playback_task") and self._playback_task is not None and not self._playback_task.done():
                     self._playback_task.cancel()
 
-                if self.race.mode == RaceMode.FAKE:
+                if self.race_mode == RaceMode.FAKE:
                     # Generate a fake race
                     fake_race = generate_fake_race()
                     logging.info("Starting fake race")
                     logging.info("fake_race %s", fake_race)
                     logging.info("self.race %s", self.race)
+
+                    self.race.state = RaceState.RUNNING
+
                     # Start playback task
                     self._playback_task = asyncio.create_task(self.play_fake_race(fake_race))
                 else:
@@ -375,7 +386,7 @@ class Franklin(App):
         status_display = self.query_one(RaceStatusDisplay)
         start_btn = self.query_one("#start_btn", Button)
         stop_btn = self.query_one("#stop_btn", Button)
-        if self.race.state == RaceState.RUNNING:
+        if is_race_going(self.race):
             # Stop playback and reset race state
             if hasattr(self, "_playback_task") and self._playback_task is not None and not self._playback_task.done():
                 self._playback_task.cancel()
@@ -383,6 +394,8 @@ class Franklin(App):
             status_display.race_state = self.race.state
             start_btn.disabled = False
             stop_btn.disabled = True
+            # Store this race for the next one
+            self.previous_race = self.race
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         button_id = event.button.id
@@ -405,15 +418,18 @@ class Franklin(App):
             logging.error("Fake race has no laps")
             return
 
-        start_time = self.race.start_time
+        # Verify race is running before proceeding
+        if self.race.state != RaceState.RUNNING:
+            logging.error("Race not in running state, cannot play fake race")
+            return
 
+        start_time = self.race.start_time
         if start_time is None:
-            start_time = asyncio.get_event_loop().time()
+            logging.error("Race start time not set")
+            return
 
         sorted_laps = order_laps_by_occurrence(fake_race.laps)
-
         logging.info("Sorted laps:\n%s", pprint.pformat(sorted_laps))
-        cumulative_elapsed = 0.0
 
         try:
             for (ts, lap) in sorted_laps:
@@ -421,13 +437,12 @@ class Franklin(App):
                 wait_time = ts - elapsed_time
                 if wait_time > 0:
                     await asyncio.sleep(wait_time)
+
                 lap_event = make_fake_lap(lap.racer_id, lap.lap_number, lap.lap_time)
                 logging.info("fake lap %s", lap_event)
                 await self.lap_queue.put(lap_event)
-                cumulative_elapsed += lap.lap_time
         except asyncio.CancelledError:
-            # Playback was stopped
-            pass
+            logging.info("Fake race playback cancelled")
 
 
 

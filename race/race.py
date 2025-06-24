@@ -126,7 +126,7 @@ class Race:
 
         leaderboard = self.leaderboard()
         if leaderboard:
-            leader_position, leader_id, leader_laps, _, _ = leaderboard[0]
+            leader_position, leader_id, leader_laps, _, _, _ = leaderboard[0]
             logging.debug(f"Current leader: Racer {leader_id} with {leader_laps} laps")
 
             # First racer to complete all laps is the winner
@@ -138,7 +138,7 @@ class Race:
             if self.active_contestants:
                 # Check if all active racers have finished their laps
                 all_active_finished = True
-                for position, racer_id, lap_count, best_lap, total_time in leaderboard:
+                for position, racer_id, lap_count, best_lap, last_lap, total_time in leaderboard:
                     if racer_id in self.active_contestants:
                         logging.debug(f"Checking racer {racer_id}: {lap_count}/{self.total_laps} laps")
                         if lap_count < self.total_laps:
@@ -159,7 +159,7 @@ class Race:
     def leaderboard(self) -> List:
         """
         Returns a leaderboard as a list of tuples:
-        (position, racer_id, lap_count, best_lap_time, total_time)
+        (position, racer_id, lap_count, best_lap_time, last_lap_time, total_time)
         sorted by lap_count descending, then best_lap_time ascending,
         with explicit position assigned.
         """
@@ -171,6 +171,7 @@ class Race:
                 stats[rid] = {
                     "lap_count": 0 if lap.lap_number == 0 else 1,
                     "best_lap_time": float('inf') if lap.lap_number == 0 else lap.lap_time,
+                    "last_lap_time": lap.lap_time,
                     "total_time": lap.seconds_from_race_start,
                 }
             else:
@@ -178,6 +179,7 @@ class Race:
                     stats[rid]["lap_count"] += 1
                     if lap.lap_time < stats[rid]["best_lap_time"]:
                         stats[rid]["best_lap_time"] = lap.lap_time
+                    stats[rid]["last_lap_time"] = lap.lap_time
                 # Always update total_time to the latest lap's seconds_from_race_start
                 if lap.seconds_from_race_start > stats[rid]["total_time"]:
                     stats[rid]["total_time"] = lap.seconds_from_race_start
@@ -189,7 +191,7 @@ class Race:
         position = 1
         for racer_id, data in sorted_stats:
             leaderboard_with_position.append(
-                (position, racer_id, data["lap_count"], data["best_lap_time"], data["total_time"])
+                (position, racer_id, data["lap_count"], data["best_lap_time"], data["last_lap_time"], data["total_time"])
             )
             position += 1
         return leaderboard_with_position

@@ -69,12 +69,12 @@ class LeaderboardDisplay(DataTable):
 
     def on_leaderboard_changed(self) -> None:
         self.clear(columns=True)
-        self.add_columns("Position", "Racer", "Lap Count", "Best Lap Time (s)", "Total Time (s)")
+        self.add_columns("Position", "Racer", "Lap Count", "Best Lap Time (s)", "Last Lap Time (s)", "Total Time (s)")
         if not self.leaderboard:
             return
-        for position, racer_id, lap_count, best_lap_time, total_time in self.leaderboard:
+        for position, racer_id, lap_count, best_lap_time, last_lap_time, total_time in self.leaderboard:
             display_name = self.contestants.get_contestant_name(racer_id)
-            row = (position, display_name, lap_count, f"{best_lap_time:.2f}", f"{total_time:.2f}")
+            row = (position, display_name, lap_count, f"{best_lap_time:.2f}", f"{last_lap_time:.2f}", f"{total_time:.2f}")
             self.add_row(*row)
 
     def watch_leaderboard(self, leaderboard) -> None:

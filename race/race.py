@@ -14,29 +14,34 @@ def generate_fake_race():
 
     # Start with lap 0 for each racer to simulate them crossing the start line
     racer_ids = [1, 2, 3, 4, 5]
-    seconds_from_race_start = 0.0
+
+    # Track cumulative times for each racer
+    racer_cumulative_times = {racer_id: 0.0 for racer_id in racer_ids}
+
+    # Add start triggers (lap 0)
     for racer_id in racer_ids:
         # Each racer takes 1-2 seconds to reach the start line from their position
         start_time = random.uniform(1.0, 2.0)
-        seconds_from_race_start += start_time
-        logging.debug(f"Adding start trigger for racer {racer_id} at {seconds_from_race_start:.2f}s")
+        racer_cumulative_times[racer_id] = start_time
+        logging.debug(f"Adding start trigger for racer {racer_id} at {start_time:.2f}s")
         fake_race.add_fake_lap(
             Lap(
                 racer_id=racer_id,
                 lap_number=0,  # Lap 0 = initial start line crossing
-                seconds_from_race_start=SecondsFromRaceStart(seconds_from_race_start),
+                seconds_from_race_start=SecondsFromRaceStart(start_time),
                 internal_lap_time=InternalLapTime(start_time),
                 lap_time=LapTime(start_time)
             )
         )
 
-    # Now generate actual race laps
-    cumulative_time = seconds_from_race_start  # Continue from where start sequence ended
+    # Now generate actual race laps with proper per-racer timing
     for lap_number in range(1, 11):
         logging.debug(f"Generating lap {lap_number} for all racers")
         for racer_id in racer_ids:
             lap_time = random.uniform(5, 6)
-            cumulative_time += lap_time
+            racer_cumulative_times[racer_id] += lap_time
+            cumulative_time = racer_cumulative_times[racer_id]
+
             logging.debug(f"Adding lap {lap_number} for racer {racer_id} at {cumulative_time:.2f}s with time {lap_time:.2f}s")
             # For a fake lap, use the same value for hardware and internal times.
             fake_race.add_fake_lap(
@@ -306,11 +311,23 @@ def make_lap_from_sensor_data_and_race(racer_id: int, race_time: float, interal_
 
     return new_lap
 
-def make_fake_lap(racer_id: int, lap_number: int, lap_time: float) -> Lap:
+def make_fake_lap(racer_id: int, lap_number: int, lap_time: float, seconds_from_start: float = 0.0) -> Lap:
+    """
+    Create a fake lap with proper timing values.
+
+    Parameters:
+    - racer_id: The ID of the racer
+    - lap_number: The lap number (0 for start trigger)
+    - lap_time: The time for this individual lap
+    - seconds_from_start: Cumulative time since race start (if None, uses lap_time)
+    """
+    if seconds_from_start is None:
+        seconds_from_start = lap_time
+
     return Lap(
         racer_id=racer_id,
         lap_number=lap_number,
-        seconds_from_race_start=SecondsFromRaceStart(lap_time),
+        seconds_from_race_start=SecondsFromRaceStart(seconds_from_start),
         internal_lap_time=InternalLapTime(lap_time),
         lap_time=LapTime(lap_time)
     )

@@ -438,7 +438,7 @@ class Franklin(App):
                 if wait_time > 0:
                     await asyncio.sleep(wait_time)
 
-                lap_event = make_fake_lap(lap.racer_id, lap.lap_number, lap.lap_time)
+                lap_event = make_fake_lap(lap.racer_id, lap.lap_number, lap.lap_time, ts)
                 logging.info("fake lap %s", lap_event)
                 await self.lap_queue.put(lap_event)
         except asyncio.CancelledError:

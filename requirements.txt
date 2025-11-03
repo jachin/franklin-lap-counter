@@ -5,7 +5,6 @@ mdurl==0.1.2
 platformdirs==4.3.7
 Pygments==2.19.1
 pyserial==3.5
-pyserial-asyncio==0.6
 redis==5.2.1
 rich==14.0.0
 textual==3.3.0

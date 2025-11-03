@@ -6,7 +6,6 @@
     "python313Packages.textual@latest",
     "redis@latest",
     "python313Packages.pip@latest",
-    "python313Packages.pyserial-asyncio@latest",
     "python313Packages.platformdirs@latest",
     "python313Packages.typing-extensions@latest",
     "python313Packages.uc-micro-py@latest",

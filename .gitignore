@@ -6,3 +6,10 @@
 __pycache__
 race.log
 hardware.log
+hardware_redis.log
+.pytest_cache
+
+# Redis
+dump.rdb
+redis.sock
+*.rdb

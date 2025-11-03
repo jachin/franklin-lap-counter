@@ -75,7 +75,31 @@ class HardwareCommRedis:
         )
         for handler in self.logger.handlers:
             handler.flush()
-        self.ser = serial.Serial(self.serial_port, self.baudrate, timeout=1)
+
+        try:
+            self.ser = serial.Serial(self.serial_port, self.baudrate, timeout=1)
+            self.logger.info(
+                f"Successfully connected to hardware at {self.serial_port}"
+            )
+
+            # Wake up hardware and send reset commands immediately
+            self.ser.write(b"\r\n")  # Send enter (CR/LF) to wake up hardware
+            self.logger.debug("Sent wake-up CR/LF to hardware")
+            time.sleep(0.1)  # Give hardware a moment to wake up
+
+            self.send_out(
+                {
+                    "type": "status",
+                    "message": f"Hardware connected and initialized at {self.serial_port}",
+                }
+            )
+        except serial.SerialException as e:
+            error_msg = f"Lap tracking hardware not found at {self.serial_port}"
+            self.logger.error(f"Serial connection failed: {e}")
+            self.send_out(
+                {"type": "hardware_error", "message": error_msg, "detail": str(e)}
+            )
+            raise  # Re-raise to be caught by run() method
 
     def close_connection(self):
         if self.ser and self.ser.is_open:
@@ -295,10 +319,17 @@ class HardwareCommRedis:
                 self._simulation_loop()
             else:
                 self.logger.info("HardwareCommRedis starting run loop")
-                self.open_connection()
-                if self.ser:
-                    self.ser.write(b"\r\n")  # Send enter (CR/LF) to wake up hardware
-                    self.logger.debug("Sent enter (CR/LF) to hardware")
+                try:
+                    self.open_connection()
+                except serial.SerialException:
+                    # Hardware not found - send error and stop
+                    self.logger.error("Cannot start: hardware not connected")
+                    # Keep running to allow user to see the error and quit gracefully
+                    while self.running:
+                        time.sleep(0.1)
+                    return
+
+                # Hardware is now initialized, start monitoring
                 last_heartbeat_time = time.time()
                 while self.running:
                     # Handle any queued command messages from Redis
@@ -321,8 +352,8 @@ class HardwareCommRedis:
                     time.sleep(0.05)
 
         except Exception as e:
-            err_msg = f"Exception in hardware comm redis process: {e}"
-            self.send_out({"type": "status", "message": err_msg})
+            err_msg = f"Unexpected error in hardware comm: {e}"
+            self.send_out({"type": "error", "message": err_msg})
             self.logger.error(err_msg)
         finally:
             self.close_connection()
@@ -390,7 +421,7 @@ if __name__ == "__main__":
                 "Keys: [S]tart race | Sto[P] race | [1-4] Simulate lap for racer | [Q]uit",
             )
         else:
-            stdscr.addstr(1, 0, "Keys: [S]tart race | Sto[P] race | [Q]uit")
+            stdscr.addstr(1, 0, "Keys: [Q]uit")
 
         stdscr.hline(2, 0, curses.ACS_HLINE, width)
 
@@ -411,17 +442,62 @@ if __name__ == "__main__":
         # Track race start time for simulation
         race_start_time = None
         message_count = 0
+        hardware_error_detected = False
 
         try:
             while True:
                 # Handle hardware messages from Redis pubsub
-                message = pubsub.get_message(timeout=0.1)
-                while message:
-                    if message["type"] == "message":
-                        try:
-                            msg_obj = json.loads(message["data"])
-                            message_count += 1
+                # Only process one message per iteration to allow keyboard checking
+                message = pubsub.get_message(
+                    timeout=0.01
+                )  # Shorter timeout for responsiveness
+                if message and message["type"] == "message":
+                    try:
+                        msg_obj = json.loads(message["data"])
+                        message_count += 1
 
+                        # Check for hardware error
+                        if (
+                            msg_obj.get("type") == "hardware_error"
+                            and not hardware_error_detected
+                        ):
+                            hardware_error_detected = True
+                            # Clear screen and show error (only once)
+                            stdscr.clear()
+                            output_win.clear()
+
+                            # Display error message centered
+                            error_msg = msg_obj.get("message", "Hardware not found")
+                            stdscr.addstr(
+                                0, 0, f"=== Hardware Comm Redis - HARDWARE MODE ==="
+                            )
+                            stdscr.hline(1, 0, curses.ACS_HLINE, width)
+
+                            # Center the error message
+                            error_line = height // 2 - 2
+                            stdscr.addstr(error_line, 0, " " * width)
+                            stdscr.addstr(
+                                error_line, (width - len(error_msg)) // 2, error_msg
+                            )
+
+                            help_msg = "Please connect the lap tracking hardware and restart this program."
+                            stdscr.addstr(
+                                error_line + 2,
+                                (width - len(help_msg)) // 2,
+                                help_msg,
+                            )
+
+                            quit_msg = "Press [Q] to quit"
+                            stdscr.addstr(
+                                error_line + 4,
+                                (width - len(quit_msg)) // 2,
+                                quit_msg,
+                            )
+
+                            stdscr.refresh()
+
+                        # Skip all message processing if hardware error occurred
+                        elif not hardware_error_detected:
                             # Format message based on type
                             if msg_obj.get("type") == "lap":
                                 msg_str = f"[LAP] Racer {msg_obj.get('racer_id')} - Sensor {msg_obj.get('sensor_id')} - Time: {msg_obj.get('race_time'):.3f}s"
@@ -429,34 +505,47 @@ if __name__ == "__main__":
                                 msg_str = "[HEARTBEAT] ♥"
                             elif msg_obj.get("type") == "status":
                                 msg_str = f"[STATUS] {msg_obj.get('message')}"
+                            elif msg_obj.get("type") == "error":
+                                msg_str = f"[ERROR] {msg_obj.get('message')}"
                             else:
                                 msg_str = f"[{msg_obj.get('type', 'UNKNOWN').upper()}] {msg_obj}"
 
                             output_win.addstr(f"{message_count:4d} | {msg_str}\n")
                             output_win.refresh()
-                        except Exception as e:
-                            output_win.addstr(f"Malformed HW msg: {e}\n")
-                            output_win.refresh()
-                    message = pubsub.get_message(timeout=0.1)
+                    except Exception as e:
+                        output_win.addstr(f"Malformed HW msg: {e}\n")
+                        output_win.refresh()
 
                 # Handle keyboard input
                 c = stdscr.getch()
                 if c != -1:
+                    # Convert to lowercase for easier comparison
+                    key_char = chr(c).lower() if 32 <= c <= 126 else None
+
+                    # Always allow quit - handle both 'q' and uppercase 'Q'
+                    if key_char == "q" or c == ord("Q") or c == ord("q"):
+                        raise KeyboardInterrupt
+
+                    # If hardware error, ignore all other commands
+                    if hardware_error_detected:
+                        continue
+
                     status_win.clear()
                     status_win.addstr(
                         0, 0, f"Last key: {chr(c) if 32 <= c <= 126 else c}    "
                     )
 
-                    # Convert to lowercase for easier comparison
-                    key_char = chr(c).lower() if 32 <= c <= 126 else None
-
-                    if key_char == "s":  # Start race
+                    if (
+                        simulation_mode and key_char == "s"
+                    ):  # Start race (simulation only)
                         status_win.addstr(1, 0, "Sending START RACE command...")
                         cmd = {"type": "command", "command": "start_race"}
                         redis_send.publish(REDIS_IN_CHANNEL, json.dumps(cmd))
                         race_start_time = time.time()
 
-                    elif key_char == "p":  # Stop race
+                    elif (
+                        simulation_mode and key_char == "p"
+                    ):  # Stop race (simulation only)
                         status_win.addstr(1, 0, "Sending STOP RACE command...")
                         cmd = {"type": "command", "command": "stop_race"}
                         redis_send.publish(REDIS_IN_CHANNEL, json.dumps(cmd))
@@ -483,9 +572,6 @@ if __name__ == "__main__":
                             "race_time": race_time,
                         }
                         redis_send.publish(REDIS_IN_CHANNEL, json.dumps(cmd))
-
-                    elif key_char == "q":  # Quit
-                        raise KeyboardInterrupt
 
                     status_win.addstr(2, 0, f"Messages received: {message_count}")
                     status_win.refresh()

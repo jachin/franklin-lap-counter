@@ -6,7 +6,9 @@ platformdirs==4.3.7
 Pygments==2.19.1
 pyserial==3.5
 pyserial-asyncio==0.6
+redis==5.2.1
 rich==14.0.0
 textual==3.3.0
+types-pyserial==3.5.0.20251001
 typing_extensions==4.13.2
 uc-micro-py==1.0.3

@@ -8,6 +8,7 @@ race.log
 hardware.log
 hardware_redis.log
 .pytest_cache
+.ruff_cache
 
 # Redis
 dump.rdb

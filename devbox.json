@@ -21,7 +21,8 @@
       "redis-server --daemonize yes --unixsocket ./redis.sock --unixsocketperm 700"
     ],
     "scripts": {
-      "test":   ["pytest"],
+      "hardware-monitor": ["python hardware_comm_redis.py"],
+      "franklin": ["python franklin.py"],
       "hw-sim": ["python hardware_comm_redis.py --sim"]
     }
   }

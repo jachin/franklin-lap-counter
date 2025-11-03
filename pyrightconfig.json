@@ -1,4 +1,12 @@
 {
+  "include": ["**/*.py"],
+  "exclude": ["**/node_modules", "**/__pycache__", ".venv"],
   "venvPath": ".",
-  "venv": "venv"
+  "venv": ".venv",
+  "pythonVersion": "3.13",
+  "typeCheckingMode": "standard",
+  "useLibraryCodeForTypes": true,
+  "reportMissingImports": true,
+  "stubPath": ".venv/lib/python3.13/site-packages",
+  "extraPaths": [".venv/lib/python3.13/site-packages"]
 }

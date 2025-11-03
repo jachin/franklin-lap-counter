@@ -4,12 +4,26 @@
     "python@3.13.3",
     "python313Packages.pyserial@latest",
     "python313Packages.textual@latest",
-    "pyright@1.1.399"
+    "redis@latest",
+    "python313Packages.pip@latest",
+    "python313Packages.platformdirs@latest",
+    "python313Packages.typing-extensions@latest",
+    "python313Packages.uc-micro-py@latest",
+    "python313Packages.mdurl@latest",
+    "basedpyright@latest",
+    "pyright@latest",
+    "python313Packages.redis@latest",
+    "python313Packages.ruff@latest"
   ],
   "shell": {
-    "init_hook": [". $VENV_DIR/bin/activate"],
+    "init_hook": [
+      ". $VENV_DIR/bin/activate",
+      "redis-server --daemonize yes --unixsocket ./redis.sock --unixsocketperm 700"
+    ],
     "scripts": {
-      "test": ["pytest"]
+      "hardware-monitor": ["python hardware_comm_redis.py"],
+      "franklin": ["python franklin.py"],
+      "hw-sim": ["python hardware_comm_redis.py --sim"]
     }
   }
 }

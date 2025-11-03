@@ -5,20 +5,39 @@ import json
 from pathlib import Path
 from textual.app import App, ComposeResult
 from textual.containers import Vertical, Horizontal
-from textual.widgets import Header, Footer, Static, Button, TabbedContent, TabPane, Digits, DataTable
+from textual.widgets import (
+    Header,
+    Footer,
+    Static,
+    Button,
+    TabbedContent,
+    TabPane,
+    Digits,
+    DataTable,
+)
 from textual.reactive import reactive
-from race.race import Race, RaceState, is_race_going, generate_fake_race, order_laps_by_occurrence, make_lap_from_sensor_data_and_race, make_fake_lap
+from race.race import (
+    Race,
+    RaceState,
+    is_race_going,
+    generate_fake_race,
+    order_laps_by_occurrence,
+    make_lap_from_sensor_data_and_race,
+    make_fake_lap,
+)
 from race.race_mode import RaceMode
 from race.race_contestants import RaceContestants
 from textual.binding import Binding
 import pprint
-import multiprocessing
-from async_multiprocessing_bridge import AsyncMultiprocessingQueueBridge
+import redis
+
 
 class LapDataDisplay(Static):
     laps = reactive([])
 
-    def __init__(self, *args, contestants: RaceContestants, race: Race, **kwargs) -> None:
+    def __init__(
+        self, *args, contestants: RaceContestants, race: Race, **kwargs
+    ) -> None:
         super().__init__(*args, **kwargs)
         self.contestants = contestants
         self.race = race
@@ -31,10 +50,15 @@ class LapDataDisplay(Static):
             display_name = self.contestants.get_contestant_name(lap.racer_id)
             # Replace racer ID with contestant name if available
             if lap.lap_number == 0:
-                lines.append(f"Racer {display_name} START TRIGGER | Time: {lap.seconds_from_race_start:.2f}s")
+                lines.append(
+                    f"Racer {display_name} START TRIGGER | Time: {lap.seconds_from_race_start:.2f}s"
+                )
             else:
-                lines.append(f"Racer {display_name} Lap {lap.lap_number} | Hardware: {lap.seconds_from_race_start:.2f}s, Internal: {lap.internal_lap_time:.2f}s, Lap Time: {lap.lap_time:.2f}s")
+                lines.append(
+                    f"Racer {display_name} Lap {lap.lap_number} | Hardware: {lap.seconds_from_race_start:.2f}s, Internal: {lap.internal_lap_time:.2f}s, Lap Time: {lap.lap_time:.2f}s"
+                )
         return "\n".join(lines)
+
 
 class RaceStatusDisplay(Static):
     BORDER_TITLE = "Race Status"
@@ -48,7 +72,9 @@ class RaceStatusDisplay(Static):
             status.append("Race in progress")
             status.append("(Lap 0 = Race Start Trigger)")
             status.append(f"Leader: {self.leader_laps_remaining} laps remaining")
-            status.append(f"Last Place: {self.last_place_laps_remaining} laps remaining")
+            status.append(
+                f"Last Place: {self.last_place_laps_remaining} laps remaining"
+            )
         elif self.race_state == RaceState.PAUSED:
             status.append("Race paused")
         elif self.race_state == RaceState.WINNER_DECLARED:
@@ -59,26 +85,51 @@ class RaceStatusDisplay(Static):
             status.append("Race not started")
         return "\n".join(status)
 
+
 class LeaderboardDisplay(DataTable):
     leaderboard = reactive([])
 
-    def __init__(self, *args, contestants: RaceContestants, race: Race, **kwargs) -> None:
+    def __init__(
+        self, *args, contestants: RaceContestants, race: Race, **kwargs
+    ) -> None:
         super().__init__(*args, **kwargs)
         self.contestants = contestants
         self.race = race
 
     def on_leaderboard_changed(self) -> None:
         self.clear(columns=True)
-        self.add_columns("Position", "Racer", "Lap Count", "Best Lap Time (s)", "Last Lap Time (s)", "Total Time (s)")
+        self.add_columns(
+            "Position",
+            "Racer",
+            "Lap Count",
+            "Best Lap Time (s)",
+            "Last Lap Time (s)",
+            "Total Time (s)",
+        )
         if not self.leaderboard:
             return
-        for position, racer_id, lap_count, best_lap_time, last_lap_time, total_time in self.leaderboard:
+        for (
+            position,
+            racer_id,
+            lap_count,
+            best_lap_time,
+            last_lap_time,
+            total_time,
+        ) in self.leaderboard:
             display_name = self.contestants.get_contestant_name(racer_id)
-            row = (position, display_name, lap_count, f"{best_lap_time:.2f}", f"{last_lap_time:.2f}", f"{total_time:.2f}")
+            row = (
+                position,
+                display_name,
+                lap_count,
+                f"{best_lap_time:.2f}",
+                f"{last_lap_time:.2f}",
+                f"{total_time:.2f}",
+            )
             self.add_row(*row)
 
     def watch_leaderboard(self, leaderboard) -> None:
         self.on_leaderboard_changed()
+
 
 class RaceTimeDisplay(Digits):
     BORDER_TITLE = "Race Time"
@@ -88,8 +139,9 @@ class RaceTimeDisplay(Digits):
         """Called when the time attribute changes."""
         minutes = int(self.elapsed_time // 60)
         seconds = int(self.elapsed_time % 60)
-        tenths = int((self.elapsed_time - seconds)*10)
+        tenths = int((self.elapsed_time - seconds) * 10)
         self.update(f"{minutes}:{seconds}:{tenths}")
+
 
 class Franklin(App):
     TITLE = "Franklin Lap Counter"
@@ -143,7 +195,15 @@ class Franklin(App):
         Binding("ctrl+t", "toggle_mode", "Toggle Race Mode"),
     ]
 
-    def __init__(self, *, initial_mode: RaceMode, total_laps, contestants_data, **kwargs):
+    def __init__(
+        self,
+        *,
+        initial_mode: RaceMode,
+        total_laps,
+        contestants_data,
+        redis_socket="./redis.sock",
+        **kwargs,
+    ):
         super().__init__(**kwargs)
         self.lap_queue = asyncio.Queue()
 
@@ -160,19 +220,20 @@ class Franklin(App):
 
         # Setup logging
         logging.basicConfig(
-            filename='race.log',
-            filemode='a',
-            format='%(asctime)s %(levelname)s:%(message)s',
-            level=logging.INFO
+            filename="race.log",
+            filemode="a",
+            format="%(asctime)s %(levelname)s:%(message)s",
+            level=logging.INFO,
         )
-        logging.info("HardwareMonitorGUI initialized")
-        logging.info(f"HardwareMonitorGUI initialized: {self.race_mode}")
+        logging.info("Franklin initialized")
+        logging.info(f"Franklin initialized: {self.race_mode}")
 
-        # Multiprocessing communication setup
-        self._hardware_in_queue = multiprocessing.Queue()
-        self._hardware_out_queue = multiprocessing.Queue()
-        self._hardware_process = None
-        self._hardware_async_bridge = None
+        # Redis communication setup
+        self.redis_socket = redis_socket
+        self.redis_in_channel = "hardware:in"
+        self.redis_out_channel = "hardware:out"
+        self._redis_client = None
+        self._redis_pubsub = None
         self.update_subtitle()
 
     def update_subtitle(self) -> None:
@@ -188,7 +249,9 @@ class Franklin(App):
     def action_toggle_mode(self) -> None:
         if self.race.state == RaceState.RUNNING:
             logging.info("Cannot change race mode while race is running")
-            self.notify("Cannot change race mode while race is running", severity="error")
+            self.notify(
+                "Cannot change race mode while race is running", severity="error"
+            )
             return
 
         # Cycle through modes: FAKE -> REAL -> TRAINING -> FAKE
@@ -205,94 +268,118 @@ class Franklin(App):
         # TODO this works for now but we should probably use the time that's coming
         # from the lap counter it self
         while True:
-            if self.race.state == RaceState.RUNNING and self.race.start_time is not None:
-                self.race.elapsed_time = asyncio.get_event_loop().time() - self.race.start_time
+            if (
+                self.race.state == RaceState.RUNNING
+                and self.race.start_time is not None
+            ):
+                self.race.elapsed_time = (
+                    asyncio.get_event_loop().time() - self.race.start_time
+                )
             await asyncio.sleep(0.1)
 
     async def hardware_monitor_task(self):
         """
-        Async consume hardware process messages via AsyncMultiprocessingQueueBridge,
-        handle the structured messages accordingly.
+        Subscribe to Redis pub/sub to receive hardware messages.
         """
         logging.info("Hardware monitor task starting up")
 
-        # Start hardware process if not already started
-        if self._hardware_process is None:
-            logging.info("Hardware monitor task has not been started yet, let's start it")
-            from hardware_comm_process import start_hardware_comm_process
-            self._hardware_process = multiprocessing.Process(
-                target=start_hardware_comm_process,
-                args=(self._hardware_in_queue, self._hardware_out_queue),
-                daemon=True
+        # Connect to Redis
+        try:
+            self._redis_client = redis.Redis(
+                unix_socket_path=self.redis_socket, decode_responses=True
             )
-            self._hardware_process.start()
+            self._redis_client.ping()
+            logging.info("Connected to Redis")
+        except Exception as e:
+            logging.error(f"Failed to connect to Redis: {e}")
+            self.notify(f"Failed to connect to Redis: {e}", severity="error")
+            return
 
-            logging.info(f"Started hardware_comm_process with PID: {self._hardware_process.pid}")
-
-            # Create async bridge to out_queue
-            self._hardware_async_bridge = AsyncMultiprocessingQueueBridge(self._hardware_out_queue, loop=asyncio.get_event_loop())
-
-        logging.info(f"hardware_comm_process running with PID: {self._hardware_process.pid}")
+        # Create pub/sub instance
+        self._redis_pubsub = self._redis_client.pubsub()
+        self._redis_pubsub.subscribe(self.redis_out_channel)
+        logging.info(f"Subscribed to Redis channel: {self.redis_out_channel}")
 
         self.lap_counter_detected = False
         self._last_lap_counter_signal_time = None
 
         try:
-            while True and self._hardware_async_bridge is not None:
-                # Get next hardware message async
-                msg = await self._hardware_async_bridge.get()
+            while True:
+                # Get messages from Redis (non-blocking with timeout)
+                message = self._redis_pubsub.get_message(timeout=0.1)
 
-                msg_type = msg.get("type")
+                if message and message["type"] == "message":
+                    try:
+                        msg = json.loads(message["data"])
+                        msg_type = msg.get("type")
 
-                logging.debug(f"Received hardware message of type '{msg_type}': {msg}")
+                        logging.debug(
+                            f"Received hardware message of type '{msg_type}': {msg}"
+                        )
 
-                # Rely only on heartbeat message to update detection
-                if msg_type == "heartbeat":
-                    if not self.lap_counter_detected:
-                        logging.info("Lap counter detected (heartbeat)")
-                    self.lap_counter_detected = True
-                    self._last_lap_counter_signal_time = asyncio.get_event_loop().time()
+                        # Rely only on heartbeat message to update detection
+                        if msg_type == "heartbeat":
+                            if not self.lap_counter_detected:
+                                logging.info("Lap counter detected (heartbeat)")
+                            self.lap_counter_detected = True
+                            self._last_lap_counter_signal_time = (
+                                asyncio.get_event_loop().time()
+                            )
 
-                elif msg_type == "lap":
-                    logging.info(f"Lap message received: {msg}")
-                    if self.race.state == self.race.state.RUNNING:
-                        racer_id = msg.get("racer_id")
-                        hardware_race_time = msg.get("race_time")
-                        if racer_id is not None and hardware_race_time is not None:
-                            # Capture the internal (monotonic) time from the event loop.
-                            internal_time = asyncio.get_event_loop().time()
+                        elif msg_type == "lap":
+                            logging.info(f"Lap message received: {msg}")
+                            if self.race.state == self.race.state.RUNNING:
+                                racer_id = msg.get("racer_id")
+                                hardware_race_time = msg.get("race_time")
+                                if (
+                                    racer_id is not None
+                                    and hardware_race_time is not None
+                                ):
+                                    # Capture the internal (monotonic) time from the event loop.
+                                    internal_time = asyncio.get_event_loop().time()
 
-                            lap = make_lap_from_sensor_data_and_race(racer_id, hardware_race_time, internal_time, self.race)
-                            logging.info("new lap %s", pprint.pformat(lap))
-                            await self.lap_queue.put(lap)
+                                    lap = make_lap_from_sensor_data_and_race(
+                                        racer_id,
+                                        hardware_race_time,
+                                        internal_time,
+                                        self.race,
+                                    )
+                                    logging.info("new lap %s", pprint.pformat(lap))
+                                    await self.lap_queue.put(lap)
+                                else:
+                                    logging.error("Invalid lap data received")
+                            else:
+                                logging.error("Cannot add lap - race is not running")
+
+                        elif msg_type == "new_msg":
+                            # Handle your new message type here
+                            logging.info(f"New message received: {msg}")
+
+                        elif msg_type == "status":
+                            logging.info(f"Status message: {msg.get('message', '')}")
+
+                        elif msg_type == "raw":
+                            logging.debug(f"Raw message: {msg.get('line', '')}")
+
                         else:
-                            logging.error("Invalid lap data received")
-                    else:
-                        logging.error("Cannot add lap - race is not running")
+                            logging.debug(f"Unknown message type: {msg}")
+                    except json.JSONDecodeError as e:
+                        logging.error(f"Failed to parse Redis message: {e}")
 
-                elif msg_type == "new_msg":
-                    # Handle your new message type here
-                    logging.info(f"New message received: {msg}")
-
-                elif msg_type == "status":
-                    logging.info(f"Status message: {msg.get('message','')}")
-
-                elif msg_type == "raw":
-                    logging.debug(f"Raw message: {msg.get('line','')}")
-
-                else:
-                    logging.debug(f"Unknown message type: {msg}")
+                # Small sleep to prevent busy-waiting
+                await asyncio.sleep(0.01)
 
         except asyncio.CancelledError:
             logging.info("Hardware monitor task cancelled")
 
         finally:
-            # Cleanup bridge and process on exit
-            if self._hardware_async_bridge:
-                self._hardware_async_bridge.stop()
-            if self._hardware_process:
-                self._hardware_process.terminate()
-                self._hardware_process.join()
+            # Cleanup Redis connection
+            if self._redis_pubsub:
+                self._redis_pubsub.unsubscribe()
+                self._redis_pubsub.close()
+            if self._redis_client:
+                self._redis_client.close()
+            logging.info("Redis connections closed")
 
     async def refresh_lap_data(self):
         lap_display_events = self.query_one(LapDataDisplay)
@@ -334,9 +421,17 @@ class Franklin(App):
                 yield RaceStatusDisplay(id="race_status", classes="box")
             with TabbedContent(id="tabbed_content"):
                 with TabPane("Leaderboard", id="leaderboard_tab"):
-                    yield LeaderboardDisplay(id="leaderboard", contestants=self.global_contestants, race=self.race)
+                    yield LeaderboardDisplay(
+                        id="leaderboard",
+                        contestants=self.global_contestants,
+                        race=self.race,
+                    )
                 with TabPane("Events", id="events_tab"):
-                    yield LapDataDisplay(id="lap_data", contestants=self.global_contestants, race=self.race)
+                    yield LapDataDisplay(
+                        id="lap_data",
+                        contestants=self.global_contestants,
+                        race=self.race,
+                    )
         yield Footer()
 
     def action_start_race(self) -> None:
@@ -350,7 +445,6 @@ class Franklin(App):
             self.race.total_laps = self.total_laps
 
             if self.race.state != RaceState.RUNNING:
-
                 current_time = asyncio.get_event_loop().time()
 
                 # This call updates the state of the race
@@ -360,7 +454,11 @@ class Franklin(App):
                 start_btn.disabled = True
                 stop_btn.disabled = False
 
-                if hasattr(self, "_playback_task") and self._playback_task is not None and not self._playback_task.done():
+                if (
+                    hasattr(self, "_playback_task")
+                    and self._playback_task is not None
+                    and not self._playback_task.done()
+                ):
                     self._playback_task.cancel()
 
                 if self.race_mode == RaceMode.FAKE:
@@ -373,12 +471,25 @@ class Franklin(App):
                     self.race.state = RaceState.RUNNING
 
                     # Start playback task
-                    self._playback_task = asyncio.create_task(self.play_fake_race(fake_race))
+                    self._playback_task = asyncio.create_task(
+                        self.play_fake_race(fake_race)
+                    )
                 else:
-                    # Real race mode - prepare / start real hardware monitoring or race input
+                    # Real race mode - send start command via Redis
                     logging.info("Starting real race")
-                    # Send reset command to hardware_comm_process using multiprocessing queue
-                    self._hardware_in_queue.put({"type": "command", "command": "start_race"})
+                    try:
+                        if self._redis_client:
+                            cmd = {"type": "command", "command": "start_race"}
+                            self._redis_client.publish(
+                                self.redis_in_channel, json.dumps(cmd)
+                            )
+                            logging.info("Sent start_race command to Redis")
+                        else:
+                            logging.error("Redis client not initialized")
+                            self.notify("Redis not connected", severity="error")
+                    except Exception as e:
+                        logging.error(f"Failed to send start command to Redis: {e}")
+                        self.notify(f"Failed to start race: {e}", severity="error")
 
         asyncio.create_task(start_race_and_send_command())
 
@@ -388,7 +499,11 @@ class Franklin(App):
         stop_btn = self.query_one("#stop_btn", Button)
         if is_race_going(self.race):
             # Stop playback and reset race state
-            if hasattr(self, "_playback_task") and self._playback_task is not None and not self._playback_task.done():
+            if (
+                hasattr(self, "_playback_task")
+                and self._playback_task is not None
+                and not self._playback_task.done()
+            ):
                 self._playback_task.cancel()
             self.race.state = RaceState.FINISHED
             status_display.race_state = self.race.state
@@ -432,26 +547,31 @@ class Franklin(App):
         logging.info("Sorted laps:\n%s", pprint.pformat(sorted_laps))
 
         try:
-            for (ts, lap) in sorted_laps:
+            for ts, lap in sorted_laps:
                 elapsed_time = asyncio.get_event_loop().time() - start_time
                 wait_time = ts - elapsed_time
                 if wait_time > 0:
                     await asyncio.sleep(wait_time)
 
-                lap_event = make_fake_lap(lap.racer_id, lap.lap_number, lap.lap_time, ts)
+                lap_event = make_fake_lap(
+                    lap.racer_id, lap.lap_number, lap.lap_time, ts
+                )
                 logging.info("fake lap %s", lap_event)
                 await self.lap_queue.put(lap_event)
         except asyncio.CancelledError:
             logging.info("Fake race playback cancelled")
 
 
-
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Start Franklin Lap Counter in chosen initial mode.")
+    parser = argparse.ArgumentParser(
+        description="Start Franklin Lap Counter in chosen initial mode."
+    )
     group = parser.add_mutually_exclusive_group()
-    group.add_argument('--race', action='store_true', help='Start in Race Mode (Real Race Mode)')
-    group.add_argument('--fake', action='store_true', help='Start in Fake Race Mode')
-    group.add_argument('--training', action='store_true', help='Start in Training Mode')
+    group.add_argument(
+        "--race", action="store_true", help="Start in Race Mode (Real Race Mode)"
+    )
+    group.add_argument("--fake", action="store_true", help="Start in Fake Race Mode")
+    group.add_argument("--training", action="store_true", help="Start in Training Mode")
     args = parser.parse_args()
 
     # Determine initial mode based on args
@@ -481,5 +601,9 @@ if __name__ == "__main__":
         except Exception as e:
             logging.error(f"Failed to read config.json: {e}")
 
-    app = Franklin(initial_mode=initial_mode, total_laps=total_laps, contestants_data=contestants_data)
+    app = Franklin(
+        initial_mode=initial_mode,
+        total_laps=total_laps,
+        contestants_data=contestants_data,
+    )
     app.run()

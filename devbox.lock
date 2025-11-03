@@ -441,6 +441,70 @@
         }
       }
     },
+    "python313Packages.ruff@latest": {
+      "last_modified": "2025-10-13T09:56:54Z",
+      "resolved": "github:NixOS/nixpkgs/c12c63cd6c5eb34c7b4c3076c6a99e00fcab86ec#python313Packages.ruff",
+      "source": "devbox-search",
+      "version": "0.14.0",
+      "systems": {
+        "aarch64-darwin": {
+          "outputs": [
+            {
+              "name": "out",
+              "path": "/nix/store/rlj3y2i9xv8gl4j6pnwhnd15zrambq7b-python3.13-ruff-0.14.0",
+              "default": true
+            },
+            {
+              "name": "dist",
+              "path": "/nix/store/fqx185dj8khyz0asvi7izbc77192x4q2-python3.13-ruff-0.14.0-dist"
+            }
+          ],
+          "store_path": "/nix/store/rlj3y2i9xv8gl4j6pnwhnd15zrambq7b-python3.13-ruff-0.14.0"
+        },
+        "aarch64-linux": {
+          "outputs": [
+            {
+              "name": "out",
+              "path": "/nix/store/wjn0qhhbd1nc6z1p5hjyx1f5cga20cnq-python3.13-ruff-0.14.0",
+              "default": true
+            },
+            {
+              "name": "dist",
+              "path": "/nix/store/346bzlia5rxkw0amg50dymk8ipyikdmy-python3.13-ruff-0.14.0-dist"
+            }
+          ],
+          "store_path": "/nix/store/wjn0qhhbd1nc6z1p5hjyx1f5cga20cnq-python3.13-ruff-0.14.0"
+        },
+        "x86_64-darwin": {
+          "outputs": [
+            {
+              "name": "out",
+              "path": "/nix/store/laqz1g9djgdf22m9bd4rj4l9kkxxf9kn-python3.13-ruff-0.14.0",
+              "default": true
+            },
+            {
+              "name": "dist",
+              "path": "/nix/store/yr3vg52g5331r72y6d9shyhf732n8vhs-python3.13-ruff-0.14.0-dist"
+            }
+          ],
+          "store_path": "/nix/store/laqz1g9djgdf22m9bd4rj4l9kkxxf9kn-python3.13-ruff-0.14.0"
+        },
+        "x86_64-linux": {
+          "outputs": [
+            {
+              "name": "out",
+              "path": "/nix/store/h9y267lga98zliykn8zsznn7s4dvvy5y-python3.13-ruff-0.14.0",
+              "default": true
+            },
+            {
+              "name": "dist",
+              "path": "/nix/store/vyhm76vpdry1p3jmvb35a190r9shsniw-python3.13-ruff-0.14.0-dist"
+            }
+          ],
+          "store_path": "/nix/store/h9y267lga98zliykn8zsznn7s4dvvy5y-python3.13-ruff-0.14.0"
+        }
+      }
+    },
     "python313Packages.textual@latest": {
       "last_modified": "2025-10-12T08:13:11Z",
       "resolved": "github:NixOS/nixpkgs/832e3b6db48508ae436c2c7bfc0cf914eac6938e#python313Packages.textual",

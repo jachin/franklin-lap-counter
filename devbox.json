@@ -12,7 +12,8 @@
     "python313Packages.mdurl@latest",
     "basedpyright@latest",
     "pyright@latest",
-    "python313Packages.redis@latest"
+    "python313Packages.redis@latest",
+    "python313Packages.ruff@latest"
   ],
   "shell": {
     "init_hook": [
@@ -20,7 +21,7 @@
       "redis-server --daemonize yes --unixsocket ./redis.sock --unixsocketperm 700"
     ],
     "scripts": {
-      "test": ["pytest"],
+      "test":   ["pytest"],
       "hw-sim": ["python hardware_comm_redis.py --sim"]
     }
   }

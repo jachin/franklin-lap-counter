@@ -469,7 +469,7 @@ if __name__ == "__main__":
                             # Display error message centered
                             error_msg = msg_obj.get("message", "Hardware not found")
                             stdscr.addstr(
-                                0, 0, f"=== Hardware Comm Redis - HARDWARE MODE ==="
+                                0, 0, "=== Hardware Comm Redis - HARDWARE MODE ==="
                             )
                             stdscr.hline(1, 0, curses.ACS_HLINE, width)
 

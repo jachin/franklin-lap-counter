@@ -5,6 +5,8 @@ import json
 import threading
 import redis
 import platform
+from typing import Any
+from redis.client import PubSub
 
 # Message format examples:
 # From hardware process to GUI:
@@ -24,13 +26,13 @@ REDIS_OUT_CHANNEL = "hardware:out"
 class HardwareCommRedis:
     def __init__(
         self,
-        serial_port=None,
-        baudrate=9600,
-        redis_socket=REDIS_SOCKET_PATH,
-        simulation_mode=False,
+        serial_port: str | None = None,
+        baudrate: int = 9600,
+        redis_socket: str = REDIS_SOCKET_PATH,
+        simulation_mode: bool = False,
     ):
         # Setup logger for hardware process
-        self.logger = logging.getLogger("hardware_comm_redis")
+        self.logger: logging.Logger = logging.getLogger("hardware_comm_redis")
         if not self.logger.hasHandlers():
             handler = logging.FileHandler("hardware_redis.log", mode="a")
             formatter = logging.Formatter("%(asctime)s %(levelname)s:%(message)s")
@@ -39,32 +41,36 @@ class HardwareCommRedis:
             self.logger.setLevel(logging.DEBUG)
             self.logger.propagate = False
 
-        self.serial_port = serial_port
-        self.baudrate = baudrate
-        self.simulation_mode = simulation_mode
+        self.serial_port: str | None = serial_port
+        self.baudrate: int = baudrate
+        self.simulation_mode: bool = simulation_mode
 
         # Redis connection for publishing (main thread)
-        self.redis = redis.Redis(unix_socket_path=redis_socket, decode_responses=True)
-        # Redis connection for subscription (used in listener thread)
-        self.redis_sub = redis.Redis(
+        self.redis: redis.Redis = redis.Redis(  # type: ignore[type-arg]
             unix_socket_path=redis_socket, decode_responses=True
         )
-        self.pubsub = self.redis_sub.pubsub(ignore_subscribe_messages=True)
-        self.ser = None
-        self.running = False
+        # Redis connection for subscription (used in listener thread)
+        self.redis_sub: redis.Redis = redis.Redis(  # type: ignore[type-arg]
+            unix_socket_path=redis_socket, decode_responses=True
+        )
+        self.pubsub: PubSub = self.redis_sub.pubsub(ignore_subscribe_messages=True)
+        self.ser: serial.Serial | None = None
+        self.running: bool = False
 
-        self._command_queue = []  # Thread-safe list would be better for heavy use; for this, GIL is fine.
+        self._command_queue: list[
+            dict[str, object]
+        ] = []  # Thread-safe list would be better for heavy use; for this, GIL is fine.
 
         # Simulation state
-        self._sim_race_active = False
-        self._sim_last_heartbeat = time.time()
+        self._sim_race_active: bool = False
+        self._sim_last_heartbeat: float = time.time()
 
         mode = "SIMULATION" if simulation_mode else "HARDWARE"
         self.logger.info(f"HardwareCommRedis __init__ in {mode} mode")
         for handler in self.logger.handlers:
             handler.flush()
 
-    def open_connection(self):
+    def open_connection(self) -> None:
         if self.simulation_mode:
             self.logger.info("Running in simulation mode - no serial connection")
             self.send_out({"type": "status", "message": "Running in simulation mode"})
@@ -83,7 +89,7 @@ class HardwareCommRedis:
             )
 
             # Wake up hardware and send reset commands immediately
-            self.ser.write(b"\r\n")  # Send enter (CR/LF) to wake up hardware
+            _ = self.ser.write(b"\r\n")  # Send enter (CR/LF) to wake up hardware
             self.logger.debug("Sent wake-up CR/LF to hardware")
             time.sleep(0.1)  # Give hardware a moment to wake up
 
@@ -101,12 +107,12 @@ class HardwareCommRedis:
             )
             raise  # Re-raise to be caught by run() method
 
-    def close_connection(self):
+    def close_connection(self) -> None:
         if self.ser and self.ser.is_open:
             self.logger.debug("Closing serial connection")
             self.ser.close()
 
-    def read_line(self):
+    def read_line(self) -> str | None:
         try:
             if self.ser:
                 line = self.ser.readline()
@@ -120,7 +126,7 @@ class HardwareCommRedis:
             self.send_out({"type": "status", "message": error_msg})
         return None
 
-    def send_reset_command(self):
+    def send_reset_command(self) -> None:
         self.logger.debug("Sending reset commands to hardware")
         commands = [
             b"\x01\x3f\x2c\x32\x33\x32\x2c\x30\x2c\x31\x34\x2c\x30\x2c\x31\x2c\x0d\x0a",
@@ -131,7 +137,7 @@ class HardwareCommRedis:
         try:
             for command in commands:
                 if self.ser is not None:
-                    self.ser.write(command)
+                    _ = self.ser.write(command)
                     self.logger.debug(f"Sent command: {command}")
                 else:
                     msg = "Serial port not open"
@@ -142,13 +148,13 @@ class HardwareCommRedis:
             self.logger.error(err_msg)
             self.send_out({"type": "status", "message": err_msg})
 
-    def send_out(self, msg):
+    def send_out(self, msg: dict[str, str | int | float]) -> None:
         try:
-            self.redis.publish(REDIS_OUT_CHANNEL, json.dumps(msg))
+            _ = self.redis.publish(REDIS_OUT_CHANNEL, json.dumps(msg))
         except Exception as e:
             self.logger.error(f"Failed to publish to Redis: {e}")
 
-    def _handle_command(self, msg):
+    def _handle_command(self, msg: dict[str, object]) -> None:
         """Handle a single command message."""
         self.logger.debug(f"Received command: {msg}")
         if msg.get("type") == "command":
@@ -181,10 +187,13 @@ class HardwareCommRedis:
             elif msg.get("command") == "simulate_lap":
                 # Simulate a lap event
                 if self.simulation_mode:
-                    racer_id = msg.get("racer_id", 1)
-                    sensor_id = msg.get("sensor_id", 1)
-                    race_time = msg.get("race_time", time.time())
-                    lap_msg = {
+                    racer_id_raw: Any = msg.get("racer_id", 1)
+                    racer_id = int(racer_id_raw)
+                    sensor_id_raw: Any = msg.get("sensor_id", 1)
+                    sensor_id = int(sensor_id_raw)
+                    race_time_raw: Any = msg.get("race_time", time.time())
+                    race_time = float(race_time_raw)
+                    lap_msg: dict[str, str | int | float] = {
                         "type": "lap",
                         "racer_id": racer_id,
                         "sensor_id": sensor_id,
@@ -193,18 +202,21 @@ class HardwareCommRedis:
                     self.send_out(lap_msg)
                     self.logger.info(f"Simulated lap: {lap_msg}")
 
-    def _redis_command_listener(self):
+    def _redis_command_listener(self) -> None:
         # This runs in a background thread, populating self._command_queue
         self.pubsub.subscribe(REDIS_IN_CHANNEL)
         for message in self.pubsub.listen():
             try:
                 msg_data = message["data"]
-                msg = json.loads(msg_data)
-                self._command_queue.append(msg)
+                if msg_data is not None:
+                    msg = json.loads(msg_data)
+                    self._command_queue.append(msg)
             except Exception as e:
                 self.logger.error(f"Error parsing command from redis: {e}")
 
-    def _handle_output_line(self, line, last_heartbeat_time):
+    def _handle_output_line(
+        self, line: str | None, last_heartbeat_time: float
+    ) -> float:
         """Process a line of output from the hardware and return updated heartbeat time."""
         if not line:
             return last_heartbeat_time
@@ -271,7 +283,7 @@ class HardwareCommRedis:
 
         return last_heartbeat_time
 
-    def _simulation_loop(self):
+    def _simulation_loop(self) -> None:
         """Simulation mode: send periodic heartbeats and respond to commands."""
         last_heartbeat_time = time.time()
 
@@ -289,7 +301,7 @@ class HardwareCommRedis:
 
             time.sleep(0.1)
 
-    def run(self):
+    def run(self) -> None:
         self.running = True
         self.logger.info("HardwareCommRedis started running")
         for handler in self.logger.handlers:
@@ -297,7 +309,7 @@ class HardwareCommRedis:
 
         # Test Redis connection
         try:
-            self.redis.ping()
+            _ = self.redis.ping()
             self.logger.info("Redis connection successful")
             self.send_out({"type": "status", "message": "Redis connected"})
         except Exception as e:
@@ -359,7 +371,7 @@ class HardwareCommRedis:
             self.close_connection()
 
 
-def get_default_serial_port():
+def get_default_serial_port() -> str:
     system = platform.system()
     if system == "Linux":
         return "/dev/ttyUSB0"
@@ -369,7 +381,7 @@ def get_default_serial_port():
         raise RuntimeError(f"Unsupported OS: {system}")
 
 
-def start_hardware_comm_redis():
+def start_hardware_comm_redis() -> None:
     hw = HardwareCommRedis(get_default_serial_port(), 9600)
     hw.run()
 
@@ -382,19 +394,19 @@ if __name__ == "__main__":
     # Check for simulation mode flag
     simulation_mode = "--sim" in sys.argv or "-s" in sys.argv
 
-    def main(stdscr):
+    def main(stdscr: Any) -> None:  # type: ignore[misc]
         # Connect redis for sending commands to hardware process
-        redis_send = redis.Redis(
+        redis_send: redis.Redis = redis.Redis(  # type: ignore[type-arg]
             unix_socket_path=REDIS_SOCKET_PATH, decode_responses=True
         )
-        redis_recv = redis.Redis(
+        redis_recv: redis.Redis = redis.Redis(  # type: ignore[type-arg]
             unix_socket_path=REDIS_SOCKET_PATH, decode_responses=True
         )
-        pubsub = redis_recv.pubsub()
+        pubsub: PubSub = redis_recv.pubsub()
         pubsub.subscribe(REDIS_OUT_CHANNEL)
 
         # Start hardware process in a thread
-        def hw_thread_fn():
+        def hw_thread_fn() -> None:
             if simulation_mode:
                 hw = HardwareCommRedis(simulation_mode=True)
             else:
@@ -405,7 +417,7 @@ if __name__ == "__main__":
         hw_thread.start()
 
         # Configure curses
-        curses.curs_set(0)  # Hide cursor
+        _ = curses.curs_set(0)  # Hide cursor
         stdscr.nodelay(True)  # Non-blocking getch
         stdscr.clear()
         height, width = stdscr.getmaxyx()
@@ -453,7 +465,10 @@ if __name__ == "__main__":
                 )  # Shorter timeout for responsiveness
                 if message and message["type"] == "message":
                     try:
-                        msg_obj = json.loads(message["data"])
+                        msg_data = message["data"]
+                        if msg_data is None:
+                            continue
+                        msg_obj = json.loads(msg_data)
                         message_count += 1
 
                         # Check for hardware error
@@ -540,7 +555,7 @@ if __name__ == "__main__":
                     ):  # Start race (simulation only)
                         status_win.addstr(1, 0, "Sending START RACE command...")
                         cmd = {"type": "command", "command": "start_race"}
-                        redis_send.publish(REDIS_IN_CHANNEL, json.dumps(cmd))
+                        _ = redis_send.publish(REDIS_IN_CHANNEL, json.dumps(cmd))
                         race_start_time = time.time()
 
                     elif (
@@ -548,7 +563,7 @@ if __name__ == "__main__":
                     ):  # Stop race (simulation only)
                         status_win.addstr(1, 0, "Sending STOP RACE command...")
                         cmd = {"type": "command", "command": "stop_race"}
-                        redis_send.publish(REDIS_IN_CHANNEL, json.dumps(cmd))
+                        _ = redis_send.publish(REDIS_IN_CHANNEL, json.dumps(cmd))
                         race_start_time = None
 
                     elif simulation_mode and key_char in ["1", "2", "3", "4"]:
@@ -571,12 +586,12 @@ if __name__ == "__main__":
                             "sensor_id": 1,
                             "race_time": race_time,
                         }
-                        redis_send.publish(REDIS_IN_CHANNEL, json.dumps(cmd))
+                        _ = redis_send.publish(REDIS_IN_CHANNEL, json.dumps(cmd))
 
                     status_win.addstr(2, 0, f"Messages received: {message_count}")
                     status_win.refresh()
 
-                curses.napms(100)
+                _ = curses.napms(100)
 
         except KeyboardInterrupt:
             pass

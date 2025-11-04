@@ -7,15 +7,15 @@ Manages races and laps using SQLite.
 import sqlite3
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 
 class LapDatabase:
     """Manages race and lap data in SQLite database"""
 
     def __init__(self, db_path: str = "lap_counter.db"):
-        self.db_path = Path(db_path)
-        self.conn: Optional[sqlite3.Connection] = None
+        self.db_path: Path = Path(db_path)
+        self.conn: sqlite3.Connection | None = None
         self._init_database()
 
     def _init_database(self) -> None:
@@ -64,7 +64,7 @@ class LapDatabase:
 
         self.conn.commit()
 
-    def create_race(self, notes: Optional[str] = None) -> int:
+    def create_race(self, notes: str | None = None) -> int:
         """Create a new race and return its ID"""
         assert self.conn is not None
         cursor = self.conn.cursor()
@@ -94,7 +94,7 @@ class LapDatabase:
         )
         self.conn.commit()
 
-    def get_in_progress_race(self) -> Optional[dict[str, Any]]:
+    def get_in_progress_race(self) -> dict[str, Any] | None:
         """Get the current in-progress race if one exists"""
         assert self.conn is not None
         cursor = self.conn.cursor()
@@ -116,7 +116,7 @@ class LapDatabase:
         sensor_id: int,
         race_time: float,
         lap_number: int,
-        lap_time: Optional[float] = None,
+        lap_time: float | None = None,
     ) -> int:
         """Add a lap to the database"""
         assert self.conn is not None
@@ -227,7 +227,7 @@ if __name__ == "__main__":
         print(f"Created race {race_id}")
 
         # Add some laps
-        db.add_lap(
+        _ = db.add_lap(
             race_id,
             racer_id=1,
             sensor_id=1,
@@ -235,10 +235,10 @@ if __name__ == "__main__":
             lap_number=1,
             lap_time=10.5,
         )
-        db.add_lap(
+        _ = db.add_lap(
             race_id, racer_id=1, sensor_id=1, race_time=20.3, lap_number=2, lap_time=9.8
         )
-        db.add_lap(
+        _ = db.add_lap(
             race_id,
             racer_id=2,
             sensor_id=2,

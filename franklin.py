@@ -3,6 +3,7 @@ import asyncio
 import logging
 import json
 from pathlib import Path
+from typing import Any
 from textual.app import App, ComposeResult
 from textual.containers import Vertical, Horizontal
 from textual.widgets import (
@@ -34,14 +35,14 @@ from database import LapDatabase
 
 
 class LapDataDisplay(Static):
-    laps = reactive([])
+    laps: reactive[list[Any]] = reactive([])  # type: ignore[valid-type]
 
     def __init__(
-        self, *args, contestants: RaceContestants, race: Race, **kwargs
+        self, *args: object, contestants: RaceContestants, race: Race, **kwargs: object
     ) -> None:
         super().__init__(*args, **kwargs)
-        self.contestants = contestants
-        self.race = race
+        self.contestants: RaceContestants = contestants
+        self.race: Race = race
 
     def render(self) -> str:
         if not self.laps:
@@ -63,9 +64,9 @@ class LapDataDisplay(Static):
 
 class RaceStatusDisplay(Static):
     BORDER_TITLE = "Race Status"
-    race_state = reactive(RaceState.NOT_STARTED)
-    leader_laps_remaining = reactive(10)
-    last_place_laps_remaining = reactive(10)
+    race_state: reactive[RaceState] = reactive(RaceState.NOT_STARTED)  # type: ignore[valid-type]
+    leader_laps_remaining: reactive[int] = reactive(10)  # type: ignore[valid-type]
+    last_place_laps_remaining: reactive[int] = reactive(10)  # type: ignore[valid-type]
 
     def render(self) -> str:
         status = []
@@ -87,15 +88,15 @@ class RaceStatusDisplay(Static):
         return "\n".join(status)
 
 
-class LeaderboardDisplay(DataTable):
-    leaderboard = reactive([])
+class LeaderboardDisplay(DataTable[Any]):  # type: ignore[type-arg]
+    leaderboard: reactive[list[Any]] = reactive([])  # type: ignore[valid-type]
 
     def __init__(
-        self, *args, contestants: RaceContestants, race: Race, **kwargs
+        self, *args: object, contestants: RaceContestants, race: Race, **kwargs: object
     ) -> None:
         super().__init__(*args, **kwargs)
-        self.contestants = contestants
-        self.race = race
+        self.contestants: RaceContestants = contestants
+        self.race: Race = race
 
     def on_leaderboard_changed(self) -> None:
         self.clear(columns=True)
@@ -144,7 +145,7 @@ class RaceTimeDisplay(Digits):
         self.update(f"{minutes}:{seconds}:{tenths}")
 
 
-class Franklin(App):
+class Franklin(App[Any]):  # type: ignore[type-arg]
     TITLE = "Franklin Lap Counter"
     SUB_TITLE = "RC Lap Counter - Fake Race Mode"
     # Note: will be overridden dynamically in update_subtitle
@@ -334,7 +335,10 @@ class Franklin(App):
 
                 if message and message["type"] == "message":
                     try:
-                        msg = json.loads(message["data"])
+                        data = message["data"]
+                        msg: dict[str, Any] = (
+                            json.loads(data) if isinstance(data, (str, bytes)) else {}
+                        )
                         msg_type = msg.get("type")
 
                         logging.debug(

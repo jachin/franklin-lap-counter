@@ -119,14 +119,12 @@ impl App {
 // Hardware communication handler
 struct HardwareComm {
     redis_client: redis::Client,
-    simulation_mode: bool,
     serial_port_path: Option<String>,
     baudrate: u32,
 }
 
 impl HardwareComm {
     fn new(
-        simulation_mode: bool,
         redis_socket_path: &str,
         serial_port_path: Option<String>,
         baudrate: u32,
@@ -148,7 +146,6 @@ impl HardwareComm {
 
         Ok(Self {
             redis_client,
-            simulation_mode,
             serial_port_path,
             baudrate,
         })
@@ -259,20 +256,6 @@ impl HardwareComm {
 
         conn.publish::<_, _, ()>(REDIS_OUT_CHANNEL, json)
             .context("Failed to publish to Redis")?;
-
-        Ok(())
-    }
-
-    fn send_command(&self, cmd: &InMessage) -> Result<()> {
-        let mut conn = self
-            .redis_client
-            .get_connection()
-            .context("Failed to get Redis connection")?;
-
-        let json = serde_json::to_string(cmd).context("Failed to serialize command")?;
-
-        conn.publish::<_, _, ()>(REDIS_IN_CHANNEL, json)
-            .context("Failed to publish command to Redis")?;
 
         Ok(())
     }
@@ -785,12 +768,7 @@ async fn main() -> Result<()> {
     let app = Arc::new(Mutex::new(App::new(simulation_mode)));
 
     // Create hardware comm
-    let hw = Arc::new(HardwareComm::new(
-        simulation_mode,
-        redis_socket_path,
-        serial_port,
-        baudrate,
-    )?);
+    let hw = Arc::new(HardwareComm::new(redis_socket_path, serial_port, baudrate)?);
 
     // Test Redis connection
     match hw.redis_client.get_connection() {

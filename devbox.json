@@ -14,7 +14,13 @@
     "pyright@latest",
     "python313Packages.redis@latest",
     "python313Packages.ruff@latest",
-    "python313Packages.aiohttp@latest"
+    "python313Packages.aiohttp@latest",
+    "python313Packages.linkify-it-py@latest",
+    "python313Packages.requests@latest",
+    "python313Packages.markdown-it-py@latest",
+    "python313Packages.mdit-py-plugins@latest",
+    "python313Packages.pygments@latest",
+    "python313Packages.rich@latest"
   ],
   "shell": {
     "init_hook": [

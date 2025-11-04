@@ -20,7 +20,12 @@
     "python313Packages.markdown-it-py@latest",
     "python313Packages.mdit-py-plugins@latest",
     "python313Packages.pygments@latest",
-    "python313Packages.rich@latest"
+    "python313Packages.rich@latest",
+    "rustc@latest",
+    "cargo@latest",
+    "rust-analyzer@latest",
+    "rustfmt@latest",
+    "clippy@latest"
   ],
   "shell": {
     "init_hook": [
@@ -31,7 +36,19 @@
       "hardware-monitor": ["python hardware_comm_redis.py"],
       "franklin": ["python franklin.py"],
       "hw-sim": ["python hardware_comm_redis.py --sim"],
-      "web": ["python web_server.py"]
+      "web": ["python web_server.py"],
+      "rust-build": ["cargo build --manifest-path rust/Cargo.toml"],
+      "rust-build-release": [
+        "cargo build --release --manifest-path rust/Cargo.toml"
+      ],
+      "rust-hw-sim": [
+        "cargo run --manifest-path rust/Cargo.toml --bin hardware-comm -- --sim"
+      ],
+      "rust-hw": [
+        "cargo run --manifest-path rust/Cargo.toml --bin hardware-comm"
+      ],
+      "rust-check": ["cargo check --manifest-path rust/Cargo.toml"],
+      "rust-test": ["cargo test --manifest-path rust/Cargo.toml"]
     }
   }
 }

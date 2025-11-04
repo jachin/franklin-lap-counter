@@ -14,3 +14,7 @@ hardware_redis.log
 dump.rdb
 redis.sock
 *.rdb
+
+# Database
+*.db
+lap_counter.db

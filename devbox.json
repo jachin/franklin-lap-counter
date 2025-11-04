@@ -13,7 +13,8 @@
     "basedpyright@latest",
     "pyright@latest",
     "python313Packages.redis@latest",
-    "python313Packages.ruff@latest"
+    "python313Packages.ruff@latest",
+    "python313Packages.aiohttp@latest"
   ],
   "shell": {
     "init_hook": [
@@ -23,7 +24,8 @@
     "scripts": {
       "hardware-monitor": ["python hardware_comm_redis.py"],
       "franklin": ["python franklin.py"],
-      "hw-sim": ["python hardware_comm_redis.py --sim"]
+      "hw-sim": ["python hardware_comm_redis.py --sim"],
+      "web": ["python web_server.py"]
     }
   }
 }

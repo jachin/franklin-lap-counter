@@ -20,7 +20,8 @@
     "python313Packages.markdown-it-py@latest",
     "python313Packages.mdit-py-plugins@latest",
     "python313Packages.pygments@latest",
-    "python313Packages.rich@latest"
+    "python313Packages.rich@latest",
+    "go@latest"
   ],
   "shell": {
     "init_hook": [
@@ -31,7 +32,11 @@
       "hardware-monitor": ["python hardware_comm_redis.py"],
       "franklin": ["python franklin.py"],
       "hw-sim": ["python hardware_comm_redis.py --sim"],
-      "web": ["python web_server.py"]
+      "web": ["python web_server.py"],
+      "go-hardware": ["go run ./go-hardware-comm/*.go"],
+      "go-hardware-sim": ["go run ./go-hardware-comm/*.go --sim"],
+      "go-hardware-tui": ["go run ./go-hardware-comm/*.go --tui"],
+      "go-hardware-sim-tui": ["go run ./go-hardware-comm/*.go --sim --tui"]
     }
   }
 }

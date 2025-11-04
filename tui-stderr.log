@@ -1,0 +1,6 @@
+[TUI-Redis] 2025/11/03 22:57:18 Subscribed to channel: hardware:out
+[TUI-Redis] 2025/11/03 22:57:18 TUI message receiver started, listening for messages...
+[TUI-Redis] 2025/11/03 22:57:19 TUI received message: {"type":"heartbeat"}
+[TUI-Redis] 2025/11/03 22:57:19 TUI received message: {"type":"heartbeat"}
+[TUI-Redis] 2025/11/03 22:57:21 TUI received message: {"type":"heartbeat"}
+[TUI-Redis] 2025/11/03 22:57:21 TUI received message: {"type":"heartbeat"}

@@ -37,10 +37,8 @@ from database import LapDatabase
 class LapDataDisplay(Static):
     laps: reactive[list[Any]] = reactive([])  # type: ignore[valid-type]
 
-    def __init__(
-        self, *args: object, contestants: RaceContestants, race: Race, **kwargs: object
-    ) -> None:
-        super().__init__(*args, **kwargs)
+    def __init__(self, contestants: RaceContestants, race: Race, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
         self.contestants: RaceContestants = contestants
         self.race: Race = race
 
@@ -91,10 +89,8 @@ class RaceStatusDisplay(Static):
 class LeaderboardDisplay(DataTable[Any]):  # type: ignore[type-arg]
     leaderboard: reactive[list[Any]] = reactive([])  # type: ignore[valid-type]
 
-    def __init__(
-        self, *args: object, contestants: RaceContestants, race: Race, **kwargs: object
-    ) -> None:
-        super().__init__(*args, **kwargs)
+    def __init__(self, contestants: RaceContestants, race: Race, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
         self.contestants: RaceContestants = contestants
         self.race: Race = race
 

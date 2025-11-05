@@ -35,6 +35,7 @@
     ],
     "scripts": {
       "franklin": ["python franklin.py"],
+      "lint-franklin": ["basedpyright franklin.py"],
       "web": ["python web_server.py"],
       "rust-build": ["cargo build --manifest-path rust/Cargo.toml"],
       "rust-build-release": [

@@ -1,37 +1,44 @@
 import argparse
 import asyncio
-import logging
 import json
+import logging
+import pprint
 from pathlib import Path
 from typing import Any
+
+import redis
+from textual import on
 from textual.app import App, ComposeResult
-from textual.containers import Vertical, Horizontal
+from textual.binding import Binding
+from textual.containers import Horizontal, Vertical
+from textual.reactive import reactive
+from textual.screen import ModalScreen
 from textual.widgets import (
-    Header,
-    Footer,
-    Static,
     Button,
+    DataTable,
+    Digits,
+    Footer,
+    Header,
+    Input,
+    Label,
+    SelectionList,
+    Static,
     TabbedContent,
     TabPane,
-    Digits,
-    DataTable,
 )
-from textual.reactive import reactive
+
+from database import LapDatabase
 from race.race import (
     Race,
     RaceState,
-    is_race_going,
     generate_fake_race,
-    order_laps_by_occurrence,
-    make_lap_from_sensor_data_and_race,
+    is_race_going,
     make_fake_lap,
+    make_lap_from_sensor_data_and_race,
+    order_laps_by_occurrence,
 )
-from race.race_mode import RaceMode
 from race.race_contestants import RaceContestants
-from textual.binding import Binding
-import pprint
-import redis
-from database import LapDatabase
+from race.race_mode import RaceMode
 
 
 class LapDataDisplay(Static):
@@ -58,6 +65,10 @@ class LapDataDisplay(Static):
                     f"Racer {display_name} Lap {lap.lap_number} | Hardware: {lap.seconds_from_race_start:.2f}s, Internal: {lap.internal_lap_time:.2f}s, Lap Time: {lap.lap_time:.2f}s"
                 )
         return "\n".join(lines)
+
+    def refresh_display(self) -> None:
+        """Force a refresh of the display to update driver names."""
+        self.update()
 
 
 class RaceStatusDisplay(Static):
@@ -115,17 +126,32 @@ class LeaderboardDisplay(DataTable[Any]):  # type: ignore[type-arg]
             total_time,
         ) in self.leaderboard:
             display_name = self.contestants.get_contestant_name(racer_id)
+            # Format lap times, showing blank instead of "inf"
+            best_lap_display = (
+                "" if best_lap_time == float("inf") else f"{best_lap_time:.2f}"
+            )
+            last_lap_display = (
+                "" if last_lap_time == float("inf") else f"{last_lap_time:.2f}"
+            )
+            total_time_display = (
+                "" if total_time == float("inf") else f"{total_time:.2f}"
+            )
+
             row = (
                 position,
                 display_name,
                 lap_count,
-                f"{best_lap_time:.2f}",
-                f"{last_lap_time:.2f}",
-                f"{total_time:.2f}",
+                best_lap_display,
+                last_lap_display,
+                total_time_display,
             )
             self.add_row(*row)
 
     def watch_leaderboard(self, leaderboard) -> None:
+        self.on_leaderboard_changed()
+
+    def refresh_display(self) -> None:
+        """Force a refresh of the leaderboard to update driver names."""
         self.on_leaderboard_changed()
 
 
@@ -188,9 +214,10 @@ class Franklin(App[Any]):  # type: ignore[type-arg]
     """
 
     BINDINGS = [
-        Binding("ctrl+s", "start_race", "Start Race"),
-        Binding("ctrl+x", "end_race", "End Race"),
-        Binding("ctrl+t", "toggle_mode", "Toggle Race Mode"),
+        Binding("t", "toggle_mode", "Toggle Mode"),
+        Binding("s", "start_race", "Start Race"),
+        Binding("e", "end_race", "End Race"),
+        Binding("r", "rename_driver", "Rename Driver"),
     ]
 
     def __init__(
@@ -245,6 +272,7 @@ class Franklin(App[Any]):  # type: ignore[type-arg]
         self.redis_out_channel = "hardware:out"
         self._redis_client = None
         self._redis_pubsub = None
+        self.config_path = Path("config.json")
         self.update_subtitle()
 
     def _restore_race_from_db(self, race_id: int) -> None:
@@ -581,6 +609,24 @@ class Franklin(App[Any]):  # type: ignore[type-arg]
         elif button_id == "stop_btn":
             self.action_end_race()
 
+    def action_rename_driver(self) -> None:
+        """Action to open the rename driver dialog."""
+        self.push_screen(
+            RenameDriverScreen(self.global_contestants, self.race, self.config_path),
+            lambda result: self.refresh_driver_data() if result else None,
+        )
+
+    def refresh_driver_data(self) -> None:
+        """Refresh displays that show driver information."""
+        # Update any UI components that display driver names
+        self.query_one(LeaderboardDisplay).refresh_display()
+
+        # If we have any lap data displays, update them
+        lap_displays = self.query(LapDataDisplay)
+        for display in lap_displays:
+            # Force a re-render by setting laps to itself
+            display.refresh_display()
+
     async def on_mount(self) -> None:
         asyncio.create_task(self.update_race_time())
         asyncio.create_task(self.refresh_lap_data())
@@ -622,6 +668,220 @@ class Franklin(App[Any]):  # type: ignore[type-arg]
                 await self.lap_queue.put(lap_event)
         except asyncio.CancelledError:
             logging.info("Fake race playback cancelled")
+
+
+class RenameDriverScreen(ModalScreen[bool]):
+    """
+    A modal screen to rename drivers.
+    Shows a list of all drivers, with unknown IDs from current race at the top.
+    """
+
+    BINDINGS = [
+        Binding("escape", "dismiss(False)", "Cancel"),
+        Binding("enter", "action_save", "Save", key_display="Enter"),
+    ]
+
+    CSS = """
+    #rename-driver-modal {
+        width: 60%;
+        height: 80%;
+        background: $panel;
+        border: solid $accent;
+        padding: 1 2;
+    }
+
+    #rename-driver-title {
+        text-align: center;
+        text-style: bold;
+        margin-bottom: 1;
+    }
+
+    #driver-list {
+        height: 1fr;
+        margin-bottom: 1;
+    }
+
+    #driver-name-label {
+        margin-top: 1;
+        margin-bottom: 1;
+    }
+
+    #driver-name-input {
+        margin-bottom: 1;
+    }
+
+    #driver-rename-buttons {
+        height: auto;
+        width: 100%;
+        align: center middle;
+        margin-top: 1;
+    }
+
+    Button {
+        margin: 0 1;
+    }
+    """
+
+    def __init__(self, contestants, race, config_path):
+        super().__init__()
+        self.contestants = contestants
+        self.race = race
+        self.config_path = config_path
+        self.selected_driver_id = None
+        self.driver_name_input = None
+
+    def compose(self) -> ComposeResult:
+        """Create UI elements for the screen."""
+        with Vertical(id="rename-driver-modal"):
+            yield Label("Rename Driver", id="rename-driver-title")
+            yield Label("Select a driver to rename:")
+            yield SelectionList(id="driver-list")
+            yield Label("New name:", id="driver-name-label")
+            yield Input(placeholder="Enter driver name", id="driver-name-input")
+            with Horizontal(id="driver-rename-buttons"):
+                yield Button("Cancel", variant="error", id="cancel-btn")
+                yield Button("Save", variant="success", id="save-btn")
+
+    def on_mount(self):
+        """
+        Set up the driver list when the screen is mounted.
+        Unknown driver IDs from the current race will be at the top.
+        """
+        driver_list = self.query_one("#driver-list", SelectionList)
+        driver_list.clear_options()
+
+        # Track which IDs have been seen in the race but don't have names yet
+        unknown_ids = set()
+        for lap in self.race.laps:
+            racer_id = lap.racer_id
+            name = self.contestants.get_contestant_name(racer_id)
+            if name.startswith("Unknown"):
+                unknown_ids.add(racer_id)
+
+        # Add unknown drivers first
+        for transmitter_id in unknown_ids:
+            driver_list.add_option(
+                (f"⚠️  ID: {transmitter_id} (Unknown)", transmitter_id)
+            )
+
+        # Add known drivers
+        for contestant in self.contestants.contestants:
+            # Skip if already added to unknown list
+            if contestant.transmitter_id in unknown_ids:
+                continue
+            driver_list.add_option((contestant.name, contestant.transmitter_id))
+
+        # Disable input until a driver is selected
+        self.query_one("#driver-name-input", Input).disabled = True
+
+    @on(SelectionList.SelectedChanged)
+    def handle_selection_change(self, event: SelectionList.SelectedChanged):
+        """Handle when a driver is selected from the list."""
+        selection = event.selection_list.selected  # Get the selected values
+        if not selection:
+            self.selected_driver_id = None
+            self.query_one("#driver-name-input", Input).disabled = True
+            return
+
+        self.selected_driver_id = selection[0]  # Get the first selected value
+        input_field = self.query_one("#driver-name-input", Input)
+        input_field.disabled = False
+
+        # Fill in existing name if it exists
+        current_name = self.contestants.get_contestant_name(self.selected_driver_id)
+        if not current_name.startswith("Unknown"):
+            input_field.value = current_name
+        else:
+            input_field.value = ""
+            input_field.placeholder = (
+                f"Enter name for driver ID {self.selected_driver_id}"
+            )
+
+        input_field.focus()
+
+    @on(Button.Pressed, "#cancel-btn")
+    def handle_cancel(self):
+        """Handle the cancel button press."""
+        self.dismiss(False)
+
+    @on(Button.Pressed, "#save-btn")
+    def handle_save(self):
+        """Handle the save button press, updating the contestant name."""
+        self.action_save()
+
+    @on(Input.Submitted, "#driver-name-input")
+    def handle_input_submitted(self):
+        """Handle the input submitted event (Enter key pressed)."""
+        self.action_save()
+
+    def action_save(self):
+        """Save action that can be triggered by button or keyboard shortcut."""
+        if self.selected_driver_id is None:
+            return
+
+        new_name = self.query_one("#driver-name-input", Input).value
+        if not new_name:
+            return
+
+        # Look for existing contestant with this ID
+        existing_contestant = None
+        for contestant in self.contestants.contestants:
+            if contestant.transmitter_id == self.selected_driver_id:
+                contestant.name = new_name
+                existing_contestant = contestant
+                break
+
+        # If no existing contestant, add a new one
+        if existing_contestant is None:
+            from race.contestant import Contestant
+
+            new_contestant = Contestant(
+                transmitter_id=self.selected_driver_id, name=new_name
+            )
+            self.contestants.contestants.append(new_contestant)
+
+        # Save the updated contestants to config.json
+        self.save_config()
+        self.dismiss(True)
+
+    def save_config(self):
+        """Save the updated contestants to config.json."""
+        # Check if config file exists
+        if not self.config_path.exists():
+            logging.warning(
+                f"Config file {self.config_path} does not exist, creating it."
+            )
+            self.notify("Creating new config file", severity="information")
+
+        # Load existing config or create new
+        try:
+            if self.config_path.exists():
+                config_data = json.loads(self.config_path.read_text())
+            else:
+                config_data = {"total_laps": 10, "contestants": []}
+        except Exception as e:
+            logging.error(f"Failed to read config.json: {e}")
+            config_data = {"total_laps": 10, "contestants": []}
+
+        # Update contestants in config
+        contestants_data = []
+        for contestant in self.contestants.contestants:
+            contestants_data.append(
+                {"transmitter_id": contestant.transmitter_id, "name": contestant.name}
+            )
+
+        config_data["contestants"] = contestants_data
+
+        # Write back to file
+        try:
+            self.config_path.write_text(json.dumps(config_data, indent=2))
+            logging.info("Updated config.json with new driver names")
+            self.notify(
+                "Driver information updated successfully", severity="information"
+            )
+        except Exception as e:
+            logging.error(f"Failed to write to config.json: {e}")
+            self.notify(f"Error saving configuration: {e}", severity="error")
 
 
 if __name__ == "__main__":

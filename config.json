@@ -20,6 +20,10 @@
     {
       "transmitter_id": 5,
       "name": "Rocket Racer"
+    },
+    {
+      "transmitter_id": 1000813,
+      "name": "Milton"
     }
   ]
 }

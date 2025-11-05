@@ -3,6 +3,7 @@ import asyncio
 import logging
 import json
 from pathlib import Path
+from typing import Any
 from textual.app import App, ComposeResult
 from textual.containers import Vertical, Horizontal
 from textual.widgets import (
@@ -30,17 +31,18 @@ from race.race_contestants import RaceContestants
 from textual.binding import Binding
 import pprint
 import redis
+from database import LapDatabase
 
 
 class LapDataDisplay(Static):
-    laps = reactive([])
+    laps: reactive[list[Any]] = reactive([])  # type: ignore[valid-type]
 
     def __init__(
-        self, *args, contestants: RaceContestants, race: Race, **kwargs
+        self, *args: object, contestants: RaceContestants, race: Race, **kwargs: object
     ) -> None:
         super().__init__(*args, **kwargs)
-        self.contestants = contestants
-        self.race = race
+        self.contestants: RaceContestants = contestants
+        self.race: Race = race
 
     def render(self) -> str:
         if not self.laps:
@@ -62,9 +64,9 @@ class LapDataDisplay(Static):
 
 class RaceStatusDisplay(Static):
     BORDER_TITLE = "Race Status"
-    race_state = reactive(RaceState.NOT_STARTED)
-    leader_laps_remaining = reactive(10)
-    last_place_laps_remaining = reactive(10)
+    race_state: reactive[RaceState] = reactive(RaceState.NOT_STARTED)  # type: ignore[valid-type]
+    leader_laps_remaining: reactive[int] = reactive(10)  # type: ignore[valid-type]
+    last_place_laps_remaining: reactive[int] = reactive(10)  # type: ignore[valid-type]
 
     def render(self) -> str:
         status = []
@@ -86,15 +88,15 @@ class RaceStatusDisplay(Static):
         return "\n".join(status)
 
 
-class LeaderboardDisplay(DataTable):
-    leaderboard = reactive([])
+class LeaderboardDisplay(DataTable[Any]):  # type: ignore[type-arg]
+    leaderboard: reactive[list[Any]] = reactive([])  # type: ignore[valid-type]
 
     def __init__(
-        self, *args, contestants: RaceContestants, race: Race, **kwargs
+        self, *args: object, contestants: RaceContestants, race: Race, **kwargs: object
     ) -> None:
         super().__init__(*args, **kwargs)
-        self.contestants = contestants
-        self.race = race
+        self.contestants: RaceContestants = contestants
+        self.race: Race = race
 
     def on_leaderboard_changed(self) -> None:
         self.clear(columns=True)
@@ -143,7 +145,7 @@ class RaceTimeDisplay(Digits):
         self.update(f"{minutes}:{seconds}:{tenths}")
 
 
-class Franklin(App):
+class Franklin(App[Any]):  # type: ignore[type-arg]
     TITLE = "Franklin Lap Counter"
     SUB_TITLE = "RC Lap Counter - Fake Race Mode"
     # Note: will be overridden dynamically in update_subtitle
@@ -202,6 +204,7 @@ class Franklin(App):
         total_laps,
         contestants_data,
         redis_socket="./redis.sock",
+        db_path="lap_counter.db",
         **kwargs,
     ):
         super().__init__(**kwargs)
@@ -228,6 +231,18 @@ class Franklin(App):
         logging.info("Franklin initialized")
         logging.info(f"Franklin initialized: {self.race_mode}")
 
+        # Database setup
+        self.db = LapDatabase(db_path)
+        self.current_race_id = None
+
+        # Check for in-progress race and resume if found
+        in_progress = self.db.get_in_progress_race()
+        if in_progress:
+            logging.info(f"Resuming in-progress race: {in_progress['id']}")
+            self.current_race_id = in_progress["id"]
+            # Load laps from database and restore race state
+            self._restore_race_from_db(in_progress["id"])
+
         # Redis communication setup
         self.redis_socket = redis_socket
         self.redis_in_channel = "hardware:in"
@@ -235,6 +250,16 @@ class Franklin(App):
         self._redis_client = None
         self._redis_pubsub = None
         self.update_subtitle()
+
+    def _restore_race_from_db(self, race_id: int) -> None:
+        """Restore race state from database"""
+        try:
+            laps = self.db.get_race_laps(race_id)
+            logging.info(f"Restored {len(laps)} laps from database for race {race_id}")
+            # Note: We don't automatically start the race, just load the data
+            # The user can decide whether to continue or start fresh
+        except Exception as e:
+            logging.error(f"Failed to restore race from database: {e}")
 
     def update_subtitle(self) -> None:
         mode_str = f"RC Lap Counter - {self.race_mode}"
@@ -310,7 +335,10 @@ class Franklin(App):
 
                 if message and message["type"] == "message":
                     try:
-                        msg = json.loads(message["data"])
+                        data = message["data"]
+                        msg: dict[str, Any] = (
+                            json.loads(data) if isinstance(data, (str, bytes)) else {}
+                        )
                         msg_type = msg.get("type")
 
                         logging.debug(
@@ -392,6 +420,26 @@ class Franklin(App):
                 lap = await asyncio.wait_for(self.lap_queue.get(), timeout=0.1)
                 logging.info("adding lap: %s", self.race.state)
                 self.race.add_lap(lap)
+
+                # Save lap to database
+                if self.current_race_id:
+                    try:
+                        self.db.add_lap(
+                            race_id=self.current_race_id,
+                            racer_id=lap.racer_id,
+                            sensor_id=getattr(
+                                lap, "sensor_id", lap.racer_id
+                            ),  # Use racer_id as fallback
+                            race_time=lap.seconds_from_race_start,
+                            lap_number=lap.lap_number,
+                            lap_time=lap.lap_time if lap.lap_number > 0 else None,
+                        )
+                        logging.debug(
+                            f"Saved lap to database: racer={lap.racer_id}, lap={lap.lap_number}"
+                        )
+                    except Exception as e:
+                        logging.error(f"Failed to save lap to database: {e}")
+
                 lap_display_events.laps = self.race.laps.copy()
                 lap_display_leaderboard.leaderboard = self.race.leaderboard()
                 leader_remaining, last_remaining = self.race.laps_remaining()
@@ -449,6 +497,12 @@ class Franklin(App):
 
                 # This call updates the state of the race
                 self.race.start(start_time=current_time)
+
+                # Create database record for this race
+                self.current_race_id = self.db.create_race(
+                    notes=f"Mode: {self.race_mode}, Total Laps: {self.total_laps}"
+                )
+                logging.info(f"Created database race record: {self.current_race_id}")
 
                 status_display.race_state = self.race.state
                 start_btn.disabled = True
@@ -511,6 +565,12 @@ class Franklin(App):
             stop_btn.disabled = True
             # Store this race for the next one
             self.previous_race = self.race
+
+            # Mark race as completed in database
+            if self.current_race_id:
+                self.db.end_race(self.current_race_id)
+                logging.info(f"Ended database race record: {self.current_race_id}")
+                self.current_race_id = None
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         button_id = event.button.id

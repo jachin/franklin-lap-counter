@@ -1,0 +1,262 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>RC Lap Counter</title>
+        <style>
+            body {
+                font-family: "Courier New", monospace;
+                max-width: 1200px;
+                margin: 0 auto;
+                padding: 20px;
+                background-color: #1e1e1e;
+                color: #d4d4d4;
+            }
+
+            h1 {
+                color: #4ec9b0;
+            }
+
+            .status {
+                display: inline-block;
+                padding: 8px 16px;
+                border-radius: 4px;
+                font-weight: bold;
+                margin-bottom: 20px;
+            }
+
+            .status.connected {
+                background-color: #4ec9b0;
+                color: #1e1e1e;
+            }
+
+            .status.disconnected {
+                background-color: #f48771;
+                color: #1e1e1e;
+            }
+
+            .status.connecting {
+                background-color: #dcdcaa;
+                color: #1e1e1e;
+            }
+
+            .event-log {
+                background-color: #252526;
+                border: 1px solid #3e3e42;
+                border-radius: 4px;
+                padding: 16px;
+                height: 500px;
+                overflow-y: auto;
+                font-size: 14px;
+            }
+
+            .event {
+                padding: 8px;
+                margin-bottom: 8px;
+                border-left: 4px solid #007acc;
+                background-color: #2d2d30;
+            }
+
+            .event.heartbeat {
+                border-left-color: #4ec9b0;
+                opacity: 0.7;
+            }
+
+            .event.lap {
+                border-left-color: #dcdcaa;
+            }
+
+            .event.status {
+                border-left-color: #569cd6;
+            }
+
+            .event.error {
+                border-left-color: #f48771;
+            }
+
+            .event-type {
+                font-weight: bold;
+                color: #4ec9b0;
+                text-transform: uppercase;
+                font-size: 12px;
+            }
+
+            .event-time {
+                color: #858585;
+                font-size: 12px;
+            }
+
+            .event-data {
+                margin-top: 4px;
+                color: #d4d4d4;
+            }
+
+            .controls {
+                margin-bottom: 20px;
+            }
+
+            button {
+                background-color: #007acc;
+                color: white;
+                border: none;
+                padding: 10px 20px;
+                border-radius: 4px;
+                cursor: pointer;
+                font-family: "Courier New", monospace;
+                font-size: 14px;
+            }
+
+            button:hover {
+                background-color: #005a9e;
+            }
+
+            button:disabled {
+                background-color: #3e3e42;
+                cursor: not-allowed;
+            }
+        </style>
+    </head>
+    <body>
+        <h1>RC Lap Counter - Live Events</h1>
+
+        <div class="controls">
+            <div class="status connecting" id="status">Connecting...</div>
+            <button id="clearBtn">Clear Log</button>
+        </div>
+
+        <div class="event-log" id="eventLog">
+            <div style="color: #858585">Waiting for events...</div>
+        </div>
+
+        <script>
+            let ws = null;
+            let reconnectTimeout = null;
+            const eventLog = document.getElementById("eventLog");
+            const statusEl = document.getElementById("status");
+            const clearBtn = document.getElementById("clearBtn");
+
+            function updateStatus(status, text) {
+                statusEl.className = `status ${status}`;
+                statusEl.textContent = text;
+            }
+
+            function formatTime(date) {
+                return date.toLocaleTimeString("en-US", {
+                    hour12: false,
+                    fractionalSecondDigits: 3,
+                });
+            }
+
+            function addEvent(eventData) {
+                const eventType = eventData.type || "unknown";
+
+                // Filter out heartbeat and debug events
+                if (eventType === "heartbeat" || eventType === "debug") {
+                    return;
+                }
+
+                const eventDiv = document.createElement("div");
+                eventDiv.className = `event ${eventType}`;
+
+                const time = formatTime(new Date());
+
+                let dataStr = "";
+                if (eventType === "lap") {
+                    dataStr = `Racer ${eventData.racer_id}, Sensor ${eventData.sensor_id} - Race time: ${eventData.race_time}s`;
+                } else if (eventType === "status") {
+                    dataStr =
+                        eventData.message ||
+                        eventData.status ||
+                        JSON.stringify(eventData);
+                } else if (eventType === "connected") {
+                    dataStr = eventData.message;
+                } else if (eventType === "raw") {
+                    dataStr = `Raw: ${eventData.line}`;
+                } else if (eventType === "new_msg") {
+                    dataStr = `New message - Sensor ${eventData.sensor_id}, Time: ${eventData.raw_time}s`;
+                } else {
+                    dataStr = JSON.stringify(eventData, null, 2);
+                }
+
+                eventDiv.innerHTML = `
+                <div>
+                    <span class="event-type">${eventType}</span>
+                </div>
+                <div class="event-data">${dataStr}</div>
+            `;
+
+                eventLog.insertBefore(eventDiv, eventLog.firstChild);
+
+                // Keep only last 100 events
+                while (eventLog.children.length > 100) {
+                    eventLog.removeChild(eventLog.lastChild);
+                }
+            }
+
+            function connect() {
+                const protocol =
+                    window.location.protocol === "https:" ? "wss:" : "ws:";
+                const wsUrl = `${protocol}//${window.location.host}/ws`;
+
+                updateStatus("connecting", "Connecting...");
+                console.log("Connecting to WebSocket:", wsUrl);
+
+                ws = new WebSocket(wsUrl);
+
+                ws.onopen = () => {
+                    console.log("WebSocket connected");
+                    updateStatus("connected", "Connected");
+                    clearReconnectTimeout();
+                };
+
+                ws.onmessage = (event) => {
+                    try {
+                        const data = JSON.parse(event.data);
+                        console.log("Received:", data);
+                        addEvent(data);
+                    } catch (e) {
+                        console.error("Error parsing message:", e);
+                    }
+                };
+
+                ws.onerror = (error) => {
+                    console.error("WebSocket error:", error);
+                    updateStatus("disconnected", "Error");
+                };
+
+                ws.onclose = () => {
+                    console.log("WebSocket closed");
+                    updateStatus(
+                        "disconnected",
+                        "Disconnected - Reconnecting...",
+                    );
+                    scheduleReconnect();
+                };
+            }
+
+            function clearReconnectTimeout() {
+                if (reconnectTimeout) {
+                    clearTimeout(reconnectTimeout);
+                    reconnectTimeout = null;
+                }
+            }
+
+            function scheduleReconnect() {
+                clearReconnectTimeout();
+                reconnectTimeout = setTimeout(() => {
+                    console.log("Attempting to reconnect...");
+                    connect();
+                }, 2000);
+            }
+
+            clearBtn.addEventListener("click", () => {
+                eventLog.innerHTML =
+                    '<div style="color: #858585;">Log cleared. Waiting for events...</div>';
+            });
+
+            // Initial connection
+            connect();
+        </script>
+    </body>
+</html>

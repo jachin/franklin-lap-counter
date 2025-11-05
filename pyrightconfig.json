@@ -1,12 +1,10 @@
 {
   "include": ["**/*.py"],
-  "exclude": ["**/node_modules", "**/__pycache__", ".venv"],
-  "venvPath": ".",
-  "venv": ".venv",
+  "exclude": ["**/node_modules", "**/__pycache__", ".devbox"],
+  "venvPath": ".devbox/virtenv",
+  "venv": "python",
   "pythonVersion": "3.13",
-  "typeCheckingMode": "standard",
+  "typeCheckingMode": "recommended",
   "useLibraryCodeForTypes": true,
-  "reportMissingImports": true,
-  "stubPath": ".venv/lib/python3.13/site-packages",
-  "extraPaths": [".venv/lib/python3.13/site-packages"]
+  "reportMissingImports": true
 }

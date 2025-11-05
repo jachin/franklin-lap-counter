@@ -4,7 +4,7 @@
   "venvPath": ".devbox/virtenv",
   "venv": "python",
   "pythonVersion": "3.13",
-  "typeCheckingMode": "recommended",
+  "typeCheckingMode": "standard",
   "useLibraryCodeForTypes": true,
   "reportMissingImports": true
 }

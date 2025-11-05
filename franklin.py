@@ -272,7 +272,7 @@ class Franklin(App[Any]):  # type: ignore[type-arg]
         self.redis_out_channel = "hardware:out"
         self._redis_client = None
         self._redis_pubsub = None
-        self.config_path = Path("config.json")
+        self.config_path = Path("franklin.config.json")
         self.update_subtitle()
 
     def _restore_race_from_db(self, race_id: int) -> None:
@@ -840,17 +840,18 @@ class RenameDriverScreen(ModalScreen[bool]):
             )
             self.contestants.contestants.append(new_contestant)
 
-        # Save the updated contestants to config.json
-        self.save_config()
-        self.dismiss(True)
+        # Save the updated contestants to franklin.config.json
+        success = self.save_config()
+        self.dismiss(success)
 
-    def save_config(self):
-        """Save the updated contestants to config.json."""
+    def save_config(self) -> bool:
+        """
+        Save the updated contestants to franklin.config.json.
+        Returns True if successful, False otherwise.
+        """
         # Check if config file exists
         if not self.config_path.exists():
-            logging.warning(
-                f"Config file {self.config_path} does not exist, creating it."
-            )
+            logging.info(f"Config file {self.config_path} does not exist, creating it.")
             self.notify("Creating new config file", severity="information")
 
         # Load existing config or create new
@@ -860,7 +861,7 @@ class RenameDriverScreen(ModalScreen[bool]):
             else:
                 config_data = {"total_laps": 10, "contestants": []}
         except Exception as e:
-            logging.error(f"Failed to read config.json: {e}")
+            logging.error(f"Failed to read franklin.config.json: {e}")
             config_data = {"total_laps": 10, "contestants": []}
 
         # Update contestants in config
@@ -874,14 +875,20 @@ class RenameDriverScreen(ModalScreen[bool]):
 
         # Write back to file
         try:
+            # Create parent directories if they don't exist
+            self.config_path.parent.mkdir(parents=True, exist_ok=True)
+
+            # Write the config file
             self.config_path.write_text(json.dumps(config_data, indent=2))
-            logging.info("Updated config.json with new driver names")
+            logging.info("Updated franklin.config.json with new driver names")
             self.notify(
                 "Driver information updated successfully", severity="information"
             )
+            return True
         except Exception as e:
-            logging.error(f"Failed to write to config.json: {e}")
+            logging.error(f"Failed to write to franklin.config.json: {e}")
             self.notify(f"Error saving configuration: {e}", severity="error")
+            return False
 
 
 if __name__ == "__main__":
@@ -910,18 +917,23 @@ if __name__ == "__main__":
     else:
         initial_mode = RaceMode.TRAINING
 
-    config_path = Path("config.json")
+    config_path = Path("franklin.config.json")
 
     total_laps = 10
     contestants_data = []
 
+    # Try to load configuration, but continue with defaults if file doesn't exist or is invalid
     if config_path.exists():
         try:
             config_data = json.loads(config_path.read_text())
             total_laps = config_data.get("total_laps", 10)
             contestants_data = config_data.get("contestants", [])
+            logging.info(f"Loaded configuration from {config_path}")
         except Exception as e:
-            logging.error(f"Failed to read config.json: {e}")
+            logging.error(f"Failed to read franklin.config.json: {e}")
+            logging.info("Continuing with default configuration")
+    else:
+        logging.info(f"Config file {config_path} not found, using defaults")
 
     app = Franklin(
         initial_mode=initial_mode,

@@ -85,7 +85,7 @@ python franklin.py --fake
 
 ## Configuration
 
-Edit `config.json` to configure your race:
+Edit `franklin.config.json` to configure your race:
 
 ```json
 {

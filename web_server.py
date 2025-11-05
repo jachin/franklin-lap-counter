@@ -8,9 +8,9 @@ import asyncio
 import json
 import logging
 import os
+from datetime import datetime
 from pathlib import Path
 from typing import Any
-from datetime import datetime
 
 import redis.asyncio as redis
 from aiohttp import web  # type: ignore[import-untyped]
@@ -23,7 +23,7 @@ REDIS_OUT_CHANNEL = "hardware:out"
 WEB_PORT = 8080
 STATIC_DIR = Path(__file__).parent / "static"
 DB_PATH = "lap_counter.db"
-CONFIG_PATH = Path(__file__).parent / "config.json"
+CONFIG_PATH = Path(__file__).parent / "franklin.config.json"
 
 # Logging setup
 logging.basicConfig(
@@ -174,19 +174,24 @@ class WebSocketServer:
         return ws
 
     async def get_config(self, request: web.Request) -> web.Response:
-        """Get the configuration from config.json"""
+        """Get the configuration from franklin.config.json"""
         try:
             if os.path.exists(CONFIG_PATH):
                 with open(CONFIG_PATH, "r") as f:
                     config = json.load(f)
                 return web.json_response(config)
             else:
-                logger.error(f"Config file not found: {CONFIG_PATH}")
-                return web.json_response(
-                    {"error": "Configuration file not found"}, status=404
+                logger.info(
+                    f"Config file not found: {CONFIG_PATH}, returning default config"
                 )
+                # Return a default configuration instead of an error
+                default_config = {"total_laps": 10, "contestants": []}
+                return web.json_response(default_config)
         except Exception as e:
             logger.error(f"Error reading config file: {e}")
+            # Return a default configuration on error
+            default_config = {"total_laps": 10, "contestants": [], "error": str(e)}
+            return web.json_response(default_config)
             return web.json_response(
                 {"error": f"Error reading configuration: {str(e)}"}, status=500
             )

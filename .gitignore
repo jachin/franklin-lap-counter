@@ -19,6 +19,11 @@ redis.sock
 *.db
 lap_counter.db
 
+# Configuration
+franklin.config.json
+config.json
+
+
 
 # Rust
 /target

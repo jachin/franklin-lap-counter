@@ -18,3 +18,11 @@ redis.sock
 # Database
 *.db
 lap_counter.db
+
+
+# Rust
+/target
+rust/target
+Cargo.lock
+**/*.rs.bk
+*.pdb

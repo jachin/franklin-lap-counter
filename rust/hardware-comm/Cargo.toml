@@ -1,0 +1,21 @@
+[package]
+name = "hardware-comm"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+
+[[bin]]
+name = "hardware-comm"
+path = "src/main.rs"
+
+[dependencies]
+tokio.workspace = true
+redis.workspace = true
+serialport.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+anyhow.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+ratatui.workspace = true
+crossterm.workspace = true

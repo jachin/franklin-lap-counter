@@ -2,18 +2,20 @@
 
 ## ✅ What's Working
 
-Your `hardware_comm_redis.py` is now fully functional with:
+Your `hardware_comm_redis.py` and Rust `hardware-comm` are now fully functional with:
 - ✅ Redis pub/sub communication
 - ✅ Simulation mode (no hardware needed)
 - ✅ Hardware mode (for real device)
 - ✅ Automatic heartbeats every 2 seconds
 - ✅ Redis connection testing on startup
 - ✅ Full TUI with race simulation controls
+- ✅ Verbose mode to show RAW and HEARTBEAT messages
 
 ## Running the System
 
 ### Option 1: Interactive TUI (Recommended for Testing)
 
+**Python Version:**
 ```bash
 # Start devbox shell (auto-starts Redis)
 devbox shell
@@ -22,16 +24,31 @@ devbox shell
 devbox run hw-sim
 ```
 
-Or directly:
+**Rust Version (Recommended):**
 ```bash
-devbox run hw-sim
+# Run in simulation mode
+devbox run rust-hw-sim
+
+# Run in hardware mode (connects to real device)
+devbox run rust-hw
+
+# Run with verbose mode (shows RAW and HEARTBEAT messages)
+devbox run rust-hw-verbose
+devbox run rust-hw-sim-verbose
 ```
 
 **TUI Controls:**
-- **S** - Start race
-- **P** - Stop race  
-- **1, 2, 3, 4** - Simulate lap for racer 1-4
+- **S** - Start race (simulation mode only)
+- **P** - Stop race (simulation mode only)
+- **1, 2, 3, 4** - Simulate lap for racer 1-4 (simulation mode only)
 - **Q** - Quit
+
+**Command-line Flags:**
+- `--sim` or `-s` - Run in simulation mode
+- `--verbose` or `-v` - Show RAW and HEARTBEAT messages
+- `--serial-port <path>` or `-p <path>` - Specify serial port path
+- `--baudrate <rate>` or `-b <rate>` - Set baudrate (default: 9600)
+- `--redis-socket <path>` - Specify Redis socket path
 
 ### Option 2: Automated Test
 
@@ -141,13 +158,33 @@ Lap detected:
 
 All activity is logged to: `hardware_redis.log`
 
+## Available Devbox Scripts
+
+**Rust Hardware Communication:**
+- `rust-hw` - Run hardware mode (connects to real device)
+- `rust-hw-verbose` - Run hardware mode with verbose output
+- `rust-hw-sim` - Run simulation mode
+- `rust-hw-sim-verbose` - Run simulation mode with verbose output
+- `rust-build` - Build the Rust project
+- `rust-build-release` - Build optimized release version
+- `rust-check` - Check Rust code for errors
+- `rust-test` - Run Rust tests
+
+**Python Hardware Communication:**
+- `hardware-monitor` - Run Python hardware mode
+- `hw-sim` - Run Python simulation mode
+
+**Other Services:**
+- `franklin` - Run the Franklin TUI for race management
+- `web` - Run the web server
+
 ## Next Steps for Your Refactor
 
-1. ✅ **Done:** Hardware communication layer with Redis
-2. **Next:** Update your main application (franklin.py?) to use Redis instead of multiprocessing
-3. **Then:** Test with real hardware
-4. **Finally:** Add any additional features (persistence, web UI, etc.)
+1. ✅ **Done:** Hardware communication layer with Redis (Python + Rust)
+2. ✅ **Done:** Franklin TUI uses Redis for communication
+3. **Next:** Test with real hardware
+4. **Then:** Add any additional features (persistence, web UI, etc.)
 
 ---
 
-**Test Results:** ✓ All tests passing (11 messages, 4 heartbeats, 3 laps, 4 status)
+**Note:** Use the Rust version (`rust-hw`) as it's more performant and has better error handling. The `--verbose` flag is useful for debugging but can clutter the display with HEARTBEAT and RAW messages during normal operation.

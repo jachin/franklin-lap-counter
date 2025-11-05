@@ -602,7 +602,7 @@ async fn command_handler_task(hw: Arc<HardwareComm>, app: Arc<Mutex<App>>) -> Re
                             let status_message = if is_simulation {
                                 "Simulation race started".to_string()
                             } else {
-                                "Race started (hardware mode)".to_string()
+                                "Race started".to_string()
                             };
 
                             if let Err(e) = hw.send_message(&OutMessage::Status {
@@ -623,7 +623,7 @@ async fn command_handler_task(hw: Arc<HardwareComm>, app: Arc<Mutex<App>>) -> Re
                             let status_message = if is_simulation {
                                 "Simulation race stopped".to_string()
                             } else {
-                                "Race stopped (hardware mode)".to_string()
+                                "Race stopped".to_string()
                             };
 
                             if let Err(e) = hw.send_message(&OutMessage::Status {

@@ -1,11 +1,11 @@
 [package]
-name = "hardware-comm"
+name = "franklin-hardware-monitor"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
 
 [[bin]]
-name = "hardware-comm"
+name = "franklin-hardware-monitor"
 path = "src/main.rs"
 
 [dependencies]

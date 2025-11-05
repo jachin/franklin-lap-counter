@@ -43,16 +43,16 @@
         "cargo build --release --manifest-path rust/Cargo.toml"
       ],
       "rust-hw-sim": [
-        "cargo run --manifest-path rust/Cargo.toml --bin hardware-comm -- --sim"
+        "cargo run --manifest-path rust/Cargo.toml --bin franklin-hardware-monitor -- --sim"
       ],
       "rust-hw-sim-verbose": [
-        "cargo run --manifest-path rust/Cargo.toml --bin hardware-comm -- --sim --verbose"
+        "cargo run --manifest-path rust/Cargo.toml --bin franklin-hardware-monitor -- --sim --verbose"
       ],
       "rust-hw": [
-        "cargo run --manifest-path rust/Cargo.toml --bin hardware-comm"
+        "cargo run --manifest-path rust/Cargo.toml --bin franklin-hardware-monitor"
       ],
       "rust-hw-verbose": [
-        "cargo run --manifest-path rust/Cargo.toml --bin hardware-comm -- --verbose"
+        "cargo run --manifest-path rust/Cargo.toml --bin franklin-hardware-monitor -- --verbose"
       ],
       "rust-check": ["cargo check --manifest-path rust/Cargo.toml"],
       "rust-test": ["cargo test --manifest-path rust/Cargo.toml"]

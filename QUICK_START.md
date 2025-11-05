@@ -2,7 +2,7 @@
 
 ## ✅ What's Working
 
-Your `hardware_comm_redis.py` and Rust `hardware-comm` are now fully functional with:
+Your `hardware_comm_redis.py` and Rust `franklin-hardware-monitor` are now fully functional with:
 - ✅ Redis pub/sub communication
 - ✅ Simulation mode (no hardware needed)
 - ✅ Hardware mode (for real device)

@@ -1,7 +1,7 @@
 [workspace]
 resolver = "2"
 members = [
-    "hardware-comm",
+    "franklin-hardware-monitor",
 ]
 
 [workspace.package]

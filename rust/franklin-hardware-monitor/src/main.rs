@@ -878,7 +878,7 @@ async fn main() -> Result<()> {
         .with_ansi(false)
         .init();
 
-    info!("Starting hardware-comm");
+    info!("Starting franklin-hardware-monitor");
 
     // Parse command-line arguments
     let args: Vec<String> = std::env::args().collect();

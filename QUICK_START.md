@@ -2,7 +2,7 @@
 
 ## ✅ What's Working
 
-Your `hardware_comm_redis.py` and Rust `franklin-hardware-monitor` are now fully functional with:
+The Rust `franklin-hardware-monitor` is now fully functional with:
 - ✅ Redis pub/sub communication
 - ✅ Simulation mode (no hardware needed)
 - ✅ Hardware mode (for real device)
@@ -60,7 +60,7 @@ This runs automated tests and shows you all the messages flowing through Redis.
 
 **Note:** If you see duplicate lap events (6 instead of 3), you have another instance running. Kill it with:
 ```bash
-pkill -f 'python hardware_comm_redis.py'
+pkill -f 'franklin-hardware-monitor'
 ```
 Then run the test again.
 
@@ -74,7 +74,7 @@ redis-cli -s ./redis.sock
 
 # Terminal 2: Run hardware comm
 devbox shell  
-python hardware_comm_redis.py --sim
+devbox run rust-hw-sim
 
 # Terminal 3: Send commands
 devbox shell

@@ -35,7 +35,7 @@ devbox shell
 **Terminal 1 - Hardware Interface:**
 ```bash
 devbox shell
-python hardware_comm_redis.py
+devbox run rust-hw
 ```
 
 **Terminal 2 - Race UI:**
@@ -49,7 +49,7 @@ python franklin.py --race
 **Terminal 1 - Hardware Simulator:**
 ```bash
 devbox shell
-python hardware_comm_redis.py --sim
+devbox run rust-hw-sim
 ```
 
 **Terminal 2 - Race UI:**
@@ -151,7 +151,7 @@ Redis starts automatically when you enter the devbox shell.
 
 ### Hardware not detected
 If Franklin shows "Lap counter not detected":
-1. Check that `hardware_comm_redis.py` is running in Terminal 1
+1. Check that `franklin-hardware-monitor` is running in Terminal 1
 2. Look for heartbeat messages in Terminal 1's output
 3. Verify the hardware is connected to the correct serial port
 4. Check `hardware_redis.log` for errors
@@ -159,7 +159,7 @@ If Franklin shows "Lap counter not detected":
 ### Duplicate lap events
 If you see duplicate lap events, you may have multiple instances running:
 ```bash
-pkill -f 'python hardware_comm_redis.py'
+pkill -f 'franklin-hardware-monitor'
 pkill -f 'python franklin.py'
 ```
 Then restart both processes.
@@ -169,7 +169,7 @@ The default serial port is:
 - macOS: `/dev/tty.usbserial-AB0KLIK2`
 - Linux: `/dev/ttyUSB0`
 
-You can modify `hardware_comm_redis.py` to use a different port if needed.
+You can modify `franklin-hardware-monitor` to use a different port if needed.
 
 ## Logs
 

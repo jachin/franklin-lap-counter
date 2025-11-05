@@ -35,21 +35,27 @@
     ],
     "scripts": {
       "hardware-monitor": ["python hardware_comm_redis.py"],
-      "franklin":         ["python franklin.py"],
-      "hw-sim":           ["python hardware_comm_redis.py --sim"],
-      "web":              ["python web_server.py"],
-      "rust-build":       ["cargo build --manifest-path rust/Cargo.toml"],
+      "franklin": ["python franklin.py"],
+      "hw-sim": ["python hardware_comm_redis.py --sim"],
+      "web": ["python web_server.py"],
+      "rust-build": ["cargo build --manifest-path rust/Cargo.toml"],
       "rust-build-release": [
         "cargo build --release --manifest-path rust/Cargo.toml"
       ],
       "rust-hw-sim": [
         "cargo run --manifest-path rust/Cargo.toml --bin hardware-comm -- --sim"
       ],
+      "rust-hw-sim-verbose": [
+        "cargo run --manifest-path rust/Cargo.toml --bin hardware-comm -- --sim --verbose"
+      ],
       "rust-hw": [
         "cargo run --manifest-path rust/Cargo.toml --bin hardware-comm"
       ],
+      "rust-hw-verbose": [
+        "cargo run --manifest-path rust/Cargo.toml --bin hardware-comm -- --verbose"
+      ],
       "rust-check": ["cargo check --manifest-path rust/Cargo.toml"],
-      "rust-test":  ["cargo test --manifest-path rust/Cargo.toml"]
+      "rust-test": ["cargo test --manifest-path rust/Cargo.toml"]
     }
   }
 }

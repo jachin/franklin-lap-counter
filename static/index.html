@@ -3,108 +3,274 @@
     <head>
         <meta charset="UTF-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-        <title>RC Lap Counter</title>
+        <title>Franklin RC Lap Counter</title>
+        <link
+            href="https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;700&family=Roboto:wght@300;400;700&display=swap"
+            rel="stylesheet"
+        />
         <style>
+            :root {
+                --bg-color: #1e1e1e;
+                --text-color: #d4d4d4;
+                --header-color: #4ec9b0;
+                --border-color: #3e3e42;
+                --panel-bg: #252526;
+                --highlight: #007acc;
+                --success: #4ec9b0;
+                --warning: #dcdcaa;
+                --error: #f48771;
+                --grid-line: #3e3e42;
+
+                /* Driver colors */
+                --driver-1: #ff5252;
+                --driver-2: #4caf50;
+                --driver-3: #2196f3;
+                --driver-4: #ff9800;
+                --driver-5: #9c27b0;
+                --driver-6: #00bcd4;
+                --driver-7: #ffeb3b;
+                --driver-8: #795548;
+            }
+
             body {
-                font-family: "Courier New", monospace;
+                font-family: "Roboto", sans-serif;
                 max-width: 1200px;
                 margin: 0 auto;
                 padding: 20px;
-                background-color: #1e1e1e;
-                color: #d4d4d4;
+                background-color: var(--bg-color);
+                color: var(--text-color);
+                line-height: 1.6;
+            }
+
+            h1,
+            h2,
+            h3 {
+                color: var(--header-color);
+                font-weight: 700;
             }
 
             h1 {
-                color: #4ec9b0;
+                font-size: 2.2rem;
+                margin-bottom: 0.5rem;
+                border-bottom: 2px solid var(--highlight);
+                padding-bottom: 0.5rem;
             }
 
-            .status {
+            h2 {
+                font-size: 1.6rem;
+                margin-top: 2rem;
+                margin-bottom: 1rem;
+            }
+
+            h3 {
+                font-size: 1.2rem;
+                margin-top: 1.5rem;
+                margin-bottom: 0.5rem;
+            }
+
+            .grid {
+                display: grid;
+                grid-template-columns: 1fr 300px;
+                gap: 20px;
+            }
+
+            @media (max-width: 900px) {
+                .grid {
+                    grid-template-columns: 1fr;
+                }
+            }
+
+            .panel {
+                background-color: var(--panel-bg);
+                border: 1px solid var(--border-color);
+                border-radius: 4px;
+                padding: 1rem;
+                margin-bottom: 1.5rem;
+            }
+
+            .race-info {
+                display: flex;
+                flex-wrap: wrap;
+                justify-content: space-between;
+                gap: 0.5rem;
+                margin-bottom: 1rem;
+            }
+
+            .race-info-item {
+                padding: 0.5rem 1rem;
+                background-color: rgba(0, 122, 204, 0.2);
+                border-radius: 4px;
+                font-family: "Roboto Mono", monospace;
+            }
+
+            .race-info-label {
+                font-weight: 700;
+                color: var(--header-color);
+                margin-right: 0.5rem;
+            }
+
+            /* Standings table */
+            .standings-table {
+                width: 100%;
+                border-collapse: collapse;
+                font-family: "Roboto Mono", monospace;
+                margin-top: 1rem;
+            }
+
+            .standings-table th,
+            .standings-table td {
+                padding: 0.75rem;
+                text-align: left;
+                border-bottom: 1px solid var(--grid-line);
+            }
+
+            .standings-table th {
+                color: var(--header-color);
+                font-weight: 700;
+                white-space: nowrap;
+            }
+
+            .standings-table tr:hover {
+                background-color: rgba(62, 62, 66, 0.5);
+            }
+
+            .driver-color {
                 display: inline-block;
-                padding: 8px 16px;
-                border-radius: 4px;
-                font-weight: bold;
-                margin-bottom: 20px;
+                width: 1rem;
+                height: 1rem;
+                border-radius: 50%;
+                margin-right: 0.5rem;
+                vertical-align: middle;
             }
 
-            .status.connected {
-                background-color: #4ec9b0;
-                color: #1e1e1e;
-            }
-
-            .status.disconnected {
-                background-color: #f48771;
-                color: #1e1e1e;
-            }
-
-            .status.connecting {
-                background-color: #dcdcaa;
-                color: #1e1e1e;
-            }
-
+            /* Event log */
             .event-log {
-                background-color: #252526;
-                border: 1px solid #3e3e42;
+                background-color: var(--panel-bg);
+                border: 1px solid var(--border-color);
                 border-radius: 4px;
-                padding: 16px;
-                height: 500px;
+                padding: 0.5rem;
+                height: 600px;
                 overflow-y: auto;
-                font-size: 14px;
+                font-family: "Roboto Mono", monospace;
+                font-size: 0.85rem;
             }
 
             .event {
-                padding: 8px;
-                margin-bottom: 8px;
-                border-left: 4px solid #007acc;
-                background-color: #2d2d30;
-            }
-
-            .event.heartbeat {
-                border-left-color: #4ec9b0;
-                opacity: 0.7;
+                padding: 0.5rem;
+                margin-bottom: 0.5rem;
+                border-left: 3px solid var(--highlight);
+                background-color: rgba(45, 45, 48, 0.8);
             }
 
             .event.lap {
-                border-left-color: #dcdcaa;
+                border-left-color: var(--warning);
             }
 
             .event.status {
-                border-left-color: #569cd6;
+                border-left-color: var(--success);
             }
 
             .event.error {
-                border-left-color: #f48771;
+                border-left-color: var(--error);
             }
 
             .event-type {
-                font-weight: bold;
-                color: #4ec9b0;
+                font-weight: 700;
+                color: var(--header-color);
                 text-transform: uppercase;
-                font-size: 12px;
+                font-size: 0.75rem;
             }
 
             .event-time {
                 color: #858585;
-                font-size: 12px;
+                font-size: 0.75rem;
+                margin-left: 0.5rem;
             }
 
             .event-data {
-                margin-top: 4px;
-                color: #d4d4d4;
+                margin-top: 0.25rem;
+                color: var(--text-color);
+                word-break: break-word;
             }
 
+            /* Status indicator */
+            .status {
+                display: inline-block;
+                padding: 0.5rem 1rem;
+                border-radius: 4px;
+                font-weight: 700;
+                margin-bottom: 1rem;
+            }
+
+            .status.connected {
+                background-color: var(--success);
+                color: #1e1e1e;
+            }
+
+            .status.disconnected {
+                background-color: var(--error);
+                color: #1e1e1e;
+            }
+
+            .status.connecting {
+                background-color: var(--warning);
+                color: #1e1e1e;
+            }
+
+            /* Race state */
+            .race-state {
+                display: inline-block;
+                padding: 0.5rem 1rem;
+                border-radius: 4px;
+                font-weight: 700;
+                margin-left: 1rem;
+            }
+
+            .race-state.running {
+                background-color: var(--success);
+                color: #1e1e1e;
+            }
+
+            .race-state.finished {
+                background-color: var(--warning);
+                color: #1e1e1e;
+            }
+
+            .race-state.not-started {
+                background-color: var(--highlight);
+                color: #ffffff;
+            }
+
+            .race-state.paused {
+                background-color: var(--error);
+                color: #1e1e1e;
+            }
+
+            /* Best lap indicator */
+            .best-lap {
+                color: var(--success);
+                font-weight: 700;
+            }
+
+            /* Controls */
             .controls {
-                margin-bottom: 20px;
+                margin-bottom: 1.5rem;
+                display: flex;
+                gap: 1rem;
+                align-items: center;
+                flex-wrap: wrap;
             }
 
             button {
-                background-color: #007acc;
+                background-color: var(--highlight);
                 color: white;
                 border: none;
-                padding: 10px 20px;
+                padding: 0.6rem 1.2rem;
                 border-radius: 4px;
                 cursor: pointer;
-                font-family: "Courier New", monospace;
-                font-size: 14px;
+                font-family: "Roboto Mono", monospace;
+                font-size: 0.9rem;
+                transition: background-color 0.2s;
             }
 
             button:hover {
@@ -112,89 +278,567 @@
             }
 
             button:disabled {
-                background-color: #3e3e42;
+                background-color: var(--border-color);
                 cursor: not-allowed;
+            }
+
+            /* Loading indicator */
+            .loading {
+                display: flex;
+                justify-content: center;
+                align-items: center;
+                height: 200px;
+            }
+
+            .loading::after {
+                content: "Loading...";
+                font-size: 1.2rem;
+                color: var(--highlight);
+            }
+
+            /* Last update indicator */
+            .last-update {
+                text-align: right;
+                color: #858585;
+                font-size: 0.8rem;
+                font-style: italic;
+                margin-top: 0.5rem;
+            }
+
+            /* Time formatting */
+            .time {
+                font-weight: 700;
+                font-family: "Roboto Mono", monospace;
             }
         </style>
     </head>
     <body>
-        <h1>RC Lap Counter - Live Events</h1>
+        <h1>Franklin RC Lap Counter</h1>
 
         <div class="controls">
             <div class="status connecting" id="status">Connecting...</div>
-            <button id="clearBtn">Clear Log</button>
+            <button id="refreshBtn">Refresh Data</button>
+            <button id="clearLogBtn">Clear Log</button>
+            <button id="debugBtn">Debug</button>
         </div>
 
-        <div class="event-log" id="eventLog">
-            <div style="color: #858585">Waiting for events...</div>
+        <div class="grid">
+            <div class="main-content">
+                <div class="panel">
+                    <h2>Race Information</h2>
+                    <div id="raceInfo" class="race-info">
+                        <div class="race-info-item">
+                            <span class="race-info-label">Status:</span>
+                            <span id="raceStateDisplay">Not Started</span>
+                        </div>
+                        <div class="race-info-item">
+                            <span class="race-info-label">Type:</span>
+                            <span id="raceTypeDisplay">Unknown</span>
+                        </div>
+                        <div class="race-info-item">
+                            <span class="race-info-label">Elapsed:</span>
+                            <span id="raceTimeDisplay">00:00.000</span>
+                        </div>
+                        <div class="race-info-item">
+                            <span class="race-info-label">Total Laps:</span>
+                            <span id="totalLapsDisplay">0</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="panel">
+                    <h2>Current Standings</h2>
+                    <div id="standingsContainer">
+                        <table class="standings-table">
+                            <thead>
+                                <tr>
+                                    <th>Pos</th>
+                                    <th>Driver</th>
+                                    <th>Laps</th>
+                                    <th>Last Lap</th>
+                                    <th>Best Lap</th>
+                                    <th>Total Time</th>
+                                </tr>
+                            </thead>
+                            <tbody id="standingsBody">
+                                <!-- Will be filled by JavaScript -->
+                            </tbody>
+                        </table>
+                        <div class="last-update">
+                            Last updated: <span id="lastUpdateTime">Never</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="sidebar">
+                <div class="panel">
+                    <h2>Event Log</h2>
+                    <div class="event-log" id="eventLog">
+                        <div class="event status">
+                            <span class="event-type">STATUS</span>
+                            <div class="event-data">Waiting for events...</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
         </div>
 
         <script>
-            let ws = null;
-            let reconnectTimeout = null;
-            const eventLog = document.getElementById("eventLog");
-            const statusEl = document.getElementById("status");
-            const clearBtn = document.getElementById("clearBtn");
+            // State management
+            const state = {
+                ws: null,
+                reconnectTimeout: null,
+                config: null,
+                currentRace: null,
+                raceStats: null,
+                raceLaps: null,
+                lastUpdateTime: null,
+            };
 
-            function updateStatus(status, text) {
-                statusEl.className = `status ${status}`;
-                statusEl.textContent = text;
+            // DOM elements
+            const elements = {
+                eventLog: document.getElementById("eventLog"),
+                status: document.getElementById("status"),
+                refreshBtn: document.getElementById("refreshBtn"),
+                clearLogBtn: document.getElementById("clearLogBtn"),
+                debugBtn: document.getElementById("debugBtn"),
+                standingsBody: document.getElementById("standingsBody"),
+                raceStateDisplay: document.getElementById("raceStateDisplay"),
+                raceTypeDisplay: document.getElementById("raceTypeDisplay"),
+                raceTimeDisplay: document.getElementById("raceTimeDisplay"),
+                totalLapsDisplay: document.getElementById("totalLapsDisplay"),
+                lastUpdateTime: document.getElementById("lastUpdateTime"),
+            };
+
+            // Helper functions
+            function formatTime(timeInSeconds) {
+                if (timeInSeconds === null || timeInSeconds === undefined)
+                    return "--";
+
+                // Format as MM:SS.mmm
+                const minutes = Math.floor(timeInSeconds / 60);
+                const seconds = timeInSeconds % 60;
+                return `${minutes.toString().padStart(2, "0")}:${seconds.toFixed(3).padStart(6, "0")}`;
             }
 
-            function formatTime(date) {
+            function formatTimestamp(date) {
                 return date.toLocaleTimeString("en-US", {
                     hour12: false,
-                    fractionalSecondDigits: 3,
+                    hour: "2-digit",
+                    minute: "2-digit",
+                    second: "2-digit",
+                });
+            }
+
+            function getDriverColor(driverId) {
+                // Use CSS variables for driver colors, fallback to a default
+                return `var(--driver-${driverId}, var(--highlight))`;
+            }
+
+            function getDriverName(transmitterId) {
+                if (!state.config || !state.config.contestants)
+                    return `Driver ${transmitterId}`;
+
+                const driver = state.config.contestants.find(
+                    (c) => c.transmitter_id === parseInt(transmitterId),
+                );
+                return driver ? driver.name : `Driver ${transmitterId}`;
+            }
+
+            // Update UI functions
+            function updateStatus(statusType, text) {
+                elements.status.className = `status ${statusType}`;
+                elements.status.textContent = text;
+            }
+
+            function updateRaceInfo() {
+                if (!state.currentRace) {
+                    elements.raceStateDisplay.textContent = "No Active Race";
+                    elements.raceTypeDisplay.textContent = "N/A";
+                    elements.raceTimeDisplay.textContent = "00:00.000";
+                    elements.totalLapsDisplay.textContent = state.config
+                        ? state.config.total_laps
+                        : "?";
+                    return;
+                }
+
+                console.log("Updating race info with data:", state.currentRace);
+
+                // Determine race state from status and times
+                let raceState = "not_started";
+                if (state.currentRace) {
+                    if (
+                        state.currentRace.status === "in_progress" ||
+                        (state.currentRace.start_time &&
+                            !state.currentRace.end_time)
+                    ) {
+                        raceState = "running";
+                    } else if (
+                        state.currentRace.status === "completed" ||
+                        state.currentRace.end_time
+                    ) {
+                        raceState = "finished";
+                    }
+                }
+
+                console.log("Determined race state:", raceState);
+
+                elements.raceStateDisplay.textContent = raceState
+                    .replace(/_/g, " ")
+                    .replace(/\b\w/g, (c) => c.toUpperCase());
+
+                // Add appropriate class to race state display
+                elements.raceStateDisplay.className = "";
+                if (raceState === "running") {
+                    elements.raceStateDisplay.classList.add(
+                        "race-state",
+                        "running",
+                    );
+                } else if (
+                    raceState === "finished" ||
+                    raceState === "winner_declared"
+                ) {
+                    elements.raceStateDisplay.classList.add(
+                        "race-state",
+                        "finished",
+                    );
+                } else if (raceState === "not_started") {
+                    elements.raceStateDisplay.classList.add(
+                        "race-state",
+                        "not-started",
+                    );
+                } else if (raceState === "paused") {
+                    elements.raceStateDisplay.classList.add(
+                        "race-state",
+                        "paused",
+                    );
+                }
+
+                // Extract race type from notes field
+                const raceType =
+                    state.currentRace.notes &&
+                    state.currentRace.notes.includes("Mode:")
+                        ? state.currentRace.notes
+                              .split("Mode:")[1]
+                              .split(",")[0]
+                              .trim()
+                        : "Standard";
+
+                elements.raceTypeDisplay.textContent = raceType;
+
+                // Update race time if stats available
+                if (state.raceStats && state.raceStats.race_time) {
+                    elements.raceTimeDisplay.textContent = formatTime(
+                        state.raceStats.race_time,
+                    );
+                } else {
+                    elements.raceTimeDisplay.textContent = "00:00.000";
+                }
+
+                // Update total laps
+                elements.totalLapsDisplay.textContent = state.config
+                    ? state.config.total_laps
+                    : "?";
+            }
+
+            function updateStandings() {
+                // Clear the standings table
+                elements.standingsBody.innerHTML = "";
+
+                if (
+                    !state.raceStats ||
+                    !state.raceStats.stats ||
+                    Object.keys(state.raceStats.stats).length === 0
+                ) {
+                    elements.standingsBody.innerHTML = `
+                        <tr>
+                            <td colspan="6" style="text-align: center;">No standings data available</td>
+                        </tr>
+                    `;
+                    return;
+                }
+
+                // Process the stats object into an array for display
+                const leaderboard = Object.entries(state.raceStats.stats).map(
+                    ([id, data]) => ({
+                        racer_id: parseInt(data.racer_id),
+                        lap_count: data.lap_count || 0,
+                        best_lap_time: data.best_lap_time || null,
+                        last_lap_time: null, // Need to calculate from laps
+                        total_time: null, // Will be from the last lap's race_time
+                    }),
+                );
+
+                // If we have lap data, enhance the leaderboard with more info
+                if (
+                    state.raceLaps &&
+                    state.raceLaps.laps &&
+                    state.raceLaps.laps.length > 0
+                ) {
+                    // Group laps by racer
+                    const lapsByRacer = {};
+                    state.raceLaps.laps.forEach((lap) => {
+                        if (!lapsByRacer[lap.racer_id]) {
+                            lapsByRacer[lap.racer_id] = [];
+                        }
+                        lapsByRacer[lap.racer_id].push(lap);
+                    });
+
+                    // Update leaderboard entries with lap data
+                    leaderboard.forEach((entry) => {
+                        const racerLaps = lapsByRacer[entry.racer_id] || [];
+                        if (racerLaps.length > 0) {
+                            // Sort by lap_number (descending)
+                            racerLaps.sort(
+                                (a, b) => b.lap_number - a.lap_number,
+                            );
+
+                            // Last lap time from most recent lap
+                            const lastLap = racerLaps[0];
+                            entry.last_lap_time = lastLap.lap_time;
+
+                            // Total time is race_time of the most recent lap
+                            entry.total_time = lastLap.race_time;
+                        }
+                    });
+                }
+
+                // Sort by lap count (descending), then by total time (ascending)
+                leaderboard.sort((a, b) => {
+                    if (b.lap_count !== a.lap_count) {
+                        return b.lap_count - a.lap_count;
+                    }
+                    return (
+                        (a.total_time || Infinity) - (b.total_time || Infinity)
+                    );
+                });
+
+                // Update last update time
+                state.lastUpdateTime = new Date();
+                elements.lastUpdateTime.textContent = formatTimestamp(
+                    state.lastUpdateTime,
+                );
+
+                // Get best lap time across all drivers
+                let bestLapTime = Infinity;
+                leaderboard.forEach((entry) => {
+                    if (
+                        entry.best_lap_time &&
+                        entry.best_lap_time < bestLapTime
+                    ) {
+                        bestLapTime = entry.best_lap_time;
+                    }
+                });
+
+                // Create rows for each driver in the leaderboard
+                leaderboard.forEach((entry, index) => {
+                    const position = index + 1;
+                    const driverId = entry.racer_id;
+                    const driverName = getDriverName(driverId);
+                    const lapCount = entry.lap_count || 0;
+                    const lastLapTime = entry.last_lap_time
+                        ? formatTime(entry.last_lap_time)
+                        : "--";
+                    const bestLapTime = entry.best_lap_time
+                        ? formatTime(entry.best_lap_time)
+                        : "--";
+                    const totalTime = entry.total_time
+                        ? formatTime(entry.total_time)
+                        : "--";
+
+                    // Determine if this driver has the best lap
+                    const hasBestLap =
+                        entry.best_lap_time &&
+                        Math.abs(entry.best_lap_time - bestLapTime) < 0.001;
+
+                    const row = document.createElement("tr");
+                    row.innerHTML = `
+                        <td>${position}</td>
+                        <td>
+                            <span class="driver-color" style="background-color: ${getDriverColor(driverId)}"></span>
+                            ${driverName}
+                        </td>
+                        <td>${lapCount}</td>
+                        <td>${lastLapTime}</td>
+                        <td class="${hasBestLap ? "best-lap" : ""}">${bestLapTime}</td>
+                        <td>${totalTime}</td>
+                    `;
+
+                    elements.standingsBody.appendChild(row);
                 });
             }
 
             function addEvent(eventData) {
                 const eventType = eventData.type || "unknown";
 
-                // Filter out heartbeat and debug events
-                if (eventType === "heartbeat" || eventType === "debug") {
+                // Filter out heartbeat events
+                if (eventType === "heartbeat") {
                     return;
                 }
+
+                console.log(`Received event type: ${eventType}`, eventData);
 
                 const eventDiv = document.createElement("div");
                 eventDiv.className = `event ${eventType}`;
 
-                const time = formatTime(new Date());
-
                 let dataStr = "";
                 if (eventType === "lap") {
-                    dataStr = `Racer ${eventData.racer_id}, Sensor ${eventData.sensor_id} - Race time: ${eventData.race_time}s`;
+                    const driverName = getDriverName(eventData.racer_id);
+                    dataStr = `${driverName} completed a lap (Sensor ${eventData.sensor_id}) - Time: ${eventData.race_time.toFixed(3)}s`;
                 } else if (eventType === "status") {
                     dataStr =
                         eventData.message ||
                         eventData.status ||
                         JSON.stringify(eventData);
+                } else if (eventType === "error") {
+                    dataStr = `Error: ${eventData.message || JSON.stringify(eventData)}`;
                 } else if (eventType === "connected") {
-                    dataStr = eventData.message;
-                } else if (eventType === "raw") {
-                    dataStr = `Raw: ${eventData.line}`;
-                } else if (eventType === "new_msg") {
-                    dataStr = `New message - Sensor ${eventData.sensor_id}, Time: ${eventData.raw_time}s`;
+                    dataStr = eventData.message || "Connected to server";
                 } else {
                     dataStr = JSON.stringify(eventData, null, 2);
                 }
 
+                const timestamp = new Date().toISOString();
                 eventDiv.innerHTML = `
-                <div>
-                    <span class="event-type">${eventType}</span>
-                </div>
-                <div class="event-data">${dataStr}</div>
-            `;
+                    <div>
+                        <span class="event-type">${eventType}</span>
+                        <span class="event-time">${timestamp.substring(11, 19)}</span>
+                    </div>
+                    <div class="event-data">${dataStr}</div>
+                `;
 
-                eventLog.insertBefore(eventDiv, eventLog.firstChild);
+                elements.eventLog.appendChild(eventDiv);
 
                 // Keep only last 100 events
-                while (eventLog.children.length > 100) {
-                    eventLog.removeChild(eventLog.lastChild);
+                while (elements.eventLog.children.length > 100) {
+                    elements.eventLog.removeChild(elements.eventLog.firstChild);
+                }
+
+                // Auto-scroll to bottom
+                elements.eventLog.scrollTop = elements.eventLog.scrollHeight;
+
+                // Trigger data refresh for certain events
+                // Always trigger a refresh for these important events
+                if (
+                    eventType === "lap" ||
+                    (eventType === "status" &&
+                        (dataStr.toLowerCase().includes("race") ||
+                            dataStr.toLowerCase().includes("start") ||
+                            dataStr.toLowerCase().includes("end")))
+                ) {
+                    console.log("Event triggering data refresh:", dataStr);
+
+                    // Small delay to ensure database is updated
+                    setTimeout(fetchRaceData, 300);
                 }
             }
 
-            function connect() {
+            // API functions
+            async function fetchConfig() {
+                try {
+                    const response = await fetch("/api/config");
+                    if (!response.ok)
+                        throw new Error(`HTTP error ${response.status}`);
+
+                    state.config = await response.json();
+                    console.log("Loaded config:", state.config);
+
+                    // Update UI with config data
+                    elements.totalLapsDisplay.textContent =
+                        state.config.total_laps;
+
+                    // Force update of race info with new config
+                    updateRaceInfo();
+                } catch (error) {
+                    console.error("Error fetching config:", error);
+                    addEvent({
+                        type: "error",
+                        message: "Failed to load race configuration",
+                    });
+                }
+            }
+
+            async function fetchRaceData() {
+                try {
+                    console.log("Fetching race data...");
+                    // First get list of races to find the most recent one
+                    const racesResponse = await fetch("/api/races?limit=1");
+                    if (!racesResponse.ok)
+                        throw new Error(`HTTP error ${racesResponse.status}`);
+
+                    const racesData = await racesResponse.json();
+                    console.log("API response:", racesData);
+
+                    if (!racesData.races || racesData.races.length === 0) {
+                        console.log("No races found");
+                        state.currentRace = null;
+                        updateRaceInfo();
+                        updateStandings();
+                        return;
+                    }
+
+                    // Get the most recent race
+                    const latestRace = racesData.races[0];
+                    console.log("Latest race:", latestRace);
+                    state.currentRace = latestRace;
+
+                    // Only fetch additional data if the race is in progress or recently ended
+                    if (
+                        latestRace.end_time === null ||
+                        new Date() - new Date(latestRace.end_time) < 3600000
+                    ) {
+                        // Within the last hour
+
+                        try {
+                            // Fetch race stats
+                            const statsResponse = await fetch(
+                                `/api/races/${latestRace.id}/stats`,
+                            );
+                            if (statsResponse.ok) {
+                                state.raceStats = await statsResponse.json();
+                            } else {
+                                console.warn(
+                                    `Failed to fetch stats: ${statsResponse.status}`,
+                                );
+                            }
+                        } catch (statsError) {
+                            console.warn("Error fetching stats:", statsError);
+                            // Don't rethrow, continue with other requests
+                        }
+
+                        try {
+                            // Fetch race laps
+                            const lapsResponse = await fetch(
+                                `/api/races/${latestRace.id}/laps`,
+                            );
+                            if (lapsResponse.ok) {
+                                state.raceLaps = await lapsResponse.json();
+                            } else {
+                                console.warn(
+                                    `Failed to fetch laps: ${lapsResponse.status}`,
+                                );
+                            }
+                        } catch (lapsError) {
+                            console.warn("Error fetching laps:", lapsError);
+                            // Don't rethrow, continue with UI update
+                        }
+                    }
+
+                    // Update UI with new data
+                    updateRaceInfo();
+                    updateStandings();
+                } catch (error) {
+                    console.error("Error fetching race data:", error);
+                    addEvent({
+                        type: "error",
+                        message: "Failed to load race data",
+                    });
+                }
+            }
+
+            // WebSocket functions
+            function connectWebSocket() {
                 const protocol =
                     window.location.protocol === "https:" ? "wss:" : "ws:";
                 const wsUrl = `${protocol}//${window.location.host}/ws`;
@@ -202,30 +846,63 @@
                 updateStatus("connecting", "Connecting...");
                 console.log("Connecting to WebSocket:", wsUrl);
 
-                ws = new WebSocket(wsUrl);
+                state.ws = new WebSocket(wsUrl);
 
-                ws.onopen = () => {
+                state.ws.onopen = () => {
                     console.log("WebSocket connected");
                     updateStatus("connected", "Connected");
                     clearReconnectTimeout();
+
+                    // Initialize data on connection
+                    fetchConfig()
+                        .then(() => fetchRaceData())
+                        .catch((err) => {
+                            console.warn("Initial data load error:", err);
+                            // Continue even if initial load fails
+                        });
                 };
 
-                ws.onmessage = (event) => {
+                state.ws.onmessage = (event) => {
                     try {
                         const data = JSON.parse(event.data);
-                        console.log("Received:", data);
+                        console.log("WebSocket received:", data);
+
+                        // For race start/end events, refresh immediately
+                        if (data.type === "status" && data.message) {
+                            console.log(
+                                "Status message received, checking for race state changes:",
+                                data.message,
+                            );
+                            // For any status message, refresh after a short delay
+                            // This ensures we catch all race state changes
+                            setTimeout(() => {
+                                fetchRaceData().catch((err) => {
+                                    console.warn(
+                                        "Refresh error after status message:",
+                                        err,
+                                    );
+                                    // Add error to event log
+                                    addEvent({
+                                        type: "error",
+                                        message:
+                                            "Failed to refresh data after status change",
+                                    });
+                                });
+                            }, 500);
+                        }
+
                         addEvent(data);
                     } catch (e) {
                         console.error("Error parsing message:", e);
                     }
                 };
 
-                ws.onerror = (error) => {
+                state.ws.onerror = (error) => {
                     console.error("WebSocket error:", error);
                     updateStatus("disconnected", "Error");
                 };
 
-                ws.onclose = () => {
+                state.ws.onclose = () => {
                     console.log("WebSocket closed");
                     updateStatus(
                         "disconnected",
@@ -235,28 +912,88 @@
                 };
             }
 
+            // Function to manually inject a test race start event
+            function simulateRaceStart() {
+                console.log("Simulating race start event");
+                addEvent({
+                    type: "status",
+                    message: "Race started",
+                });
+
+                // Refresh data after a short delay
+                setTimeout(() => fetchRaceData(), 500);
+            }
+
             function clearReconnectTimeout() {
-                if (reconnectTimeout) {
-                    clearTimeout(reconnectTimeout);
-                    reconnectTimeout = null;
+                if (state.reconnectTimeout) {
+                    clearTimeout(state.reconnectTimeout);
+                    state.reconnectTimeout = null;
                 }
             }
 
             function scheduleReconnect() {
                 clearReconnectTimeout();
-                reconnectTimeout = setTimeout(() => {
+                state.reconnectTimeout = setTimeout(() => {
                     console.log("Attempting to reconnect...");
-                    connect();
+                    connectWebSocket();
                 }, 2000);
             }
 
-            clearBtn.addEventListener("click", () => {
-                eventLog.innerHTML =
-                    '<div style="color: #858585;">Log cleared. Waiting for events...</div>';
+            // Event listeners
+            elements.clearLogBtn.addEventListener("click", () => {
+                elements.eventLog.innerHTML = `
+                    <div class="event status">
+                        <span class="event-type">STATUS</span>
+                        <div class="event-data">Log cleared. Waiting for events...</div>
+                    </div>
+                `;
             });
 
+            elements.refreshBtn.addEventListener("click", async () => {
+                elements.refreshBtn.disabled = true;
+                await fetchRaceData();
+                elements.refreshBtn.disabled = false;
+            });
+
+            elements.debugBtn.addEventListener("click", () => {
+                console.log("Current state:", state);
+                addEvent({
+                    type: "status",
+                    message: `Debug: Current race state - ${
+                        state.currentRace
+                            ? state.currentRace.status || "unknown"
+                            : "No race"
+                    }`,
+                });
+            });
+
+            // Auto-update timer
+            setInterval(() => {
+                // Only auto-refresh if there's an active race
+                if (
+                    state.currentRace &&
+                    (state.currentRace.status === "in_progress" ||
+                        (state.currentRace.start_time &&
+                            !state.currentRace.end_time))
+                ) {
+                    console.log("Auto-refreshing race data...");
+                    fetchRaceData().catch((err) => {
+                        console.warn("Auto-refresh error:", err);
+                        // Silent failure for background updates
+                    });
+                }
+            }, 5000);
+
+            // Debug auto-refresh (first load)
+            setTimeout(() => {
+                console.log("Initial data refresh");
+                fetchRaceData().catch((err) => {
+                    console.warn("Initial refresh error:", err);
+                });
+            }, 2000);
+
             // Initial connection
-            connect();
+            connectWebSocket();
         </script>
     </body>
 </html>

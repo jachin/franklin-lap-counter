@@ -7,8 +7,10 @@ Subscribes to hardware:out Redis channel and broadcasts events to all connected 
 import asyncio
 import json
 import logging
+import os
 from pathlib import Path
 from typing import Any
+from datetime import datetime
 
 import redis.asyncio as redis
 from aiohttp import web  # type: ignore[import-untyped]
@@ -21,6 +23,7 @@ REDIS_OUT_CHANNEL = "hardware:out"
 WEB_PORT = 8080
 STATIC_DIR = Path(__file__).parent / "static"
 DB_PATH = "lap_counter.db"
+CONFIG_PATH = Path(__file__).parent / "config.json"
 
 # Logging setup
 logging.basicConfig(
@@ -53,6 +56,8 @@ class WebSocketServer:
         self.app.router.add_get("/api/races", self.get_races)
         self.app.router.add_get("/api/races/{race_id}/laps", self.get_race_laps)
         self.app.router.add_get("/api/races/{race_id}/stats", self.get_race_stats)
+        self.app.router.add_get("/api/config", self.get_config)
+        self.app.router.add_get("/api/debug/simulate/{event_type}", self.debug_simulate)
 
         self.app.router.add_static("/static", STATIC_DIR, name="static")
 
@@ -168,6 +173,59 @@ class WebSocketServer:
 
         return ws
 
+    async def get_config(self, request: web.Request) -> web.Response:
+        """Get the configuration from config.json"""
+        try:
+            if os.path.exists(CONFIG_PATH):
+                with open(CONFIG_PATH, "r") as f:
+                    config = json.load(f)
+                return web.json_response(config)
+            else:
+                logger.error(f"Config file not found: {CONFIG_PATH}")
+                return web.json_response(
+                    {"error": "Configuration file not found"}, status=404
+                )
+        except Exception as e:
+            logger.error(f"Error reading config file: {e}")
+            return web.json_response(
+                {"error": f"Error reading configuration: {str(e)}"}, status=500
+            )
+
+    async def debug_simulate(self, request: web.Request) -> web.Response:
+        """Debug endpoint to simulate events for testing"""
+        event_type = request.match_info.get("event_type", "")
+
+        if event_type == "race_start":
+            event_data = {"type": "status", "message": "Race started"}
+            await self.broadcast_to_websockets(event_data)
+            return web.json_response(
+                {"success": True, "message": "Simulated race start event"}
+            )
+
+        elif event_type == "race_end":
+            event_data = {"type": "status", "message": "Race ended"}
+            await self.broadcast_to_websockets(event_data)
+            return web.json_response(
+                {"success": True, "message": "Simulated race end event"}
+            )
+
+        elif event_type == "lap":
+            event_data = {
+                "type": "lap",
+                "racer_id": 1,
+                "sensor_id": 1,
+                "race_time": 10.5,
+            }
+            await self.broadcast_to_websockets(event_data)
+            return web.json_response(
+                {"success": True, "message": "Simulated lap event"}
+            )
+
+        else:
+            return web.json_response(
+                {"error": f"Unknown event type: {event_type}"}, status=400
+            )
+
     async def broadcast_to_websockets(self, data: dict[str, Any]) -> None:
         """Broadcast data to all connected WebSocket clients"""
         if not self.websockets:
@@ -216,9 +274,9 @@ class WebSocketServer:
             logger.error(f"Redis listener error: {e}")
         finally:
             if self.redis_pubsub:
-                await self.redis_pubsub.close()
+                await self.redis_pubsub.aclose()
             if self.redis_client:
-                await self.redis_client.close()
+                await self.redis_client.aclose()
 
     async def start_background_tasks(self, app: web.Application) -> None:
         """Start background tasks when app starts"""

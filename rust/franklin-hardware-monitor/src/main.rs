@@ -274,18 +274,32 @@ impl HardwareComm {
             // New message: \x01$\t<sensor_id>\t<raw_time>\t<flag1>\t<flag2>
             let parts: Vec<&str> = line.split('\t').collect();
             if parts.len() >= 5 {
-                // Just send as raw for now - we can add a NewMsg variant if needed
-                Some(OutMessage::Raw {
-                    line: line.to_string(),
+                // Extract sensor_id and time information
+                if let Some(sensor_id_str) = parts.get(1) {
+                    if let Ok(sensor_id) = sensor_id_str.trim().parse::<u32>() {
+                        return Some(OutMessage::Status {
+                            message: format!("Sensor {} signal received", sensor_id),
+                        });
+                    }
+                }
+                // Fall back to status message instead of raw
+                Some(OutMessage::Status {
+                    message: format!("New message received from hardware"),
                 })
             } else {
                 Some(OutMessage::Status {
                     message: format!("Malformed new_msg line: {}", line),
                 })
             }
+        } else if line.contains("HELLO") || line.contains("RESET") {
+            // Recognize common messages and turn them into status
+            Some(OutMessage::Status {
+                message: format!("Hardware message: {}", line.trim()),
+            })
         } else if !line.is_empty() {
-            Some(OutMessage::Raw {
-                line: line.to_string(),
+            // Only use Raw for debugging, not for normal operation
+            Some(OutMessage::Debug {
+                message: format!("Hardware data: {}", line.trim()),
             })
         } else {
             None
@@ -293,15 +307,23 @@ impl HardwareComm {
     }
 
     fn send_message(&self, msg: &OutMessage) -> Result<()> {
-        let mut conn = self
-            .redis_client
-            .get_connection()
-            .context("Failed to get Redis connection")?;
+        // Check if we should publish this message based on its type
+        let should_publish = match msg {
+            OutMessage::Raw { .. } => false, // Don't publish raw messages to Redis
+            _ => true,
+        };
 
-        let json = serde_json::to_string(msg).context("Failed to serialize message")?;
+        if should_publish {
+            let mut conn = self
+                .redis_client
+                .get_connection()
+                .context("Failed to get Redis connection")?;
 
-        conn.publish::<_, _, ()>(REDIS_OUT_CHANNEL, json)
-            .context("Failed to publish to Redis")?;
+            let json = serde_json::to_string(msg).context("Failed to serialize message")?;
+
+            conn.publish::<_, _, ()>(REDIS_OUT_CHANNEL, json)
+                .context("Failed to publish to Redis")?;
+        }
 
         Ok(())
     }
@@ -714,7 +736,7 @@ async fn command_handler_task(hw: Arc<HardwareComm>, app: Arc<Mutex<App>>) -> Re
                             }
                             info!("{}", status_message);
                         }
-                        "stop_race" => {
+                        "end_race" => {
                             // Get simulation mode from app state
                             let rt = tokio::runtime::Handle::current();
                             let is_simulation = rt.block_on(async {
@@ -723,9 +745,9 @@ async fn command_handler_task(hw: Arc<HardwareComm>, app: Arc<Mutex<App>>) -> Re
                             });
 
                             let status_message = if is_simulation {
-                                "Simulation race stopped".to_string()
+                                "Simulation race ended".to_string()
                             } else {
-                                "Race stopped".to_string()
+                                "Race ended".to_string()
                             };
 
                             if let Err(e) = hw.send_message(&OutMessage::Status {

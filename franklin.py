@@ -562,6 +562,12 @@ class Franklin(App[Any]):  # type: ignore[type-arg]
             # Store this race for the next one
             self.previous_race = self.race
 
+            # Publish end_race command to Redis
+            if self._redis_client:
+                cmd = {"type": "command", "command": "end_race"}
+                self._redis_client.publish(self.redis_in_channel, json.dumps(cmd))
+                logging.info("Sent end_race command to Redis")
+
             # Mark race as completed in database
             if self.current_race_id:
                 self.db.end_race(self.current_race_id)

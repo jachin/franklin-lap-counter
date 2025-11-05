@@ -6,8 +6,8 @@ members = [
 
 [workspace.package]
 version = "0.1.0"
-edition = "2021"
-authors = ["Your Name <your.email@example.com>"]
+edition = "2024"
+authors = ["Jachin Rupe <jachin@jachin.rupe.name>"]
 
 [workspace.dependencies]
 tokio = { version = "1.43", features = ["full"] }

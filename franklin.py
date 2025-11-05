@@ -316,14 +316,21 @@ class Franklin(App[Any]):  # type: ignore[type-arg]
     async def update_race_time(self):
         # TODO this works for now but we should probably use the time that's coming
         # from the lap counter it self
+        last_redis_update = 0.0
         while True:
+            current_time = asyncio.get_event_loop().time()
+
             if (
                 self.race.state == RaceState.RUNNING
                 and self.race.start_time is not None
             ):
-                self.race.elapsed_time = (
-                    asyncio.get_event_loop().time() - self.race.start_time
-                )
+                self.race.elapsed_time = current_time - self.race.start_time
+
+                # Send race state to Redis once per second
+                if current_time - last_redis_update >= 1.0:
+                    await self.send_race_state_to_redis()
+                    last_redis_update = current_time
+
             await asyncio.sleep(0.1)
 
     async def hardware_monitor_task(self):
@@ -631,6 +638,62 @@ class Franklin(App[Any]):  # type: ignore[type-arg]
         asyncio.create_task(self.update_race_time())
         asyncio.create_task(self.refresh_lap_data())
         asyncio.create_task(self.hardware_monitor_task())
+
+    async def send_race_state_to_redis(self) -> None:
+        """
+        Send the current race state to Redis for consumption by other services.
+        This includes elapsed time and remaining laps (if applicable).
+        """
+        if not self._redis_client:
+            return
+
+        try:
+            race_data = {
+                "type": "race_state",
+                "timestamp": asyncio.get_event_loop().time(),
+                "race_state": self.race.state.name,
+                "elapsed_time": round(self.race.elapsed_time, 2)
+                if self.race.elapsed_time is not None
+                else 0,
+                "race_mode": self.race_mode.name,
+            }
+
+            # Add race-specific information if not in training mode
+            if self.race_mode != RaceMode.TRAINING:
+                # Get information about completed laps per racer
+                racers_info = {}
+                for lap in self.race.laps:
+                    racer_id = lap.racer_id
+                    if racer_id not in racers_info:
+                        racers_info[racer_id] = {
+                            "name": self.global_contestants.get_contestant_name(
+                                racer_id
+                            ),
+                            "completed_laps": 0,
+                        }
+
+                    # Count completed laps (excluding lap 0 which is start trigger)
+                    if lap.lap_number > 0:
+                        racers_info[racer_id]["completed_laps"] += 1
+
+                race_data["total_laps"] = self.total_laps
+                race_data["racers"] = list(racers_info.values())
+
+                # Calculate remaining laps as total_laps - max completed laps
+                max_completed = 0
+                if racers_info:
+                    max_completed = max(
+                        [info["completed_laps"] for info in racers_info.values()],
+                        default=0,
+                    )
+                race_data["remaining_laps"] = max(0, self.total_laps - max_completed)
+
+            # Publish the race state data
+            channel = "franklin:race_state"
+            self._redis_client.publish(channel, json.dumps(race_data))
+            logging.debug(f"Published race state to Redis: {race_data}")
+        except Exception as e:
+            logging.error(f"Failed to publish race state to Redis: {e}")
 
     async def play_fake_race(self, fake_race):
         """

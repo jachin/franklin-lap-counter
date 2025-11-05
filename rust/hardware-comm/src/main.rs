@@ -2,15 +2,15 @@ use anyhow::{Context, Result};
 use crossterm::{
     event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode},
     execute,
-    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
+    terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
 use ratatui::{
+    Terminal,
     backend::CrosstermBackend,
     layout::{Constraint, Direction, Layout},
     style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, List, ListItem, Paragraph},
-    Terminal,
 };
 use redis::Commands;
 use serde::{Deserialize, Serialize};
@@ -592,20 +592,46 @@ async fn command_handler_task(hw: Arc<HardwareComm>, app: Arc<Mutex<App>>) -> Re
                         race_time,
                     } => match command.as_str() {
                         "start_race" => {
+                            // Get simulation mode from app state
+                            let rt = tokio::runtime::Handle::current();
+                            let is_simulation = rt.block_on(async {
+                                let app = app.lock().await;
+                                app.simulation_mode
+                            });
+
+                            let status_message = if is_simulation {
+                                "Simulation race started".to_string()
+                            } else {
+                                "Race started (hardware mode)".to_string()
+                            };
+
                             if let Err(e) = hw.send_message(&OutMessage::Status {
-                                message: "Simulation race started".to_string(),
+                                message: status_message.clone(),
                             }) {
                                 error!("Failed to send status: {}", e);
                             }
-                            info!("Simulation race started");
+                            info!("{}", status_message);
                         }
                         "stop_race" => {
+                            // Get simulation mode from app state
+                            let rt = tokio::runtime::Handle::current();
+                            let is_simulation = rt.block_on(async {
+                                let app = app.lock().await;
+                                app.simulation_mode
+                            });
+
+                            let status_message = if is_simulation {
+                                "Simulation race stopped".to_string()
+                            } else {
+                                "Race stopped (hardware mode)".to_string()
+                            };
+
                             if let Err(e) = hw.send_message(&OutMessage::Status {
-                                message: "Simulation race stopped".to_string(),
+                                message: status_message.clone(),
                             }) {
                                 error!("Failed to send status: {}", e);
                             }
-                            info!("Simulation race stopped");
+                            info!("{}", status_message);
                         }
                         "simulate_lap" => {
                             if let Err(e) = hw.send_message(&OutMessage::Lap {

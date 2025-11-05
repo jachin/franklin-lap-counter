@@ -69,19 +69,25 @@ struct App {
     messages: Vec<String>,
     message_count: usize,
     simulation_mode: bool,
+    verbose: bool,
     race_active: bool,
     race_start_time: Option<Instant>,
+    last_heartbeat: Option<Instant>,
+    reset_requested: bool,
     should_quit: bool,
 }
 
 impl App {
-    fn new(simulation_mode: bool) -> Self {
+    fn new(simulation_mode: bool, verbose: bool) -> Self {
         Self {
             messages: Vec::new(),
             message_count: 0,
             simulation_mode,
+            verbose,
             race_active: false,
             race_start_time: None,
+            last_heartbeat: None,
+            reset_requested: false,
             should_quit: false,
         }
     }
@@ -112,6 +118,21 @@ impl App {
             OutMessage::Error { message } => format!("[ERROR] {}", message),
             OutMessage::Debug { message } => format!("[DEBUG] {}", message),
             OutMessage::Raw { line } => format!("[RAW] {}", line),
+        }
+    }
+
+    fn get_connection_status(&self) -> (String, Color) {
+        if self.simulation_mode {
+            ("Hardware: Simulated".to_string(), Color::Cyan)
+        } else if let Some(last_hb) = self.last_heartbeat {
+            let elapsed = last_hb.elapsed();
+            if elapsed < Duration::from_secs(5) {
+                ("Hardware: Connected".to_string(), Color::Green)
+            } else {
+                ("Hardware: Disconnected".to_string(), Color::Red)
+            }
+        } else {
+            ("Hardware: Waiting...".to_string(), Color::Yellow)
         }
     }
 }
@@ -176,8 +197,9 @@ impl HardwareComm {
         info!("Sending reset commands to hardware");
 
         // Wake up hardware
-        port.write_all(b"\r\n")?;
-        info!("Sent wake-up CR/LF to hardware");
+        let wake_cmd = b"\r\n";
+        port.write_all(wake_cmd)?;
+        info!("SERIAL TX: {:?} (wake-up CR/LF)", wake_cmd);
         std::thread::sleep(Duration::from_millis(100));
 
         // Reset commands from Python version
@@ -188,9 +210,9 @@ impl HardwareComm {
             b"\x01\x3f\x2c\x32\x33\x32\x2c\x30\x2c\x31\x34\x2c\x31\x2c\x30\x0d\x0a",
         ];
 
-        for cmd in commands {
+        for (idx, cmd) in commands.iter().enumerate() {
             port.write_all(cmd)?;
-            info!("Sent reset command: {:?}", cmd);
+            info!("SERIAL TX: Reset command {}: {:?}", idx + 1, cmd);
         }
 
         Ok(())
@@ -200,26 +222,50 @@ impl HardwareComm {
         if line.starts_with("\x01#") && line.contains("xC249") {
             // Heartbeat
             Some(OutMessage::Heartbeat)
-        } else if line.starts_with("\x01@") {
+        } else if line.starts_with("\x01@") || line.starts_with("@") {
             // Lap message: \x01@\t<sensor_id>\t...\t<racer_id>\t<race_time>\t...
-            let parts: Vec<&str> = line.split('\t').collect();
+            // Try tab-separated first, then fall back to whitespace-separated
+            let parts: Vec<&str> = if line.contains('\t') {
+                line.split('\t').collect()
+            } else {
+                line.split_whitespace().collect()
+            };
+
             if parts.len() >= 6 {
                 match (parts.get(3), parts.get(1), parts.get(4)) {
                     (Some(racer_id_str), Some(sensor_id_str), Some(race_time_str)) => {
+                        // Trim whitespace from each field before parsing
                         if let (Ok(racer_id), Ok(sensor_id), Ok(race_time)) = (
-                            racer_id_str.parse::<u32>(),
-                            sensor_id_str.parse::<u32>(),
-                            race_time_str.parse::<f64>(),
+                            racer_id_str.trim().parse::<u32>(),
+                            sensor_id_str.trim().parse::<u32>(),
+                            race_time_str.trim().parse::<f64>(),
                         ) {
+                            info!(
+                                "Parsed lap: racer_id={}, sensor_id={}, race_time={}",
+                                racer_id, sensor_id, race_time
+                            );
                             return Some(OutMessage::Lap {
                                 racer_id,
                                 sensor_id,
                                 race_time,
                             });
+                        } else {
+                            warn!(
+                                "Failed to parse lap values - racer:{:?} sensor:{:?} time:{:?}",
+                                racer_id_str, sensor_id_str, race_time_str
+                            );
                         }
                     }
-                    _ => {}
+                    _ => {
+                        warn!("Could not extract lap fields from parts: {:?}", parts);
+                    }
                 }
+            } else {
+                warn!(
+                    "Lap line has {} parts, need at least 6: {:?}",
+                    parts.len(),
+                    parts
+                );
             }
             Some(OutMessage::Status {
                 message: format!("Malformed lap line: {}", line),
@@ -325,8 +371,21 @@ async fn redis_listener_task(hw: Arc<HardwareComm>, app: Arc<Mutex<App>>) -> Res
                 let rt = tokio::runtime::Handle::current();
                 rt.block_on(async {
                     let mut app = app.lock().await;
-                    let formatted = app.format_out_message(&out_msg);
-                    app.add_message(formatted);
+
+                    // Update last heartbeat time
+                    if matches!(&out_msg, OutMessage::Heartbeat) {
+                        app.last_heartbeat = Some(Instant::now());
+                    }
+
+                    // Skip RAW and HEARTBEAT messages unless verbose mode is enabled
+                    let should_display = match &out_msg {
+                        OutMessage::Raw { .. } | OutMessage::Heartbeat => app.verbose,
+                        _ => true,
+                    };
+                    if should_display {
+                        let formatted = app.format_out_message(&out_msg);
+                        app.add_message(formatted);
+                    }
                 });
             }
         }
@@ -377,10 +436,17 @@ async fn hardware_task(hw: Arc<HardwareComm>, app: Arc<Mutex<App>>) -> Result<()
     // Run blocking serial operations in a separate thread
     tokio::task::spawn_blocking(move || {
         // Open serial port
+        info!(
+            "SERIAL: Opening connection to {:?} at {} baud",
+            hw.serial_port_path, hw.baudrate
+        );
         let mut port = match hw.open_serial_connection() {
-            Ok(p) => p,
+            Ok(p) => {
+                info!("SERIAL: Successfully opened port");
+                p
+            }
             Err(e) => {
-                error!("Failed to open serial connection: {}", e);
+                error!("SERIAL: Failed to open serial connection: {}", e);
                 let _ = hw.send_message(&OutMessage::Status {
                     message: format!("Lap tracking hardware not found: {}", e),
                 });
@@ -395,6 +461,7 @@ async fn hardware_task(hw: Arc<HardwareComm>, app: Arc<Mutex<App>>) -> Result<()
                 .as_ref()
                 .unwrap_or(&"unknown".to_string())
         );
+        info!("SERIAL: Connection established, sending initial status");
         if let Err(e) = hw.send_message(&OutMessage::Status {
             message: status_msg,
         }) {
@@ -402,11 +469,14 @@ async fn hardware_task(hw: Arc<HardwareComm>, app: Arc<Mutex<App>>) -> Result<()
         }
 
         // Send reset commands
+        info!("SERIAL: Sending initial reset commands");
         if let Err(e) = hw.send_reset_commands(&mut port) {
-            error!("Failed to send reset commands: {}", e);
+            error!("SERIAL: Failed to send reset commands: {}", e);
             let _ = hw.send_message(&OutMessage::Status {
                 message: format!("Error sending reset commands: {}", e),
             });
+        } else {
+            info!("SERIAL: Initial reset commands sent successfully");
         }
 
         // Create buffered reader for line reading
@@ -414,16 +484,37 @@ async fn hardware_task(hw: Arc<HardwareComm>, app: Arc<Mutex<App>>) -> Result<()
         let mut last_heartbeat = Instant::now();
 
         loop {
-            // Check if we should quit
+            // Check if we should quit or reset
             let rt = tokio::runtime::Handle::current();
-            let should_quit = rt.block_on(async {
-                let app = app.lock().await;
-                app.should_quit
+            let (should_quit, should_reset) = rt.block_on(async {
+                let mut app = app.lock().await;
+                let quit = app.should_quit;
+                let reset = app.reset_requested;
+                if reset {
+                    app.reset_requested = false; // Clear the flag
+                }
+                (quit, reset)
             });
 
             if should_quit {
                 info!("Hardware task exiting");
                 break;
+            }
+
+            // Send reset commands if requested
+            if should_reset {
+                info!("SERIAL: Race reset requested, sending reset commands");
+                if let Err(e) = hw.send_reset_commands(&mut reader.get_mut()) {
+                    error!("SERIAL: Failed to send race reset commands: {}", e);
+                    let _ = hw.send_message(&OutMessage::Status {
+                        message: format!("Error sending reset commands: {}", e),
+                    });
+                } else {
+                    info!("SERIAL: Race reset commands sent successfully");
+                    let _ = hw.send_message(&OutMessage::Status {
+                        message: "Race reset commands sent".to_string(),
+                    });
+                }
             }
 
             // Read line from serial (with timeout)
@@ -434,8 +525,12 @@ async fn hardware_task(hw: Arc<HardwareComm>, app: Arc<Mutex<App>>) -> Result<()
                     std::thread::sleep(Duration::from_millis(50));
                     continue;
                 }
-                Ok(_) => {
+                Ok(n) => {
                     let line = line_buf.trim();
+
+                    // Log raw received data
+                    info!("SERIAL RX: {} bytes: {:?}", n, line_buf.as_bytes());
+                    info!("SERIAL RX: Trimmed line: {:?}", line);
 
                     // Parse and send message
                     if let Some(msg) = hw.parse_hardware_line(line) {
@@ -595,8 +690,15 @@ async fn command_handler_task(hw: Arc<HardwareComm>, app: Arc<Mutex<App>>) -> Re
                             // Get simulation mode from app state
                             let rt = tokio::runtime::Handle::current();
                             let is_simulation = rt.block_on(async {
-                                let app = app.lock().await;
-                                app.simulation_mode
+                                let mut app = app.lock().await;
+                                let sim_mode = app.simulation_mode;
+
+                                // If in hardware mode, request reset
+                                if !sim_mode {
+                                    app.reset_requested = true;
+                                }
+
+                                sim_mode
                             });
 
                             let status_message = if is_simulation {
@@ -664,7 +766,7 @@ fn render_ui(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, app: &App) -
             .constraints([
                 Constraint::Length(3), // Header
                 Constraint::Min(0),    // Messages
-                Constraint::Length(3), // Status
+                Constraint::Length(4), // Status (now 4 lines: keys, message count, connection status)
             ])
             .split(f.area());
 
@@ -685,22 +787,31 @@ fn render_ui(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, app: &App) -
         f.render_widget(header, chunks[0]);
 
         // Messages
+        let available_width = chunks[1].width as usize;
         let messages: Vec<ListItem> = app
             .messages
             .iter()
             .rev()
             .take(chunks[1].height as usize - 2)
             .rev()
-            .map(|m| ListItem::new(m.clone()))
+            .map(|m| {
+                // Pad message to full width to clear any leftover text
+                let padded = format!("{:width$}", m, width = available_width);
+                ListItem::new(padded)
+            })
             .collect();
 
         let messages_list = List::new(messages).block(Block::default().borders(Borders::NONE));
         f.render_widget(messages_list, chunks[1]);
 
         // Status bar
+        let status_width = chunks[2].width as usize;
         let mut status_lines = vec![];
 
         if app.simulation_mode {
+            let keys_text = "Keys: [S]tart race | Sto[P] race | [1-4] Simulate lap | [Q]uit";
+            let padding = " ".repeat(status_width.saturating_sub(keys_text.len()));
+            let padding_str = format!("uit{}", padding);
             status_lines.push(Line::from(vec![
                 Span::raw("Keys: "),
                 Span::styled("[S]", Style::default().fg(Color::Yellow)),
@@ -710,19 +821,31 @@ fn render_ui(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, app: &App) -
                 Span::styled("[1-4]", Style::default().fg(Color::Yellow)),
                 Span::raw(" Simulate lap | "),
                 Span::styled("[Q]", Style::default().fg(Color::Yellow)),
-                Span::raw("uit"),
+                Span::raw(padding_str),
             ]));
         } else {
+            let keys_text = "Keys: [Q]uit";
+            let padding = " ".repeat(status_width.saturating_sub(keys_text.len()));
+            let padding_str = format!("uit{}", padding);
             status_lines.push(Line::from(vec![
                 Span::raw("Keys: "),
                 Span::styled("[Q]", Style::default().fg(Color::Yellow)),
-                Span::raw("uit"),
+                Span::raw(padding_str),
             ]));
         }
 
-        status_lines.push(Line::from(format!(
-            "Messages received: {}",
-            app.message_count
+        let msg_count_text = format!("Messages received: {}", app.message_count);
+        let padded_msg_count = format!("{:width$}", msg_count_text, width = status_width);
+        status_lines.push(Line::from(padded_msg_count));
+
+        // Add connection status line
+        let (status_text, status_color) = app.get_connection_status();
+        let padded_status = format!("{:width$}", status_text, width = status_width);
+        status_lines.push(Line::from(Span::styled(
+            padded_status,
+            Style::default()
+                .fg(status_color)
+                .add_modifier(Modifier::BOLD),
         )));
 
         let status = Paragraph::new(status_lines).block(Block::default().borders(Borders::TOP));
@@ -760,6 +883,7 @@ async fn main() -> Result<()> {
     // Parse command-line arguments
     let args: Vec<String> = std::env::args().collect();
     let simulation_mode = args.contains(&"--sim".to_string()) || args.contains(&"-s".to_string());
+    let verbose = args.contains(&"--verbose".to_string()) || args.contains(&"-v".to_string());
 
     // Parse redis socket path (--redis-socket <path>)
     let redis_socket_path = if let Some(pos) = args.iter().position(|a| a == "--redis-socket") {
@@ -791,7 +915,7 @@ async fn main() -> Result<()> {
     };
 
     // Create app state
-    let app = Arc::new(Mutex::new(App::new(simulation_mode)));
+    let app = Arc::new(Mutex::new(App::new(simulation_mode, verbose)));
 
     // Create hardware comm
     let hw = Arc::new(HardwareComm::new(redis_socket_path, serial_port, baudrate)?);

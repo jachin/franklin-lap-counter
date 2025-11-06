@@ -95,12 +95,7 @@ main() {
     # Main application files
     scp "franklin.py" "$PI_USER@$PI_HOST:$PI_DEST_DIR/"
     scp "web_server.py" "$PI_USER@$PI_HOST:$PI_DEST_DIR/"
-    scp "database.py" "$PI_USER@$PI_HOST:$PI_DEST_DIR/" 2>/dev/null || log "  (database.py not found, skipping)"
-
-    # Copy configuration files
-    log "Deploying configuration files..."
-    scp "franklin.config.json" "$PI_USER@$PI_HOST:$PI_DEST_DIR/" 2>/dev/null || log "  (franklin.config.json not found, skipping)"
-    scp "pyrightconfig.json" "$PI_USER@$PI_HOST:$PI_DEST_DIR/" 2>/dev/null || log "  (pyrightconfig.json not found, skipping)"
+    scp "database.py" "$PI_USER@$PI_HOST:$PI_DEST_DIR/"
 
     # Copy static directory if it exists
     if [ -d "static" ]; then

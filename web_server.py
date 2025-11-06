@@ -21,6 +21,7 @@ from database import LapDatabase
 REDIS_SOCKET_PATH = "./redis.sock"
 REDIS_OUT_CHANNEL = "hardware:out"
 WEB_PORT = 8080
+WEB_HOST = "0.0.0.0"  # Bind to all network interfaces
 STATIC_DIR = Path(__file__).parent / "static"
 DB_PATH = "lap_counter.db"
 CONFIG_PATH = Path(__file__).parent / "franklin.config.json"
@@ -37,10 +38,12 @@ class WebSocketServer:
         self,
         redis_socket: str = REDIS_SOCKET_PATH,
         port: int = WEB_PORT,
+        host: str = WEB_HOST,
         db_path: str = DB_PATH,
     ) -> None:
         self.redis_socket: str = redis_socket
         self.port: int = port
+        self.host: str = host
         self.db_path: str = db_path
         self.app: web.Application = web.Application()
         self.redis_client: redis.Redis | None = None  # type: ignore[type-arg]
@@ -298,10 +301,10 @@ class WebSocketServer:
         self.app.on_startup.append(self.start_background_tasks)
         self.app.on_cleanup.append(self.cleanup_background_tasks)
 
-        logger.info(f"Starting WebSocket server on http://localhost:{self.port}")
+        logger.info(f"Starting WebSocket server on http://{self.host}:{self.port}")
         logger.info(f"Serving static files from: {STATIC_DIR}")
 
-        web.run_app(self.app, port=self.port)
+        web.run_app(self.app, host=self.host, port=self.port)
 
 
 def main() -> None:

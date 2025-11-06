@@ -13,13 +13,10 @@
     "python313Packages.aiohttp@latest",
     "python313Packages.pygments@latest",
     "python313Packages.rich@latest",
-    "rustc@latest",
-    "cargo@latest",
-    "rust-analyzer@latest",
-    "rustfmt@latest",
-    "clippy@latest",
-    "rustup@latest"
+    "rustup@latest",
+    "pkg-config@latest"
   ],
+
   "shell": {
     "init_hook": [
       ". $VENV_DIR/bin/activate",
@@ -30,9 +27,14 @@
       "lint-franklin": ["basedpyright franklin.py"],
       "web": ["python web_server.py"],
       "rust-build": ["cargo build --manifest-path rust/Cargo.toml"],
+      "rust-build-pi-image": ["./scripts/build-rust-image.sh"],
+      "rust-pi-build": ["./scripts/rust-pi-build.sh"],
       "rust-build-release": [
         "cargo build --release --manifest-path rust/Cargo.toml"
       ],
+      "setup-pi": ["./scripts/setup-pi.sh"],
+      "install-tmuxinator": ["./scripts/install-tmuxinator-pi.sh"],
+      "deploy-pi": ["./scripts/deploy-to-pi.sh"],
       "rust-hw-sim": [
         "cargo run --manifest-path rust/Cargo.toml --bin franklin-hardware-monitor -- --sim"
       ],

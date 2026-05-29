@@ -1,0 +1,40 @@
+# Franklin full simulation tmuxinator configuration
+name: franklin-full-sim
+root: .
+
+pre_window: |
+  source .venv/bin/activate
+  export FRANKLIN_SESSION=tmux
+
+# Build Rust before any windows start. If this fails, startup stops.
+on_project_start: cargo build --manifest-path rust/Cargo.toml
+
+windows:
+  - hardware-sim:
+      layout: main-horizontal
+      panes:
+        - monitor:
+            - echo "Starting hardware simulator..."
+            - cargo run --manifest-path rust/Cargo.toml --bin franklin-hardware-monitor -- --sim
+  - franklin:
+      layout: main-horizontal
+      panes:
+        - tui:
+            - echo "Starting Franklin race UI..."
+            - python franklin.py --race
+  - web:
+      layout: main-horizontal
+      panes:
+        - server:
+            - echo "Starting web server..."
+            - python web_server.py
+  - logs:
+      layout: main-horizontal
+      panes:
+        - system:
+            - echo "System monitoring"
+            - echo "Useful commands:"
+            - echo "  redis-cli -s ./redis.sock ping"
+            - echo "  tail -f race.log hardware.log"
+            - echo "  ps aux | grep -E 'franklin|web_server|hardware-monitor'"
+            - bash

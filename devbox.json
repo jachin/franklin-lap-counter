@@ -14,7 +14,9 @@
     "python313Packages.pygments@latest",
     "python313Packages.rich@latest",
     "rustup@latest",
-    "pkg-config@latest"
+    "pkg-config@latest",
+    "tmux@latest",
+    "tmuxinator@latest"
   ],
 
   "shell": {
@@ -24,6 +26,10 @@
     ],
     "scripts": {
       "franklin": ["python franklin.py"],
+      "franklin-sim": ["python franklin.py --fake"],
+      "full-sim": ["tmuxinator start -p tmuxinator/full-sim.yml"],
+      "full-sim-attach": ["tmux attach-session -t franklin-full-sim"],
+      "full-sim-stop": ["tmux kill-session -t franklin-full-sim"],
       "lint-franklin": ["basedpyright franklin.py"],
       "web": ["python web_server.py"],
       "rust-build": ["cargo build --manifest-path rust/Cargo.toml"],

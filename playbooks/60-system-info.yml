@@ -1,0 +1,32 @@
+---
+- name: Show system information
+  hosts: pi
+  gather_facts: false
+  tasks:
+    - name: Read OS pretty name
+      ansible.builtin.shell: "cat /etc/os-release | grep PRETTY_NAME | cut -d'\"' -f2"
+      register: os_name
+      changed_when: false
+
+    - name: Read Python version
+      ansible.builtin.command: python3 --version
+      register: py_version
+      changed_when: false
+
+    - name: Read glibc version
+      ansible.builtin.shell: "ldd --version | head -n1"
+      register: glibc_version
+      changed_when: false
+
+    - name: Read Redis version
+      ansible.builtin.shell: "redis-server --version | head -n1"
+      register: redis_version
+      changed_when: false
+
+    - name: Print summary
+      ansible.builtin.debug:
+        msg:
+          - "OS: {{ os_name.stdout }}"
+          - "Python: {{ py_version.stdout }}"
+          - "glibc: {{ glibc_version.stdout }}"
+          - "Redis: {{ redis_version.stdout }}"

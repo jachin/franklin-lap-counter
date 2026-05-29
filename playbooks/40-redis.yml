@@ -1,0 +1,10 @@
+---
+- name: Ensure Redis service is enabled and running
+  hosts: pi
+  become: true
+  tasks:
+    - name: Enable and start redis-server
+      ansible.builtin.service:
+        name: redis-server
+        enabled: true
+        state: started

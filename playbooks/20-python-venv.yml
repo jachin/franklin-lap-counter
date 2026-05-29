@@ -1,0 +1,26 @@
+---
+- name: Create app directory and Python virtual environment
+  hosts: pi
+  tasks:
+    - name: Ensure destination directory exists
+      ansible.builtin.file:
+        path: "{{ pi_dest_dir }}"
+        state: directory
+        mode: "0755"
+
+    - name: Ensure Python virtual environment exists
+      ansible.builtin.command:
+        cmd: "python3 -m venv {{ pi_dest_dir }}/.venv"
+        creates: "{{ pi_dest_dir }}/.venv/bin/activate"
+
+    - name: Upgrade pip in virtual environment
+      ansible.builtin.pip:
+        name: pip
+        state: latest
+        virtualenv: "{{ pi_dest_dir }}/.venv"
+
+    - name: Install/upgrade Python application dependencies
+      ansible.builtin.pip:
+        name: "{{ python_packages }}"
+        state: latest
+        virtualenv: "{{ pi_dest_dir }}/.venv"

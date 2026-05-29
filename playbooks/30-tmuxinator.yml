@@ -1,0 +1,19 @@
+---
+- name: Install tmuxinator
+  hosts: pi
+  become: true
+  tasks:
+    - name: Ensure Ruby (gem) is installed
+      ansible.builtin.apt:
+        name: ruby-full
+        state: present
+
+    - name: Check whether tmuxinator is already installed
+      ansible.builtin.command: tmuxinator version
+      register: tmuxinator_check
+      changed_when: false
+      failed_when: false
+
+    - name: Install tmuxinator gem when missing
+      ansible.builtin.command: gem install tmuxinator
+      when: tmuxinator_check.rc != 0

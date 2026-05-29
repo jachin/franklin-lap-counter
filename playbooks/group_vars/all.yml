@@ -1,0 +1,20 @@
+---
+# Default target app directory on the Pi
+pi_dest_dir: "/home/{{ ansible_user }}/franklin-lap-counter"
+
+# Apt packages required by Franklin setup
+system_packages:
+  - python3
+  - python3-pip
+  - python3-venv
+  - redis-server
+  - tmux
+
+# Python packages installed in the app venv
+python_packages:
+  - textual
+  - redis
+  - typing-extensions
+  - aiohttp
+  - pygments
+  - rich

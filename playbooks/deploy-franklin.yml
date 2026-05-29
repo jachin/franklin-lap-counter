@@ -1,0 +1,152 @@
+---
+- name: Deploy Franklin application artifacts to Raspberry Pi
+  hosts: pi
+  gather_facts: false
+  vars:
+    project_root: "{{ playbook_dir }}/.."
+    pi_arch: "{{ lookup('ansible.builtin.env', 'RUST_PI_TARGET') | default('aarch64-unknown-linux-gnu', true) }}"
+    rust_binary_local: "{{ project_root }}/rust/target/{{ pi_arch }}/release/franklin-hardware-monitor"
+    startup_script_local: "{{ project_root }}/scripts/start-franklin.sh"
+    app_files_local:
+      - "{{ project_root }}/franklin.py"
+      - "{{ project_root }}/web_server.py"
+      - "{{ project_root }}/database.py"
+
+  pre_tasks:
+    - name: Verify SSH connectivity
+      ansible.builtin.ping:
+
+    - name: Check required local files exist
+      ansible.builtin.stat:
+        path: "{{ item.path }}"
+      delegate_to: localhost
+      become: false
+      register: required_file_stats
+      loop:
+        - { path: "{{ rust_binary_local }}", description: "Rust hardware monitor binary" }
+        - { path: "{{ project_root }}/franklin.py", description: "Franklin TUI script" }
+        - { path: "{{ project_root }}/web_server.py", description: "Web server script" }
+        - { path: "{{ startup_script_local }}", description: "Startup script" }
+
+    - name: Fail when required local files are missing
+      ansible.builtin.fail:
+        msg: >-
+          Missing required file: {{ item.item.description }}
+          ({{ item.item.path }}).
+          {% if item.item.description == 'Rust hardware monitor binary' %}
+          Build it first with: devbox run rust-pi-build
+          {% endif %}
+      when: not item.stat.exists
+      loop: "{{ required_file_stats.results }}"
+
+    - name: Check optional local directories
+      ansible.builtin.stat:
+        path: "{{ item.path }}"
+      delegate_to: localhost
+      become: false
+      register: optional_dir_stats
+      loop:
+        - { key: "static", path: "{{ project_root }}/static" }
+        - { key: "race", path: "{{ project_root }}/race" }
+        - { key: "tmuxinator", path: "{{ project_root }}/tmuxinator" }
+
+    - name: Check optional .env file
+      ansible.builtin.stat:
+        path: "{{ project_root }}/.env"
+      delegate_to: localhost
+      become: false
+      register: env_file_stat
+
+  tasks:
+    - name: Ensure destination directory exists
+      ansible.builtin.file:
+        path: "{{ pi_dest_dir }}"
+        state: directory
+        mode: "0755"
+
+    - name: Deploy Rust binary
+      ansible.builtin.copy:
+        src: "{{ rust_binary_local }}"
+        dest: "{{ pi_dest_dir }}/franklin-hardware-monitor"
+        mode: "0755"
+
+    - name: Deploy Python application files
+      ansible.builtin.copy:
+        src: "{{ item }}"
+        dest: "{{ pi_dest_dir }}/{{ item | basename }}"
+        mode: "0644"
+      loop: "{{ app_files_local }}"
+
+    - name: Deploy startup script
+      ansible.builtin.copy:
+        src: "{{ startup_script_local }}"
+        dest: "{{ pi_dest_dir }}/start-franklin.sh"
+        mode: "0755"
+
+    - name: Deploy optional static directory
+      ansible.builtin.copy:
+        src: "{{ project_root }}/static/"
+        dest: "{{ pi_dest_dir }}/static/"
+        mode: preserve
+      when: (optional_dir_stats.results | selectattr('item.key', 'equalto', 'static') | map(attribute='stat.isdir') | first | default(false))
+
+    - name: Deploy optional race directory
+      ansible.builtin.copy:
+        src: "{{ project_root }}/race/"
+        dest: "{{ pi_dest_dir }}/race/"
+        mode: preserve
+      when: (optional_dir_stats.results | selectattr('item.key', 'equalto', 'race') | map(attribute='stat.isdir') | first | default(false))
+
+    - name: Deploy optional tmuxinator directory
+      ansible.builtin.copy:
+        src: "{{ project_root }}/tmuxinator/"
+        dest: "{{ pi_dest_dir }}/tmuxinator/"
+        mode: preserve
+      when: (optional_dir_stats.results | selectattr('item.key', 'equalto', 'tmuxinator') | map(attribute='stat.isdir') | first | default(false))
+
+    - name: Deploy optional .env file
+      ansible.builtin.copy:
+        src: "{{ project_root }}/.env"
+        dest: "{{ pi_dest_dir }}/.env"
+        mode: "0600"
+      when: env_file_stat.stat.exists
+
+    - name: Verify required files on remote host
+      ansible.builtin.stat:
+        path: "{{ item }}"
+      register: remote_required_file_stats
+      loop:
+        - "{{ pi_dest_dir }}/franklin-hardware-monitor"
+        - "{{ pi_dest_dir }}/franklin.py"
+        - "{{ pi_dest_dir }}/web_server.py"
+        - "{{ pi_dest_dir }}/start-franklin.sh"
+
+    - name: Fail if required files are missing on remote host
+      ansible.builtin.fail:
+        msg: "Expected deployed file is missing: {{ item.item }}"
+      when: not item.stat.exists
+      loop: "{{ remote_required_file_stats.results }}"
+
+    - name: Read deployed binary file information
+      ansible.builtin.command: "file {{ pi_dest_dir }}/franklin-hardware-monitor"
+      register: binary_file_info
+      changed_when: false
+
+    - name: Report binary architecture verification
+      ansible.builtin.debug:
+        msg: "{{ binary_file_info.stdout }}"
+
+    - name: Warn when binary architecture may not be ARM64
+      ansible.builtin.debug:
+        msg: "Warning: Could not verify ARM64 architecture in deployed binary output"
+      when: >-
+        ('ARM aarch64' not in binary_file_info.stdout)
+        and ('ARM 64-bit' not in binary_file_info.stdout)
+
+    - name: Deployment summary
+      ansible.builtin.debug:
+        msg:
+          - "Deployment complete to {{ inventory_hostname }}:{{ pi_dest_dir }}"
+          - "Deployed: franklin-hardware-monitor, franklin.py, web_server.py, database.py, start-franklin.sh"
+          - "Optional content copied when present: static/, race/, tmuxinator/, .env"
+          - "Start on Pi with: cd {{ pi_dest_dir }} && ./start-franklin.sh"

@@ -1,0 +1,7 @@
+---
+- name: Preflight checks
+  hosts: pi
+  gather_facts: false
+  tasks:
+    - name: Verify SSH connectivity
+      ansible.builtin.ping:

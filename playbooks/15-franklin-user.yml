@@ -39,12 +39,11 @@
       changed_when: false
       when: remote_ghostty_terminfo.rc != 0
 
-    - name: Fail if xterm-ghostty terminfo is unavailable on control machine
-      ansible.builtin.fail:
+    - name: Skip Ghostty terminfo install when unavailable on control machine
+      ansible.builtin.debug:
         msg: >-
-          Could not generate xterm-ghostty terminfo from the control machine.
-          Install Ghostty terminfo locally so `infocmp -x xterm-ghostty` works,
-          then rerun this playbook.
+          Skipping xterm-ghostty terminfo install: `infocmp -x xterm-ghostty`
+          is not available on the control machine.
       when:
         - remote_ghostty_terminfo.rc != 0
         - local_ghostty_terminfo is not defined or local_ghostty_terminfo.rc != 0
@@ -56,24 +55,36 @@
         owner: "{{ franklin_user }}"
         group: "{{ franklin_group }}"
         mode: "0755"
-      when: remote_ghostty_terminfo.rc != 0
+      when:
+        - remote_ghostty_terminfo.rc != 0
+        - local_ghostty_terminfo is defined
+        - local_ghostty_terminfo.rc == 0
 
     - name: Write xterm-ghostty terminfo source on remote
       ansible.builtin.copy:
         content: "{{ local_ghostty_terminfo.stdout }}\n"
         dest: /tmp/xterm-ghostty.terminfo
         mode: "0644"
-      when: remote_ghostty_terminfo.rc != 0
+      when:
+        - remote_ghostty_terminfo.rc != 0
+        - local_ghostty_terminfo is defined
+        - local_ghostty_terminfo.rc == 0
 
     - name: Compile xterm-ghostty terminfo for franklin user
       ansible.builtin.command: >-
         tic -x -o {{ franklin_home }}/.terminfo /tmp/xterm-ghostty.terminfo
       become_user: "{{ franklin_user }}"
       changed_when: true
-      when: remote_ghostty_terminfo.rc != 0
+      when:
+        - remote_ghostty_terminfo.rc != 0
+        - local_ghostty_terminfo is defined
+        - local_ghostty_terminfo.rc == 0
 
     - name: Remove temporary terminfo source file
       ansible.builtin.file:
         path: /tmp/xterm-ghostty.terminfo
         state: absent
-      when: remote_ghostty_terminfo.rc != 0
+      when:
+        - remote_ghostty_terminfo.rc != 0
+        - local_ghostty_terminfo is defined
+        - local_ghostty_terminfo.rc == 0

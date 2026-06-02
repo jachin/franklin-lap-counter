@@ -1,0 +1,78 @@
+---
+- name: Configure boot-time autologin and Franklin autostart
+  hosts: all
+  become: true
+  vars:
+    getty_service: "getty@{{ franklin_autologin_tty }}.service"
+    getty_override_dir: "/etc/systemd/system/{{ getty_service }}.d"
+    getty_override_file: "{{ getty_override_dir }}/autologin.conf"
+
+  tasks:
+    - name: Ensure getty override directory exists
+      ansible.builtin.file:
+        path: "{{ getty_override_dir }}"
+        state: directory
+        mode: "0755"
+      when: franklin_enable_autologin
+
+    - name: Configure autologin for franklin on tty
+      ansible.builtin.copy:
+        dest: "{{ getty_override_file }}"
+        mode: "0644"
+        content: |
+          [Service]
+          ExecStart=
+          ExecStart=-/sbin/agetty --autologin {{ franklin_user }} --noclear %I $TERM
+      register: getty_override_result
+      when: franklin_enable_autologin
+
+    - name: Ensure getty service is enabled
+      ansible.builtin.systemd:
+        name: "{{ getty_service }}"
+        enabled: true
+      when: franklin_enable_autologin
+
+    - name: Reload systemd when autologin override changed
+      ansible.builtin.systemd:
+        daemon_reload: true
+      when:
+        - franklin_enable_autologin
+        - getty_override_result is changed
+
+    - name: Restart getty service when autologin override changed
+      ansible.builtin.systemd:
+        name: "{{ getty_service }}"
+        state: restarted
+      when:
+        - franklin_enable_autologin
+        - getty_override_result is changed
+
+    - name: Configure franklin zsh login autostart block
+      ansible.builtin.blockinfile:
+        path: "{{ franklin_home }}/.zprofile"
+        create: true
+        owner: "{{ franklin_user }}"
+        group: "{{ franklin_group }}"
+        mode: "0644"
+        marker: "# {mark} ANSIBLE MANAGED FRANKLIN AUTOSTART"
+        block: |
+          # Auto-start Franklin on local boot console login only.
+          if [[ -z "${SSH_TTY:-}" ]] && [[ -z "${TMUX:-}" ]] && [[ "$(tty)" == "/dev/{{ franklin_autologin_tty }}" ]]; then
+            if [ -x "{{ pi_dest_dir }}/start-franklin.sh" ]; then
+              cd "{{ pi_dest_dir }}"
+              exec ./start-franklin.sh
+            fi
+          fi
+      when: franklin_enable_autostart
+
+    - name: Remove franklin zsh login autostart block when disabled
+      ansible.builtin.blockinfile:
+        path: "{{ franklin_home }}/.zprofile"
+        create: true
+        owner: "{{ franklin_user }}"
+        group: "{{ franklin_group }}"
+        mode: "0644"
+        marker: "# {mark} ANSIBLE MANAGED FRANKLIN AUTOSTART"
+        block: ""
+        state: absent
+      when: not franklin_enable_autostart

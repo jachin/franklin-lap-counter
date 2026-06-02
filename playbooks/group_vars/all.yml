@@ -5,6 +5,11 @@ franklin_group: franklin
 franklin_home: "/home/{{ franklin_user }}"
 franklin_shell: /usr/bin/zsh
 
+# Boot/login behavior
+franklin_autologin_tty: tty1
+franklin_enable_autologin: true
+franklin_enable_autostart: true
+
 # Default target app directory on the Pi
 pi_dest_dir: "{{ franklin_home }}/franklin-lap-counter"
 

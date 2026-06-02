@@ -37,6 +37,7 @@
       become: false
       register: local_ghostty_terminfo
       changed_when: false
+      failed_when: false
       when: remote_ghostty_terminfo.rc != 0
 
     - name: Skip Ghostty terminfo install when unavailable on control machine
@@ -70,11 +71,22 @@
         - local_ghostty_terminfo is defined
         - local_ghostty_terminfo.rc == 0
 
-    - name: Compile xterm-ghostty terminfo for franklin user
+    - name: Compile xterm-ghostty terminfo into franklin home
       ansible.builtin.command: >-
         tic -x -o {{ franklin_home }}/.terminfo /tmp/xterm-ghostty.terminfo
-      become_user: "{{ franklin_user }}"
       changed_when: true
+      when:
+        - remote_ghostty_terminfo.rc != 0
+        - local_ghostty_terminfo is defined
+        - local_ghostty_terminfo.rc == 0
+
+    - name: Ensure franklin owns installed Ghostty terminfo
+      ansible.builtin.file:
+        path: "{{ franklin_home }}/.terminfo"
+        state: directory
+        owner: "{{ franklin_user }}"
+        group: "{{ franklin_group }}"
+        recurse: true
       when:
         - remote_ghostty_terminfo.rc != 0
         - local_ghostty_terminfo is defined

@@ -61,3 +61,4 @@ ansible-playbook -i playbooks/inventory.ini playbooks/site.yml \
 - Boot behavior is configurable with `franklin_enable_autologin`, `franklin_enable_autostart`, and `franklin_autologin_tty` in `group_vars/all.yml`.
 - `30-tmuxinator.yml` installs tmuxinator only if it is missing.
 - This setup stage prepares the target machine; deployment of app binaries/files remains in your existing deploy flow.
+- `deploy-franklin.yml` does not copy `.env`; host/runtime settings should be managed in Ansible vars.

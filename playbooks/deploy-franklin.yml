@@ -60,13 +60,6 @@
         - { key: "race", path: "{{ project_root }}/race" }
         - { key: "tmuxinator", path: "{{ project_root }}/tmuxinator" }
 
-    - name: Check optional .env file
-      ansible.builtin.stat:
-        path: "{{ project_root }}/.env"
-      delegate_to: localhost
-      become: false
-      register: env_file_stat
-
   tasks:
     - name: Ensure destination directory exists
       ansible.builtin.file:
@@ -128,15 +121,6 @@
         mode: preserve
       when: (optional_dir_stats.results | selectattr('item.key', 'equalto', 'tmuxinator') | map(attribute='stat.isdir') | first | default(false))
 
-    - name: Deploy optional .env file
-      ansible.builtin.copy:
-        src: "{{ project_root }}/.env"
-        dest: "{{ pi_dest_dir }}/.env"
-        owner: "{{ franklin_user }}"
-        group: "{{ franklin_group }}"
-        mode: "0600"
-      when: env_file_stat.stat.exists
-
     - name: Verify required files on remote host
       ansible.builtin.stat:
         path: "{{ item }}"
@@ -178,5 +162,5 @@
         msg:
           - "Deployment complete to {{ inventory_hostname }}:{{ pi_dest_dir }}"
           - "Deployed: franklin-hardware-monitor, franklin.py, web_server.py, database.py, start-franklin.sh"
-          - "Optional content copied when present: static/, race/ (race module code), tmuxinator/, .env"
+          - "Optional content copied when present: static/, race/ (race module code), tmuxinator/"
           - "Start on Pi with: cd {{ pi_dest_dir }} && ./start-franklin.sh"

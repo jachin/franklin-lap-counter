@@ -22,6 +22,7 @@ system_packages:
   - tmux
   - zsh
   - ncurses-bin
+  - lnav
 
 # Python packages installed in the app venv
 python_packages:

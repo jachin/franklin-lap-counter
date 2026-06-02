@@ -83,8 +83,5 @@ windows:
       layout: main-horizontal
       panes:
         - system:
-            - echo "System monitoring and logs"
-            - echo "Commands available:"
-            - echo "  htop - system resources"
-            - echo "  tail -f *.log - view logs"
-            - echo "  ps aux | grep franklin - check processes"
+            - echo "Opening logs in lnav..."
+            - lnav race.log hardware.log hardware_redis.log /var/log/syslog

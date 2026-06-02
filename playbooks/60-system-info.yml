@@ -1,10 +1,10 @@
 ---
 - name: Show system information
-  hosts: pi
+  hosts: all
   gather_facts: false
   tasks:
     - name: Read OS pretty name
-      ansible.builtin.shell: "cat /etc/os-release | grep PRETTY_NAME | cut -d'\"' -f2"
+      ansible.builtin.shell: 'cat /etc/os-release | grep PRETTY_NAME | cut -d''"'' -f2'
       register: os_name
       changed_when: false
 

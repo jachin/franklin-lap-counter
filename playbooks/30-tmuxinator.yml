@@ -1,6 +1,6 @@
 ---
 - name: Install tmuxinator
-  hosts: pi
+  hosts: all
   become: true
   tasks:
     - name: Ensure Ruby (gem) is installed

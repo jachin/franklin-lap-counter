@@ -1,6 +1,6 @@
 ---
 - name: Install startup script
-  hosts: pi
+  hosts: all
   tasks:
     - name: Copy start-franklin.sh to destination directory
       ansible.builtin.copy:

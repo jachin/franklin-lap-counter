@@ -1,6 +1,6 @@
 ---
 - name: Ensure Redis service is enabled and running
-  hosts: pi
+  hosts: all
   become: true
   tasks:
     - name: Enable and start redis-server

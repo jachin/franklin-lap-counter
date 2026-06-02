@@ -1,6 +1,6 @@
 ---
 - name: Create app directory and Python virtual environment
-  hosts: pi
+  hosts: all
   tasks:
     - name: Ensure destination directory exists
       ansible.builtin.file:

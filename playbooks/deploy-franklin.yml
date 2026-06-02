@@ -1,6 +1,6 @@
 ---
 - name: Deploy Franklin application artifacts to Raspberry Pi
-  hosts: pi
+  hosts: all
   gather_facts: false
   vars:
     project_root: "{{ playbook_dir }}/.."
@@ -23,9 +23,18 @@
       become: false
       register: required_file_stats
       loop:
-        - { path: "{{ rust_binary_local }}", description: "Rust hardware monitor binary" }
-        - { path: "{{ project_root }}/franklin.py", description: "Franklin TUI script" }
-        - { path: "{{ project_root }}/web_server.py", description: "Web server script" }
+        - {
+            path: "{{ rust_binary_local }}",
+            description: "Rust hardware monitor binary",
+          }
+        - {
+            path: "{{ project_root }}/franklin.py",
+            description: "Franklin TUI script",
+          }
+        - {
+            path: "{{ project_root }}/web_server.py",
+            description: "Web server script",
+          }
         - { path: "{{ startup_script_local }}", description: "Startup script" }
 
     - name: Fail when required local files are missing

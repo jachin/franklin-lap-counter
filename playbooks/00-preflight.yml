@@ -1,6 +1,6 @@
 ---
 - name: Preflight checks
-  hosts: pi
+  hosts: all
   gather_facts: false
   tasks:
     - name: Verify SSH connectivity

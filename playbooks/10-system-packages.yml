@@ -1,6 +1,6 @@
 ---
 - name: Install base system dependencies
-  hosts: pi
+  hosts: all
   become: true
   tasks:
     - name: Update apt cache

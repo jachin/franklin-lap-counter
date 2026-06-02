@@ -16,7 +16,8 @@
     "rustup@latest",
     "pkg-config@latest",
     "tmux@latest",
-    "tmuxinator@latest"
+    "tmuxinator@latest",
+    "ansible@latest"
   ],
 
   "shell": {

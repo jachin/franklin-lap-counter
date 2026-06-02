@@ -3,7 +3,7 @@ name: franklin-full-sim
 root: .
 
 # Start attached to the lap counter UI window.
-startup_window: franklin
+startup_window: lap-counter
 
 pre_window: |
   source .venv/bin/activate
@@ -19,7 +19,7 @@ windows:
         - monitor:
             - echo "Starting hardware simulator..."
             - cargo run --manifest-path rust/Cargo.toml --bin franklin-hardware-monitor -- --sim
-  - franklin:
+  - lap-counter:
       layout: main-horizontal
       panes:
         - tui:

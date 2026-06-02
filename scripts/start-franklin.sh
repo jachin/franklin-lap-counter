@@ -116,7 +116,8 @@ start_franklin() {
         if [[ $REPLY =~ ^[Yy]$ ]]; then
             stop_franklin
         else
-            log "Attaching to existing session..."
+            log "Selecting lap-counter window and attaching to existing session..."
+            tmux select-window -t "$TMUX_SESSION_NAME:lap-counter" 2>/dev/null || true
             tmux attach-session -t "$TMUX_SESSION_NAME"
             return
         fi
@@ -172,7 +173,8 @@ status_franklin() {
 
 attach_franklin() {
     if tmux has-session -t "$TMUX_SESSION_NAME" 2>/dev/null; then
-        log "Attaching to Franklin session..."
+        log "Selecting lap-counter window and attaching to Franklin session..."
+        tmux select-window -t "$TMUX_SESSION_NAME:lap-counter" 2>/dev/null || true
         tmux attach-session -t "$TMUX_SESSION_NAME"
     else
         log "❌ No Franklin session found. Start it first."

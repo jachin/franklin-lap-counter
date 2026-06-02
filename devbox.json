@@ -39,9 +39,13 @@
       "rust-build-release": [
         "cargo build --release --manifest-path rust/Cargo.toml"
       ],
-      "setup-pi": ["./scripts/setup-pi.sh"],
+      "setup-pi": [
+        "ansible-playbook -i playbooks/inventory.ini playbooks/site.yml"
+      ],
       "install-tmuxinator": ["./scripts/install-tmuxinator-pi.sh"],
-      "deploy-pi": ["./scripts/deploy-to-pi.sh"],
+      "deploy-pi": [
+        "ansible-playbook -i playbooks/inventory.ini playbooks/deploy-franklin.yml"
+      ],
       "rust-hw-sim": [
         "cargo run --manifest-path rust/Cargo.toml --bin franklin-hardware-monitor -- --sim"
       ],

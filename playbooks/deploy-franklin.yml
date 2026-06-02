@@ -2,6 +2,7 @@
 - name: Deploy Franklin application artifacts to Raspberry Pi
   hosts: all
   gather_facts: false
+  become: true
   vars:
     project_root: "{{ playbook_dir }}/.."
     pi_arch: "{{ lookup('ansible.builtin.env', 'RUST_PI_TARGET') | default('aarch64-unknown-linux-gnu', true) }}"
@@ -71,18 +72,24 @@
       ansible.builtin.file:
         path: "{{ pi_dest_dir }}"
         state: directory
+        owner: "{{ franklin_user }}"
+        group: "{{ franklin_group }}"
         mode: "0755"
 
     - name: Deploy Rust binary
       ansible.builtin.copy:
         src: "{{ rust_binary_local }}"
         dest: "{{ pi_dest_dir }}/franklin-hardware-monitor"
+        owner: "{{ franklin_user }}"
+        group: "{{ franklin_group }}"
         mode: "0755"
 
     - name: Deploy Python application files
       ansible.builtin.copy:
         src: "{{ item }}"
         dest: "{{ pi_dest_dir }}/{{ item | basename }}"
+        owner: "{{ franklin_user }}"
+        group: "{{ franklin_group }}"
         mode: "0644"
       loop: "{{ app_files_local }}"
 
@@ -90,12 +97,16 @@
       ansible.builtin.copy:
         src: "{{ startup_script_local }}"
         dest: "{{ pi_dest_dir }}/start-franklin.sh"
+        owner: "{{ franklin_user }}"
+        group: "{{ franklin_group }}"
         mode: "0755"
 
     - name: Deploy optional static directory
       ansible.builtin.copy:
         src: "{{ project_root }}/static/"
         dest: "{{ pi_dest_dir }}/static/"
+        owner: "{{ franklin_user }}"
+        group: "{{ franklin_group }}"
         mode: preserve
       when: (optional_dir_stats.results | selectattr('item.key', 'equalto', 'static') | map(attribute='stat.isdir') | first | default(false))
 
@@ -103,6 +114,8 @@
       ansible.builtin.copy:
         src: "{{ project_root }}/race/"
         dest: "{{ pi_dest_dir }}/race/"
+        owner: "{{ franklin_user }}"
+        group: "{{ franklin_group }}"
         mode: preserve
       when: (optional_dir_stats.results | selectattr('item.key', 'equalto', 'race') | map(attribute='stat.isdir') | first | default(false))
 
@@ -110,6 +123,8 @@
       ansible.builtin.copy:
         src: "{{ project_root }}/tmuxinator/"
         dest: "{{ pi_dest_dir }}/tmuxinator/"
+        owner: "{{ franklin_user }}"
+        group: "{{ franklin_group }}"
         mode: preserve
       when: (optional_dir_stats.results | selectattr('item.key', 'equalto', 'tmuxinator') | map(attribute='stat.isdir') | first | default(false))
 
@@ -117,6 +132,8 @@
       ansible.builtin.copy:
         src: "{{ project_root }}/.env"
         dest: "{{ pi_dest_dir }}/.env"
+        owner: "{{ franklin_user }}"
+        group: "{{ franklin_group }}"
         mode: "0600"
       when: env_file_stat.stat.exists
 

@@ -1,26 +1,32 @@
 ---
 - name: Create app directory and Python virtual environment
   hosts: all
+  become: true
   tasks:
-    - name: Ensure destination directory exists
+    - name: Ensure destination directory exists and is owned by franklin
       ansible.builtin.file:
         path: "{{ pi_dest_dir }}"
         state: directory
+        owner: "{{ franklin_user }}"
+        group: "{{ franklin_group }}"
         mode: "0755"
 
     - name: Ensure Python virtual environment exists
       ansible.builtin.command:
         cmd: "python3 -m venv {{ pi_dest_dir }}/.venv"
         creates: "{{ pi_dest_dir }}/.venv/bin/activate"
+      become_user: "{{ franklin_user }}"
 
     - name: Upgrade pip in virtual environment
       ansible.builtin.pip:
         name: pip
         state: latest
         virtualenv: "{{ pi_dest_dir }}/.venv"
+      become_user: "{{ franklin_user }}"
 
     - name: Install/upgrade Python application dependencies
       ansible.builtin.pip:
         name: "{{ python_packages }}"
         state: latest
         virtualenv: "{{ pi_dest_dir }}/.venv"
+      become_user: "{{ franklin_user }}"

@@ -1,0 +1,79 @@
+---
+- name: Provision franklin runtime user and shell environment
+  hosts: all
+  become: true
+  tasks:
+    - name: Ensure franklin group exists
+      ansible.builtin.group:
+        name: "{{ franklin_group }}"
+        state: present
+
+    - name: Ensure franklin user exists with zsh shell
+      ansible.builtin.user:
+        name: "{{ franklin_user }}"
+        group: "{{ franklin_group }}"
+        shell: "{{ franklin_shell }}"
+        create_home: true
+        home: "{{ franklin_home }}"
+        state: present
+
+    - name: Ensure app destination directory exists and is owned by franklin
+      ansible.builtin.file:
+        path: "{{ pi_dest_dir }}"
+        state: directory
+        owner: "{{ franklin_user }}"
+        group: "{{ franklin_group }}"
+        mode: "0755"
+
+    - name: Check whether xterm-ghostty terminfo already exists on remote
+      ansible.builtin.command: infocmp -x xterm-ghostty
+      register: remote_ghostty_terminfo
+      changed_when: false
+      failed_when: false
+
+    - name: Read xterm-ghostty terminfo from control machine (if needed)
+      ansible.builtin.command: infocmp -x xterm-ghostty
+      delegate_to: localhost
+      become: false
+      register: local_ghostty_terminfo
+      changed_when: false
+      when: remote_ghostty_terminfo.rc != 0
+
+    - name: Fail if xterm-ghostty terminfo is unavailable on control machine
+      ansible.builtin.fail:
+        msg: >-
+          Could not generate xterm-ghostty terminfo from the control machine.
+          Install Ghostty terminfo locally so `infocmp -x xterm-ghostty` works,
+          then rerun this playbook.
+      when:
+        - remote_ghostty_terminfo.rc != 0
+        - local_ghostty_terminfo is not defined or local_ghostty_terminfo.rc != 0
+
+    - name: Ensure franklin terminfo directory exists
+      ansible.builtin.file:
+        path: "{{ franklin_home }}/.terminfo"
+        state: directory
+        owner: "{{ franklin_user }}"
+        group: "{{ franklin_group }}"
+        mode: "0755"
+      when: remote_ghostty_terminfo.rc != 0
+
+    - name: Write xterm-ghostty terminfo source on remote
+      ansible.builtin.copy:
+        content: "{{ local_ghostty_terminfo.stdout }}\n"
+        dest: /tmp/xterm-ghostty.terminfo
+        mode: "0644"
+      when: remote_ghostty_terminfo.rc != 0
+
+    - name: Compile xterm-ghostty terminfo for franklin user
+      ansible.builtin.command: >-
+        tic -x -o {{ franklin_home }}/.terminfo /tmp/xterm-ghostty.terminfo
+      become_user: "{{ franklin_user }}"
+      changed_when: true
+      when: remote_ghostty_terminfo.rc != 0
+
+    - name: Remove temporary terminfo source file
+      ansible.builtin.file:
+        path: /tmp/xterm-ghostty.terminfo
+        state: absent
+      when: remote_ghostty_terminfo.rc != 0

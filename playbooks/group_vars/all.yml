@@ -1,6 +1,12 @@
 ---
+# Franklin runtime user configuration
+franklin_user: franklin
+franklin_group: franklin
+franklin_home: "/home/{{ franklin_user }}"
+franklin_shell: /usr/bin/zsh
+
 # Default target app directory on the Pi
-pi_dest_dir: "/home/{{ ansible_user }}/franklin-lap-counter"
+pi_dest_dir: "{{ franklin_home }}/franklin-lap-counter"
 
 # Apt packages required by Franklin setup
 system_packages:
@@ -9,6 +15,8 @@ system_packages:
   - python3-venv
   - redis-server
   - tmux
+  - zsh
+  - ncurses-bin
 
 # Python packages installed in the app venv
 python_packages:

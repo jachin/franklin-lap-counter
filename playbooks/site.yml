@@ -1,6 +1,7 @@
 ---
 - import_playbook: 00-preflight.yml
 - import_playbook: 10-system-packages.yml
+- import_playbook: 15-franklin-user.yml
 - import_playbook: 20-python-venv.yml
 - import_playbook: 30-tmuxinator.yml
 - import_playbook: 40-redis.yml

@@ -16,15 +16,17 @@ These playbooks replace the behavior from `scripts/setup-pi.sh` in a modular, id
 
 ## Files
 
-- `inventory.ini` - default host and user (`raspberrypi.local`, `pi`)
+- `inventory.example.ini` - committed inventory example (`raspberrypi.local`, `pi`)
+- `inventory.ini` - local inventory used by Ansible (gitignored)
 - `group_vars/all.yml` - defaults such as `pi_dest_dir`, package lists
 - `ansible.cfg` - local project Ansible config
 
 ## Usage
 
-From the project root:
+From the project root (first copy the example inventory):
 
 ```bash
+cp playbooks/inventory.example.ini playbooks/inventory.ini
 ansible-playbook -i playbooks/inventory.ini playbooks/site.yml
 ```
 

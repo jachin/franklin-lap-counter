@@ -24,7 +24,8 @@ lap_counter.db
 franklin.config.json
 config.json
 
-
+# Ansible
+playbooks/inventory.ini
 
 # Rust
 /target

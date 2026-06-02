@@ -146,12 +146,16 @@
         - "{{ pi_dest_dir }}/franklin.py"
         - "{{ pi_dest_dir }}/web_server.py"
         - "{{ pi_dest_dir }}/start-franklin.sh"
+      loop_control:
+        label: "{{ item }}"
 
     - name: Fail if required files are missing on remote host
       ansible.builtin.fail:
         msg: "Expected deployed file is missing: {{ item.item }}"
       when: not item.stat.exists
       loop: "{{ remote_required_file_stats.results }}"
+      loop_control:
+        label: "{{ item.item }}"
 
     - name: Read deployed binary file information
       ansible.builtin.command: "file {{ pi_dest_dir }}/franklin-hardware-monitor"
@@ -174,5 +178,5 @@
         msg:
           - "Deployment complete to {{ inventory_hostname }}:{{ pi_dest_dir }}"
           - "Deployed: franklin-hardware-monitor, franklin.py, web_server.py, database.py, start-franklin.sh"
-          - "Optional content copied when present: static/, race/, tmuxinator/, .env"
+          - "Optional content copied when present: static/, race/ (race module code), tmuxinator/, .env"
           - "Start on Pi with: cd {{ pi_dest_dir }} && ./start-franklin.sh"

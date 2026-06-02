@@ -12,6 +12,8 @@
       ansible.builtin.user:
         name: "{{ franklin_user }}"
         group: "{{ franklin_group }}"
+        groups: "{{ franklin_supplementary_groups | join(',') }}"
+        append: true
         shell: "{{ franklin_shell }}"
         create_home: true
         home: "{{ franklin_home }}"

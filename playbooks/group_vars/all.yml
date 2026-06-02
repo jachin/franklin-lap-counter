@@ -4,6 +4,8 @@ franklin_user: franklin
 franklin_group: franklin
 franklin_home: "/home/{{ franklin_user }}"
 franklin_shell: /usr/bin/zsh
+franklin_supplementary_groups:
+  - dialout
 
 # Boot/login behavior
 franklin_autologin_tty: tty1

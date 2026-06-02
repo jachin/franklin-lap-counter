@@ -1,6 +1,6 @@
 # Franklin Lap Counter tmuxinator configuration
 name: franklin
-root: <%= ENV["PI_DEST_DIR"] || "/home/pi/franklin-lap-counter" %>
+root: <%= ENV["PI_DEST_DIR"] || "/home/franklin/franklin-lap-counter" %>
 
 # Optional tmux socket
 # socket_name: foo
@@ -35,7 +35,7 @@ root: <%= ENV["PI_DEST_DIR"] || "/home/pi/franklin-lap-counter" %>
 # tmux_command: byobu
 
 # Specifies (by name or index) which window will be selected on project startup. If not set, the first window is used.
-# startup_window: editor
+startup_window: franklin
 
 # Specifies (by index) which pane of the specified window will be selected on project startup. If not set, the first pane is used.
 # startup_pane: 1

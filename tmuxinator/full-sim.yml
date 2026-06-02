@@ -2,6 +2,9 @@
 name: franklin-full-sim
 root: .
 
+# Start attached to the lap counter UI window.
+startup_window: franklin
+
 pre_window: |
   source .venv/bin/activate
   export FRANKLIN_SESSION=tmux

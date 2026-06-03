@@ -34,7 +34,7 @@ if [ -d .venv ]; then
 fi
 
 mkdir -p .
-touch race.log hardware_redis.log redis.log web.log
+touch race.log gui.log hardware_redis.log redis.log web.log
 
 echo "Starting Redis (unix socket)..."
 redis-server --daemonize yes --port 0 --unixsocket ./redis.sock --unixsocketperm 700 --loglevel notice --logfile ./redis.log
@@ -48,4 +48,4 @@ python web_server.py >> ./web.log 2>&1 &
 WEB_PID=$!
 
 echo "Starting Franklin GTK GUI..."
-exec python franklin-gui.py --race
+exec python franklin-gui.py --race >> ./gui.log 2>&1

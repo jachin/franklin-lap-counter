@@ -11,10 +11,29 @@
         group: "{{ franklin_group }}"
         mode: "0755"
 
-    - name: Ensure Python virtual environment exists
+    - name: Ensure Python virtual environment exists (with system site packages for GTK bindings)
       ansible.builtin.command:
-        cmd: "python3 -m venv {{ pi_dest_dir }}/.venv"
+        cmd: "python3 -m venv --system-site-packages {{ pi_dest_dir }}/.venv"
         creates: "{{ pi_dest_dir }}/.venv/bin/activate"
+
+    - name: Check whether GTK gi module is importable in venv
+      ansible.builtin.command:
+        cmd: "{{ pi_dest_dir }}/.venv/bin/python -c 'import gi'"
+      register: venv_gi_check
+      changed_when: false
+      failed_when: false
+
+    - name: Recreate venv with system site packages when gi is missing
+      when: venv_gi_check.rc != 0
+      block:
+        - name: Remove incompatible virtual environment
+          ansible.builtin.file:
+            path: "{{ pi_dest_dir }}/.venv"
+            state: absent
+
+        - name: Recreate virtual environment with system site packages
+          ansible.builtin.command:
+            cmd: "python3 -m venv --system-site-packages {{ pi_dest_dir }}/.venv"
 
     - name: Upgrade pip in virtual environment
       ansible.builtin.pip:

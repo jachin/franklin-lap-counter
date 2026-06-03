@@ -117,6 +117,86 @@
       "last_modified": "2026-05-27T10:28:13Z",
       "resolved": "github:NixOS/nixpkgs/4100e830e085863741bc69b156ec4ccd53ab5be0?lastModified=1779877693&narHash=sha256-NOF9NAREhxr50bbBfVcVOq%2BArCMSoe8dP79Pk2uyARk%3D"
     },
+    "gtk4@latest": {
+      "last_modified": "2026-05-21T08:15:18Z",
+      "resolved": "github:NixOS/nixpkgs/4a29d733e8a7d5b824c3d8c958a946a9867b3eb2#gtk4",
+      "source": "devbox-search",
+      "version": "4.22.4",
+      "systems": {
+        "aarch64-darwin": {
+          "outputs": [
+            {
+              "name": "out",
+              "path": "/nix/store/7zw7klbm4ck6s1bhvffz81q2qx67b1sr-gtk4-4.22.4",
+              "default": true
+            },
+            {
+              "name": "dev",
+              "path": "/nix/store/d58g0jpqlh69q1zyddlvkkqn1bl68bpd-gtk4-4.22.4-dev"
+            }
+          ],
+          "store_path": "/nix/store/7zw7klbm4ck6s1bhvffz81q2qx67b1sr-gtk4-4.22.4"
+        },
+        "aarch64-linux": {
+          "outputs": [
+            {
+              "name": "out",
+              "path": "/nix/store/xqr30idc4y201rw77f9ipaxqca1gs6kl-gtk4-4.22.4",
+              "default": true
+            },
+            {
+              "name": "debug",
+              "path": "/nix/store/4xr0np0h6nr3n6xpw0hllkyb6bp9kxgn-gtk4-4.22.4-debug"
+            },
+            {
+              "name": "dev",
+              "path": "/nix/store/645ssix0p9y0v9v99g76yz0bbdzyp53d-gtk4-4.22.4-dev"
+            },
+            {
+              "name": "devdoc",
+              "path": "/nix/store/mkc5jjsxchj8hc37r2dsk1472qas1y0g-gtk4-4.22.4-devdoc"
+            }
+          ],
+          "store_path": "/nix/store/xqr30idc4y201rw77f9ipaxqca1gs6kl-gtk4-4.22.4"
+        },
+        "x86_64-darwin": {
+          "outputs": [
+            {
+              "name": "out",
+              "path": "/nix/store/m0jjcq8hj9ks659laxwvk8x95x65rsvr-gtk4-4.22.4",
+              "default": true
+            },
+            {
+              "name": "dev",
+              "path": "/nix/store/n3w0a3ivjlfjqs2w2202sx6kslcpdd9f-gtk4-4.22.4-dev"
+            }
+          ],
+          "store_path": "/nix/store/m0jjcq8hj9ks659laxwvk8x95x65rsvr-gtk4-4.22.4"
+        },
+        "x86_64-linux": {
+          "outputs": [
+            {
+              "name": "out",
+              "path": "/nix/store/hkg2i77ydzyym51dql6q375lnf29f17a-gtk4-4.22.4",
+              "default": true
+            },
+            {
+              "name": "debug",
+              "path": "/nix/store/6axs68qcfn1j3q0kcmv8rd516z52s78g-gtk4-4.22.4-debug"
+            },
+            {
+              "name": "dev",
+              "path": "/nix/store/nv8x7438mp3gdd0wdpnc18nm57jxmwah-gtk4-4.22.4-dev"
+            },
+            {
+              "name": "devdoc",
+              "path": "/nix/store/xss0n1f7fiqvsjw1h9skf39m1jzs18hf-gtk4-4.22.4-devdoc"
+            }
+          ],
+          "store_path": "/nix/store/hkg2i77ydzyym51dql6q375lnf29f17a-gtk4-4.22.4"
+        }
+      }
+    },
     "lnav@latest": {
       "last_modified": "2026-05-21T08:15:18Z",
       "resolved": "github:NixOS/nixpkgs/4a29d733e8a7d5b824c3d8c958a946a9867b3eb2#lnav",
@@ -534,6 +614,70 @@
             }
           ],
           "store_path": "/nix/store/pg8jlnqaww41s7iwcqgc3bsxrv7lpmjb-python3.13-pygments-2.20.0"
+        }
+      }
+    },
+    "python313Packages.pygobject3@latest": {
+      "last_modified": "2026-05-21T08:15:18Z",
+      "resolved": "github:NixOS/nixpkgs/4a29d733e8a7d5b824c3d8c958a946a9867b3eb2#python313Packages.pygobject3",
+      "source": "devbox-search",
+      "version": "3.56.2",
+      "systems": {
+        "aarch64-darwin": {
+          "outputs": [
+            {
+              "name": "out",
+              "path": "/nix/store/snk55k6xwsd4rrhmf8nv0m7cgpk99pnk-python3.13-pygobject-3.56.2",
+              "default": true
+            },
+            {
+              "name": "dev",
+              "path": "/nix/store/9yzmcr800p3bgpnk7w3z6hrv15fxh7z3-python3.13-pygobject-3.56.2-dev"
+            }
+          ],
+          "store_path": "/nix/store/snk55k6xwsd4rrhmf8nv0m7cgpk99pnk-python3.13-pygobject-3.56.2"
+        },
+        "aarch64-linux": {
+          "outputs": [
+            {
+              "name": "out",
+              "path": "/nix/store/v215h8932l5174wcmyz08632i43nfwbi-python3.13-pygobject-3.56.2",
+              "default": true
+            },
+            {
+              "name": "dev",
+              "path": "/nix/store/pyz4lj4hpr1ljwkdl5q1sif2pc9mz9yk-python3.13-pygobject-3.56.2-dev"
+            }
+          ],
+          "store_path": "/nix/store/v215h8932l5174wcmyz08632i43nfwbi-python3.13-pygobject-3.56.2"
+        },
+        "x86_64-darwin": {
+          "outputs": [
+            {
+              "name": "out",
+              "path": "/nix/store/k1cdnh2ifjskxiqz6c2h4prdx38ddbkl-python3.13-pygobject-3.56.2",
+              "default": true
+            },
+            {
+              "name": "dev",
+              "path": "/nix/store/z5sdfxgnabz2crnxp3xsjw09h50lrcpv-python3.13-pygobject-3.56.2-dev"
+            }
+          ],
+          "store_path": "/nix/store/k1cdnh2ifjskxiqz6c2h4prdx38ddbkl-python3.13-pygobject-3.56.2"
+        },
+        "x86_64-linux": {
+          "outputs": [
+            {
+              "name": "out",
+              "path": "/nix/store/gvv5gqpx1yk6frz47caf3a7wiya5qh3s-python3.13-pygobject-3.56.2",
+              "default": true
+            },
+            {
+              "name": "dev",
+              "path": "/nix/store/3xyq091k4q0x71qjjkiicfz2mhyr85l6-python3.13-pygobject-3.56.2-dev"
+            }
+          ],
+          "store_path": "/nix/store/gvv5gqpx1yk6frz47caf3a7wiya5qh3s-python3.13-pygobject-3.56.2"
         }
       }
     },

@@ -9,7 +9,7 @@ This is the first pass of the GUI app that mirrors the core Franklin TUI flow:
 - Redis command publish (hardware:in)
 - lap/event log and leaderboard rendering
 - race persistence via SQLite
-- basic driver rename support via dialog
+- basic driver management (add/rename/delete) via dialog
 """
 
 import argparse
@@ -39,7 +39,7 @@ from race.race_contestants import RaceContestants
 from race.race_mode import RaceMode
 
 gi.require_version("Gtk", "4.0")
-from gi.repository import Gio, GLib, Gtk
+from gi.repository import Gdk, Gio, GLib, Gtk
 
 
 class FranklinGuiApp(Gtk.Application):
@@ -117,7 +117,7 @@ class FranklinGuiApp(Gtk.Application):
             ("start_race", self._action_start_race, ["<Primary>s"]),
             ("end_race", self._action_end_race, ["<Primary>e"]),
             ("toggle_mode", self._action_toggle_mode, ["<Primary>t"]),
-            ("rename_driver", self._action_rename_driver, ["<Primary>r"]),
+            ("manage_drivers", self._action_manage_drivers, ["<Primary>r"]),
         ]
 
         for name, callback, accels in action_defs:
@@ -145,8 +145,8 @@ class FranklinGuiApp(Gtk.Application):
         self.append_event(f"Mode changed to {self.race_mode}")
         self.refresh_views()
 
-    def _action_rename_driver(self, _action: Gio.SimpleAction, _param: Any) -> None:
-        self.on_rename_driver_clicked(None)
+    def _action_manage_drivers(self, _action: Gio.SimpleAction, _param: Any) -> None:
+        self.on_manage_drivers_clicked(None)
 
     def do_activate(self) -> None:  # type: ignore[override]
         self.window = Gtk.ApplicationWindow(application=self)
@@ -182,14 +182,14 @@ class FranklinGuiApp(Gtk.Application):
         self.stop_btn.set_sensitive(False)
         self.stop_btn.connect("clicked", self.on_end_clicked)
 
-        rename_btn = Gtk.Button(label="Rename Driver (Ctrl+R)")
-        rename_btn.connect("clicked", self.on_rename_driver_clicked)
+        manage_drivers_btn = Gtk.Button(label="Manage Drivers (Ctrl+R)")
+        manage_drivers_btn.connect("clicked", self.on_manage_drivers_clicked)
 
         controls.append(Gtk.Label(label="Mode (Ctrl+T):"))
         controls.append(self.mode_combo)
         controls.append(self.start_btn)
         controls.append(self.stop_btn)
-        controls.append(rename_btn)
+        controls.append(manage_drivers_btn)
 
         status = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=16)
         self.state_label = Gtk.Label(label="State: NOT_STARTED")
@@ -354,41 +354,211 @@ class FranklinGuiApp(Gtk.Application):
         self.append_event("Race ended")
         self.refresh_views()
 
-    def on_rename_driver_clicked(self, _button: Gtk.Button | None) -> None:
+    def on_manage_drivers_clicked(self, _button: Gtk.Button | None) -> None:
         if not self.window:
             return
 
         dialog = Gtk.Dialog(
-            title="Rename Driver", transient_for=self.window, modal=True
+            title="Manage Drivers", transient_for=self.window, modal=True
         )
         dialog.add_button("Cancel", Gtk.ResponseType.CANCEL)
         dialog.add_button("Save", Gtk.ResponseType.OK)
 
         content = dialog.get_content_area()
-        form = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
-        id_entry = Gtk.Entry()
-        id_entry.set_placeholder_text("Transmitter ID (e.g. 1001481)")
-        name_entry = Gtk.Entry()
-        name_entry.set_placeholder_text("Driver name")
+        root = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        root.set_margin_top(8)
+        root.set_margin_bottom(8)
+        root.set_margin_start(8)
+        root.set_margin_end(8)
 
-        form.append(Gtk.Label(label="Transmitter ID"))
-        form.append(id_entry)
-        form.append(Gtk.Label(label="Driver Name"))
-        form.append(name_entry)
-        content.append(form)
+        help_text = Gtk.Label(
+            label="Edit names, add or delete drivers. Enter=Add, Ctrl+Enter=Save, Ctrl+D=Delete focused driver, Esc=Cancel."
+        )
+        help_text.set_xalign(0)
+        root.append(help_text)
+
+        add_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        add_id_entry = Gtk.Entry()
+        add_id_entry.set_placeholder_text("Transmitter ID")
+        add_id_entry.set_width_chars(12)
+        add_name_entry = Gtk.Entry()
+        add_name_entry.set_placeholder_text("Driver name")
+        add_name_entry.set_hexpand(True)
+        add_btn = Gtk.Button(label="Add")
+        add_row.append(add_id_entry)
+        add_row.append(add_name_entry)
+        add_row.append(add_btn)
+        root.append(add_row)
+
+        list_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        scroll = Gtk.ScrolledWindow()
+        scroll.set_min_content_height(280)
+        scroll.set_child(list_box)
+        root.append(scroll)
+
+        status_label = Gtk.Label(label="")
+        status_label.set_xalign(0)
+        root.append(status_label)
+
+        content.append(root)
+
+        staged: dict[int, str] = {
+            c.transmitter_id: c.name for c in self.global_contestants.contestants
+        }
+        focused_driver_id: int | None = None
+
+        def set_status(msg: str) -> None:
+            status_label.set_text(msg)
+
+        def set_focused_driver(tid: int | None) -> None:
+            nonlocal focused_driver_id
+            focused_driver_id = tid
+
+        def delete_driver_by_id(tid: int) -> bool:
+            if tid not in staged:
+                return False
+            staged.pop(tid, None)
+            refresh_driver_rows()
+            set_status(f"Deleted driver {tid}")
+            return True
+
+        def refresh_driver_rows() -> None:
+            child = list_box.get_first_child()
+            while child is not None:
+                next_child = child.get_next_sibling()
+                list_box.remove(child)
+                child = next_child
+
+            nonlocal focused_driver_id
+
+            for transmitter_id in sorted(staged.keys()):
+                row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+
+                id_label = Gtk.Label(label=str(transmitter_id))
+                id_label.set_width_chars(12)
+                id_label.set_xalign(0)
+
+                name_entry = Gtk.Entry()
+                name_entry.set_hexpand(True)
+                name_entry.set_text(staged[transmitter_id])
+
+                def on_name_changed(
+                    entry: Gtk.Entry, tid: int = transmitter_id
+                ) -> None:
+                    staged[tid] = entry.get_text().strip()
+
+                name_entry.connect("changed", on_name_changed)
+
+                name_focus = Gtk.EventControllerFocus()
+                name_focus.connect(
+                    "enter", lambda _ctrl, tid: set_focused_driver(tid), transmitter_id
+                )
+                name_entry.add_controller(name_focus)
+
+                delete_btn = Gtk.Button(label="Delete")
+
+                delete_focus = Gtk.EventControllerFocus()
+                delete_focus.connect(
+                    "enter", lambda _ctrl, tid: set_focused_driver(tid), transmitter_id
+                )
+                delete_btn.add_controller(delete_focus)
+
+                def on_delete_clicked(
+                    _btn: Gtk.Button, tid: int = transmitter_id
+                ) -> None:
+                    set_focused_driver(tid)
+                    delete_driver_by_id(tid)
+
+                delete_btn.connect("clicked", on_delete_clicked)
+
+                row.append(id_label)
+                row.append(name_entry)
+                row.append(delete_btn)
+                list_box.append(row)
+
+            if focused_driver_id is not None and focused_driver_id not in staged:
+                focused_driver_id = None
+
+        def add_current_driver() -> None:
+            raw_id = add_id_entry.get_text().strip()
+            name = add_name_entry.get_text().strip()
+            if not raw_id:
+                set_status("Enter a transmitter ID")
+                return
+            if not name:
+                set_status("Enter a driver name")
+                return
+
+            try:
+                transmitter_id = int(raw_id)
+            except ValueError:
+                set_status("Transmitter ID must be a number")
+                return
+
+            if transmitter_id in staged:
+                set_status(f"Driver {transmitter_id} already exists; name updated")
+            else:
+                set_status(f"Added driver {transmitter_id}")
+
+            staged[transmitter_id] = name
+            add_id_entry.set_text("")
+            add_name_entry.set_text("")
+            refresh_driver_rows()
+            add_id_entry.grab_focus()
+
+        def on_add_clicked(_btn: Gtk.Button | None) -> None:
+            add_current_driver()
+
+        add_btn.connect("clicked", on_add_clicked)
+        add_id_entry.connect("activate", lambda _entry: on_add_clicked(None))
+        add_name_entry.connect("activate", lambda _entry: on_add_clicked(None))
+
+        def on_key_pressed(
+            _controller: Gtk.EventControllerKey,
+            keyval: int,
+            _keycode: int,
+            state: Gdk.ModifierType,
+        ) -> bool:
+            if keyval in (Gdk.KEY_Return, Gdk.KEY_KP_Enter) and (
+                state & Gdk.ModifierType.CONTROL_MASK
+            ):
+                dialog.response(Gtk.ResponseType.OK)
+                return True
+            if keyval in (Gdk.KEY_d, Gdk.KEY_D) and (
+                state & Gdk.ModifierType.CONTROL_MASK
+            ):
+                if focused_driver_id is None:
+                    set_status("Focus a driver row first, then press Ctrl+D")
+                    return True
+                if not delete_driver_by_id(focused_driver_id):
+                    set_status("Focused driver is no longer available")
+                return True
+            if keyval == Gdk.KEY_Escape:
+                dialog.response(Gtk.ResponseType.CANCEL)
+                return True
+            return False
+
+        key_controller = Gtk.EventControllerKey()
+        key_controller.connect("key-pressed", on_key_pressed)
+        dialog.add_controller(key_controller)
+
+        refresh_driver_rows()
+        add_id_entry.grab_focus()
 
         def on_response(d: Gtk.Dialog, response: int) -> None:
             if response == Gtk.ResponseType.OK:
-                try:
-                    transmitter_id = int(id_entry.get_text().strip())
-                    name = name_entry.get_text().strip()
-                    if name:
-                        self.upsert_contestant(transmitter_id, name)
-                        self.save_config()
-                        self.append_event(f"Renamed driver {transmitter_id} -> {name}")
-                        self.refresh_views()
-                except ValueError:
-                    self.append_event("Invalid transmitter ID")
+                cleaned = {
+                    tid: name.strip() for tid, name in staged.items() if name.strip()
+                }
+                self.global_contestants.contestants = [
+                    Contestant(transmitter_id=tid, name=cleaned[tid])
+                    for tid in sorted(cleaned.keys())
+                ]
+                self.save_config()
+                self.refresh_views()
+                self.append_event(
+                    f"Saved driver updates ({len(self.global_contestants.contestants)} total)"
+                )
             d.destroy()
 
         dialog.connect("response", on_response)

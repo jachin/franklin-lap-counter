@@ -14,7 +14,6 @@ fi
 cd "$(dirname "$0")"
 
 # Configuration
-PI_DEST_DIR="${PI_DEST_DIR:-$(pwd)}"
 TMUX_SESSION_NAME="${TMUX_SESSION_NAME:-franklin}"
 TMUXINATOR_CONFIG="tmuxinator/franklin.yml"
 
@@ -105,8 +104,7 @@ stop_franklin() {
 start_franklin() {
     log "Starting Franklin Lap Counter with tmuxinator..."
 
-    # Export environment variables for tmuxinator
-    export PI_DEST_DIR="$PI_DEST_DIR"
+    # Export session name for tmux helpers
     export TMUX_SESSION_NAME="$TMUX_SESSION_NAME"
 
     # Check if session already exists

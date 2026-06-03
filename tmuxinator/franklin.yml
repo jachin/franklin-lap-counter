@@ -1,6 +1,6 @@
 # Franklin Lap Counter tmuxinator configuration
 name: franklin
-root: <%= ENV["PI_DEST_DIR"] || "/home/franklin/franklin-lap-counter" %>
+root: .
 
 # Optional tmux socket
 # socket_name: foo

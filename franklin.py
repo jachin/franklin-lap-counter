@@ -250,6 +250,7 @@ class Franklin(App[Any]):  # type: ignore[type-arg]
             filemode="a",
             format="%(asctime)s %(levelname)s:%(message)s",
             level=logging.INFO,
+            force=True,
         )
         logging.info("Franklin initialized")
         logging.info(f"Franklin initialized: {self.race_mode}")

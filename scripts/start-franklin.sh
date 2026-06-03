@@ -58,8 +58,8 @@ check_files() {
         missing_files+=("franklin-hardware-monitor")
     fi
 
-    if [ ! -f "franklin.py" ]; then
-        missing_files+=("franklin.py")
+    if [ ! -f "franklin-tui.py" ]; then
+        missing_files+=("franklin-tui.py")
     fi
 
     if [ ! -f "web_server.py" ]; then
@@ -156,7 +156,7 @@ status_franklin() {
         log "  ❌ Hardware monitor not running"
     fi
 
-    if pgrep -f "franklin.py" >/dev/null 2>&1; then
+    if pgrep -f "franklin-tui.py" >/dev/null 2>&1; then
         log "  ✓ Franklin TUI running"
     else
         log "  ❌ Franklin TUI not running"

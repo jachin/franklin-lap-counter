@@ -18,7 +18,9 @@
     "tmux@latest",
     "tmuxinator@latest",
     "ansible@latest",
-    "lnav@latest"
+    "lnav@latest",
+    "gtk4@latest",
+    "python313Packages.pygobject3@latest"
   ],
 
   "shell": {
@@ -27,12 +29,13 @@
       "redis-server --daemonize yes --unixsocket ./redis.sock --unixsocketperm 700"
     ],
     "scripts": {
-      "franklin": ["python franklin.py"],
-      "franklin-sim": ["python franklin.py --fake"],
+      "franklin": ["python franklin-tui.py"],
+      "franklin-sim": ["python franklin-tui.py --fake"],
+      "franklin-gui": ["python franklin-gui.py"],
       "full-sim": ["tmuxinator start -p tmuxinator/full-sim.yml"],
       "full-sim-attach": ["tmux attach-session -t franklin-full-sim"],
       "full-sim-stop": ["tmux kill-session -t franklin-full-sim"],
-      "lint-franklin": ["basedpyright franklin.py"],
+      "lint-franklin": ["basedpyright franklin-tui.py franklin-gui.py"],
       "web": ["python web_server.py"],
       "rust-build": ["cargo build --manifest-path rust/Cargo.toml"],
       "rust-build-pi-image": ["./scripts/build-rust-image.sh"],

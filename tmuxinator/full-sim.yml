@@ -24,7 +24,7 @@ windows:
       panes:
         - tui:
             - echo "Starting Franklin race UI..."
-            - python franklin.py --race
+            - python franklin-tui.py --race
   - web:
       layout: main-horizontal
       panes:

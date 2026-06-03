@@ -1,0 +1,558 @@
+#!/usr/bin/env python3
+"""
+Franklin GTK GUI (Wayland-friendly) implementation.
+
+This is the first pass of the GUI app that mirrors the core Franklin TUI flow:
+- race mode selection (Real/Fake/Training)
+- start/end race controls
+- Redis hardware subscription (hardware:out)
+- Redis command publish (hardware:in)
+- lap/event log and leaderboard rendering
+- race persistence via SQLite
+- basic driver rename support via dialog
+"""
+
+import argparse
+import json
+import logging
+import queue
+import threading
+import time
+from pathlib import Path
+from typing import Any
+
+import gi
+import redis
+
+from database import LapDatabase
+from race.contestant import Contestant
+from race.race import (
+    Race,
+    RaceState,
+    generate_fake_race,
+    is_race_going,
+    make_fake_lap,
+    make_lap_from_sensor_data_and_race,
+    order_laps_by_occurrence,
+)
+from race.race_contestants import RaceContestants
+from race.race_mode import RaceMode
+
+gi.require_version("Gtk", "4.0")
+from gi.repository import GLib, Gtk
+
+
+class FranklinGuiApp(Gtk.Application):
+    def __init__(
+        self,
+        *,
+        initial_mode: RaceMode,
+        total_laps: int,
+        contestants_data: list[dict[str, Any]],
+        redis_socket: str = "./redis.sock",
+        db_path: str = "lap_counter.db",
+    ) -> None:
+        super().__init__(application_id="com.franklin.lapcounter.gui")
+
+        # Logging
+        logging.basicConfig(
+            filename="race.log",
+            filemode="a",
+            format="%(asctime)s %(levelname)s:%(message)s",
+            level=logging.INFO,
+            force=True,
+        )
+        logging.info("Franklin GUI initialized")
+
+        # Core state
+        self.total_laps = total_laps
+        self.race_mode = initial_mode
+        self.global_contestants = RaceContestants(contestants_data)
+        self.previous_race: Race | None = None
+        self.race = Race(previous_race=None)
+        self.race.total_laps = total_laps
+
+        self.redis_socket = redis_socket
+        self.redis_in_channel = "hardware:in"
+        self.redis_out_channel = "hardware:out"
+        self._redis_client: redis.Redis | None = None
+        self._redis_pubsub = None
+
+        self.config_path = Path("franklin.config.json")
+        self.db = LapDatabase(db_path)
+        self.current_race_id: int | None = None
+
+        self.lap_counter_detected = False
+        self._last_lap_counter_signal_time: float | None = None
+
+        # Threaded message processing
+        self._incoming_messages: queue.Queue[dict[str, Any]] = queue.Queue()
+        self._shutdown = threading.Event()
+        self._redis_thread: threading.Thread | None = None
+        self._fake_thread: threading.Thread | None = None
+
+        # UI refs
+        self.window: Gtk.ApplicationWindow | None = None
+        self.mode_combo: Gtk.ComboBoxText | None = None
+        self.start_btn: Gtk.Button | None = None
+        self.stop_btn: Gtk.Button | None = None
+        self.time_label: Gtk.Label | None = None
+        self.state_label: Gtk.Label | None = None
+        self.detect_label: Gtk.Label | None = None
+        self.laps_remaining_label: Gtk.Label | None = None
+        self.leaderboard_view: Gtk.TextView | None = None
+        self.events_view: Gtk.TextView | None = None
+
+        self._last_race_state_publish = 0.0
+
+        in_progress = self.db.get_in_progress_race()
+        if in_progress:
+            logging.info("Resuming in-progress race: %s", in_progress["id"])
+            self.current_race_id = int(in_progress["id"])
+
+    def do_activate(self) -> None:  # type: ignore[override]
+        self.window = Gtk.ApplicationWindow(application=self)
+        self.window.set_title("Franklin Lap Counter (GTK)")
+        self.window.set_default_size(1200, 760)
+
+        root = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        root.set_margin_top(12)
+        root.set_margin_bottom(12)
+        root.set_margin_start(12)
+        root.set_margin_end(12)
+
+        controls = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        self.mode_combo = Gtk.ComboBoxText()
+        self.mode_combo.append_text(RaceMode.REAL.name)
+        self.mode_combo.append_text(RaceMode.FAKE.name)
+        self.mode_combo.append_text(RaceMode.TRAINING.name)
+        self.mode_combo.set_active(
+            [RaceMode.REAL, RaceMode.FAKE, RaceMode.TRAINING].index(self.race_mode)
+        )
+        self.mode_combo.connect("changed", self.on_mode_changed)
+
+        self.start_btn = Gtk.Button(label="Start Race")
+        self.start_btn.connect("clicked", self.on_start_clicked)
+
+        self.stop_btn = Gtk.Button(label="End Race")
+        self.stop_btn.set_sensitive(False)
+        self.stop_btn.connect("clicked", self.on_end_clicked)
+
+        rename_btn = Gtk.Button(label="Rename Driver")
+        rename_btn.connect("clicked", self.on_rename_driver_clicked)
+
+        controls.append(Gtk.Label(label="Mode:"))
+        controls.append(self.mode_combo)
+        controls.append(self.start_btn)
+        controls.append(self.stop_btn)
+        controls.append(rename_btn)
+
+        status = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=16)
+        self.time_label = Gtk.Label(label="Time: 00:00.0")
+        self.state_label = Gtk.Label(label="State: NOT_STARTED")
+        self.detect_label = Gtk.Label(label="Hardware: Waiting")
+        self.laps_remaining_label = Gtk.Label(
+            label=f"Laps Remaining: {self.total_laps}"
+        )
+        for lbl in [
+            self.time_label,
+            self.state_label,
+            self.detect_label,
+            self.laps_remaining_label,
+        ]:
+            lbl.set_xalign(0)
+            status.append(lbl)
+
+        panes = Gtk.Paned.new(Gtk.Orientation.HORIZONTAL)
+
+        leaderboard_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        leaderboard_box.append(Gtk.Label(label="Leaderboard"))
+        self.leaderboard_view = Gtk.TextView()
+        self.leaderboard_view.set_editable(False)
+        self.leaderboard_view.set_monospace(True)
+        leaderboard_scroll = Gtk.ScrolledWindow()
+        leaderboard_scroll.set_child(self.leaderboard_view)
+        leaderboard_box.append(leaderboard_scroll)
+
+        events_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        events_box.append(Gtk.Label(label="Events"))
+        self.events_view = Gtk.TextView()
+        self.events_view.set_editable(False)
+        self.events_view.set_monospace(True)
+        events_scroll = Gtk.ScrolledWindow()
+        events_scroll.set_child(self.events_view)
+        events_box.append(events_scroll)
+
+        panes.set_start_child(leaderboard_box)
+        panes.set_end_child(events_box)
+
+        root.append(controls)
+        root.append(status)
+        root.append(panes)
+
+        self.window.set_child(root)
+        self.window.present()
+
+        self.connect_redis()
+        GLib.timeout_add(100, self.update_time)
+        GLib.timeout_add(50, self.drain_incoming_messages)
+
+        self.append_event("GUI ready")
+        self.refresh_views()
+
+    def do_shutdown(self) -> None:  # type: ignore[override]
+        self._shutdown.set()
+        try:
+            if self._redis_pubsub:
+                self._redis_pubsub.close()
+        except Exception:
+            pass
+        try:
+            if self._redis_client:
+                self._redis_client.close()
+        except Exception:
+            pass
+        self.db.close()
+        super().do_shutdown()
+
+    def append_event(self, text: str) -> None:
+        if not self.events_view:
+            return
+        buf = self.events_view.get_buffer()
+        end = buf.get_end_iter()
+        timestamp = time.strftime("%H:%M:%S")
+        buf.insert(end, f"[{timestamp}] {text}\n")
+
+    def refresh_views(self) -> None:
+        if self.state_label:
+            self.state_label.set_text(f"State: {self.race.state.name}")
+        if self.detect_label:
+            status = "Connected" if self.lap_counter_detected else "Waiting"
+            self.detect_label.set_text(f"Hardware: {status}")
+        if self.laps_remaining_label:
+            leader_remaining, _ = self.race.laps_remaining()
+            self.laps_remaining_label.set_text(f"Laps Remaining: {leader_remaining}")
+
+        if self.leaderboard_view:
+            lines = ["Pos  Racer                 Laps  Best    Last    Total"]
+            for pos, racer_id, lap_count, best, last, total in self.race.leaderboard():
+                name = self.global_contestants.get_contestant_name(racer_id)
+                best_s = "--" if best == float("inf") else f"{best:0.2f}"
+                last_s = "--" if last == float("inf") else f"{last:0.2f}"
+                total_s = "--" if total == float("inf") else f"{total:0.2f}"
+                lines.append(
+                    f"{pos:>3}  {name[:20]:<20} {lap_count:>4}  {best_s:>6}  {last_s:>6}  {total_s:>6}"
+                )
+            self.leaderboard_view.get_buffer().set_text("\n".join(lines))
+
+    def update_time(self) -> bool:
+        if self.race.state == RaceState.RUNNING and self.race.start_time is not None:
+            self.race.elapsed_time = time.monotonic() - self.race.start_time
+        if self.time_label:
+            minutes = int(self.race.elapsed_time // 60)
+            seconds = int(self.race.elapsed_time % 60)
+            tenths = int((self.race.elapsed_time - int(self.race.elapsed_time)) * 10)
+            self.time_label.set_text(f"Time: {minutes:02}:{seconds:02}.{tenths}")
+
+        now = time.monotonic()
+        if now - self._last_race_state_publish > 1.0:
+            self.publish_race_state()
+            self._last_race_state_publish = now
+        return True
+
+    def on_mode_changed(self, combo: Gtk.ComboBoxText) -> None:
+        text = combo.get_active_text() or RaceMode.TRAINING.name
+        self.race_mode = RaceMode[text]
+        self.append_event(f"Mode changed to {self.race_mode}")
+
+    def on_start_clicked(self, _button: Gtk.Button) -> None:
+        self.race = Race(previous_race=self.previous_race)
+        self.race.total_laps = self.total_laps
+        self.race.start(start_time=time.monotonic())
+
+        self.current_race_id = self.db.create_race(
+            notes=f"Mode: {self.race_mode}, Total Laps: {self.total_laps}"
+        )
+
+        if self.start_btn:
+            self.start_btn.set_sensitive(False)
+        if self.stop_btn:
+            self.stop_btn.set_sensitive(True)
+
+        self.append_event("Race started")
+        if self.race_mode == RaceMode.FAKE:
+            self.start_fake_playback()
+        else:
+            self.publish_command("start_race")
+
+        self.refresh_views()
+
+    def on_end_clicked(self, _button: Gtk.Button) -> None:
+        if not is_race_going(self.race):
+            return
+
+        self.race.state = RaceState.FINISHED
+        self.previous_race = self.race
+
+        if self.current_race_id:
+            self.db.end_race(self.current_race_id)
+            self.current_race_id = None
+
+        if self.start_btn:
+            self.start_btn.set_sensitive(True)
+        if self.stop_btn:
+            self.stop_btn.set_sensitive(False)
+
+        if self.race_mode != RaceMode.FAKE:
+            self.publish_command("end_race")
+
+        self.append_event("Race ended")
+        self.refresh_views()
+
+    def on_rename_driver_clicked(self, _button: Gtk.Button) -> None:
+        if not self.window:
+            return
+
+        dialog = Gtk.Dialog(
+            title="Rename Driver", transient_for=self.window, modal=True
+        )
+        dialog.add_button("Cancel", Gtk.ResponseType.CANCEL)
+        dialog.add_button("Save", Gtk.ResponseType.OK)
+
+        content = dialog.get_content_area()
+        form = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        id_entry = Gtk.Entry()
+        id_entry.set_placeholder_text("Transmitter ID (e.g. 1001481)")
+        name_entry = Gtk.Entry()
+        name_entry.set_placeholder_text("Driver name")
+
+        form.append(Gtk.Label(label="Transmitter ID"))
+        form.append(id_entry)
+        form.append(Gtk.Label(label="Driver Name"))
+        form.append(name_entry)
+        content.append(form)
+
+        def on_response(d: Gtk.Dialog, response: int) -> None:
+            if response == Gtk.ResponseType.OK:
+                try:
+                    transmitter_id = int(id_entry.get_text().strip())
+                    name = name_entry.get_text().strip()
+                    if name:
+                        self.upsert_contestant(transmitter_id, name)
+                        self.save_config()
+                        self.append_event(f"Renamed driver {transmitter_id} -> {name}")
+                        self.refresh_views()
+                except ValueError:
+                    self.append_event("Invalid transmitter ID")
+            d.destroy()
+
+        dialog.connect("response", on_response)
+        dialog.present()
+
+    def upsert_contestant(self, transmitter_id: int, name: str) -> None:
+        for contestant in self.global_contestants.contestants:
+            if contestant.transmitter_id == transmitter_id:
+                contestant.name = name
+                return
+        self.global_contestants.contestants.append(
+            Contestant(transmitter_id=transmitter_id, name=name)
+        )
+
+    def save_config(self) -> None:
+        contestants = [
+            {"transmitter_id": c.transmitter_id, "name": c.name}
+            for c in self.global_contestants.contestants
+        ]
+        data = {"total_laps": self.total_laps, "contestants": contestants}
+        self.config_path.write_text(json.dumps(data, indent=2))
+
+    def connect_redis(self) -> None:
+        try:
+            self._redis_client = redis.Redis(
+                unix_socket_path=self.redis_socket, decode_responses=True
+            )
+            self._redis_client.ping()
+            self._redis_pubsub = self._redis_client.pubsub()
+            self._redis_pubsub.subscribe(self.redis_out_channel)
+            self.append_event("Connected to Redis")
+            logging.info("Connected to Redis")
+        except Exception as exc:
+            self.append_event(f"Redis connect failed: {exc}")
+            logging.error("Failed to connect to Redis: %s", exc)
+            return
+
+        def reader() -> None:
+            assert self._redis_pubsub is not None
+            while not self._shutdown.is_set():
+                try:
+                    msg = self._redis_pubsub.get_message(timeout=0.1)
+                    if msg and msg.get("type") == "message":
+                        data = msg.get("data")
+                        parsed = json.loads(data) if isinstance(data, str) else {}
+                        if isinstance(parsed, dict):
+                            self._incoming_messages.put(parsed)
+                except Exception as exc:
+                    logging.error("Redis listener error: %s", exc)
+                    time.sleep(0.2)
+
+        self._redis_thread = threading.Thread(target=reader, daemon=True)
+        self._redis_thread.start()
+
+    def drain_incoming_messages(self) -> bool:
+        while True:
+            try:
+                msg = self._incoming_messages.get_nowait()
+            except queue.Empty:
+                break
+            self.handle_hardware_message(msg)
+        return True
+
+    def handle_hardware_message(self, msg: dict[str, Any]) -> None:
+        msg_type = msg.get("type")
+
+        if msg_type == "heartbeat":
+            self.lap_counter_detected = True
+            self._last_lap_counter_signal_time = time.monotonic()
+            self.refresh_views()
+            return
+
+        if msg_type == "status":
+            self.append_event(f"STATUS: {msg.get('message', '')}")
+            return
+
+        if msg_type != "lap":
+            return
+
+        if self.race.state != RaceState.RUNNING:
+            logging.error("Cannot add lap - race is not running")
+            self.append_event("Ignored lap: race is not running")
+            return
+
+        racer_id = msg.get("racer_id")
+        hardware_race_time = msg.get("race_time")
+        sensor_id = msg.get("sensor_id", racer_id)
+
+        if racer_id is None or hardware_race_time is None:
+            self.append_event("Invalid lap data received")
+            return
+
+        lap = make_lap_from_sensor_data_and_race(
+            int(racer_id), float(hardware_race_time), time.monotonic(), self.race
+        )
+        self.race.add_lap(lap)
+
+        if self.current_race_id:
+            self.db.add_lap(
+                race_id=self.current_race_id,
+                racer_id=lap.racer_id,
+                sensor_id=int(sensor_id),
+                race_time=lap.seconds_from_race_start,
+                lap_number=lap.lap_number,
+                lap_time=lap.lap_time if lap.lap_number > 0 else None,
+            )
+
+        name = self.global_contestants.get_contestant_name(lap.racer_id)
+        self.append_event(
+            f"LAP: {name} (ID {lap.racer_id}) lap {lap.lap_number} at {lap.seconds_from_race_start:.3f}s"
+        )
+        self.refresh_views()
+
+    def publish_command(self, command: str, **kwargs: Any) -> None:
+        if not self._redis_client:
+            self.append_event("Redis client not initialized")
+            return
+        payload: dict[str, Any] = {"type": "command", "command": command}
+        payload.update(kwargs)
+        self._redis_client.publish(self.redis_in_channel, json.dumps(payload))
+
+    def publish_race_state(self) -> None:
+        if not self._redis_client:
+            return
+        try:
+            race_data = {
+                "type": "race_state",
+                "timestamp": time.monotonic(),
+                "race_state": self.race.state.name,
+                "elapsed_time": round(self.race.elapsed_time, 2),
+                "race_mode": self.race_mode.name,
+                "total_laps": self.total_laps,
+            }
+            self._redis_client.publish("franklin:race_state", json.dumps(race_data))
+        except Exception as exc:
+            logging.error("Failed to publish race state: %s", exc)
+
+    def start_fake_playback(self) -> None:
+        fake_race = generate_fake_race()
+        sorted_laps = order_laps_by_occurrence(fake_race.laps)
+        race_start = self.race.start_time or time.monotonic()
+
+        def playback() -> None:
+            try:
+                for ts, lap in sorted_laps:
+                    if self._shutdown.is_set() or self.race.state != RaceState.RUNNING:
+                        return
+                    elapsed = time.monotonic() - race_start
+                    wait_time = ts - elapsed
+                    if wait_time > 0:
+                        time.sleep(wait_time)
+                    lap_event = make_fake_lap(
+                        lap.racer_id, lap.lap_number, lap.lap_time, ts
+                    )
+                    self._incoming_messages.put(
+                        {
+                            "type": "lap",
+                            "racer_id": lap_event.racer_id,
+                            "sensor_id": 1,
+                            "race_time": float(lap_event.seconds_from_race_start),
+                        }
+                    )
+            except Exception as exc:
+                logging.error("Fake playback error: %s", exc)
+
+        self._fake_thread = threading.Thread(target=playback, daemon=True)
+        self._fake_thread.start()
+
+
+def load_initial_config(config_path: Path) -> tuple[int, list[dict[str, Any]]]:
+    total_laps = 10
+    contestants_data: list[dict[str, Any]] = []
+    if config_path.exists():
+        try:
+            config_data = json.loads(config_path.read_text())
+            total_laps = int(config_data.get("total_laps", 10))
+            contestants_data = config_data.get("contestants", [])
+        except Exception as exc:
+            logging.error("Failed to load config: %s", exc)
+    return total_laps, contestants_data
+
+
+def parse_mode() -> RaceMode:
+    parser = argparse.ArgumentParser(
+        description="Start Franklin GTK GUI in chosen initial mode."
+    )
+    group = parser.add_mutually_exclusive_group()
+    group.add_argument("--race", action="store_true", help="Start in Race Mode")
+    group.add_argument("--fake", action="store_true", help="Start in Fake Race Mode")
+    group.add_argument("--training", action="store_true", help="Start in Training Mode")
+    args = parser.parse_args()
+
+    if args.race:
+        return RaceMode.REAL
+    if args.fake:
+        return RaceMode.FAKE
+    return RaceMode.TRAINING
+
+
+def main() -> None:
+    initial_mode = parse_mode()
+    total_laps, contestants_data = load_initial_config(Path("franklin.config.json"))
+    app = FranklinGuiApp(
+        initial_mode=initial_mode,
+        total_laps=total_laps,
+        contestants_data=contestants_data,
+    )
+    app.run([])
+
+
+if __name__ == "__main__":
+    main()

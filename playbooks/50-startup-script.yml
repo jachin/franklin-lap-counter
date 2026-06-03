@@ -1,12 +1,15 @@
 ---
-- name: Install startup script
+- name: Install startup scripts
   hosts: all
   become: true
   tasks:
-    - name: Copy start-franklin.sh to destination directory
+    - name: Copy startup scripts to destination directory
       ansible.builtin.copy:
-        src: "{{ playbook_dir }}/../scripts/start-franklin.sh"
-        dest: "{{ pi_dest_dir }}/start-franklin.sh"
+        src: "{{ playbook_dir }}/../scripts/{{ item }}"
+        dest: "{{ pi_dest_dir }}/{{ item }}"
         owner: "{{ franklin_user }}"
         group: "{{ franklin_group }}"
         mode: "0755"
+      loop:
+        - start-franklin.sh
+        - start-franklin-gui-session.sh

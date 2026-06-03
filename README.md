@@ -38,10 +38,16 @@ devbox shell
 devbox run rust-hw
 ```
 
-**Terminal 2 - Race UI:**
+**Terminal 2 - Race UI (Text UI):**
 ```bash
 devbox shell
-python franklin.py --race
+python franklin-tui.py --race
+```
+
+**Terminal 2 - Race UI (GTK GUI, optional):**
+```bash
+devbox shell
+python franklin-gui.py --race
 ```
 
 ### Running in Simulation Mode (no hardware needed)
@@ -52,10 +58,16 @@ devbox shell
 devbox run rust-hw-sim
 ```
 
-**Terminal 2 - Race UI:**
+**Terminal 2 - Race UI (Text UI):**
 ```bash
 devbox shell
-python franklin.py --race
+python franklin-tui.py --race
+```
+
+**Terminal 2 - Race UI (GTK GUI, optional):**
+```bash
+devbox shell
+python franklin-gui.py --race
 ```
 
 ### Running a Fake Race (self-contained)
@@ -63,7 +75,13 @@ python franklin.py --race
 No hardware interface needed - Franklin generates a fake race internally:
 ```bash
 devbox shell
-python franklin.py --fake
+python franklin-tui.py --fake
+```
+
+Or with GTK GUI:
+```bash
+devbox shell
+python franklin-gui.py --fake
 ```
 
 ## Controls
@@ -160,7 +178,7 @@ If Franklin shows "Lap counter not detected":
 If you see duplicate lap events, you may have multiple instances running:
 ```bash
 pkill -f 'franklin-hardware-monitor'
-pkill -f 'python franklin.py'
+pkill -f 'python franklin-tui.py'
 ```
 Then restart both processes.
 

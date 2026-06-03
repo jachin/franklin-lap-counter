@@ -58,6 +58,10 @@
         block: |
           # Auto-start Franklin on local boot console login only.
           if [[ -z "${SSH_TTY:-}" ]] && [[ -z "${TMUX:-}" ]] && [[ "$(tty)" == "/dev/{{ franklin_autologin_tty }}" ]]; then
+            if {{ franklin_enable_wayland_boot | ternary('true', 'false') }} && command -v sway >/dev/null 2>&1; then
+              exec sway
+            fi
+
             if [ -x "{{ pi_dest_dir }}/start-franklin.sh" ]; then
               cd "{{ pi_dest_dir }}"
               exec ./start-franklin.sh

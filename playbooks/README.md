@@ -11,10 +11,11 @@ These playbooks replace the behavior from `scripts/setup-pi.sh` in a modular, id
 - `30-tmuxinator.yml` - Ruby + tmuxinator gem
 - `40-redis.yml` - enable/start `redis-server`
 - `50-startup-script.yml` - copy `scripts/start-franklin.sh` to target dir
-- `55-autologin-startup.yml` - configure boot autologin (`tty1`) and shell-based Franklin autostart
+- `55-autologin-startup.yml` - configure boot autologin (`tty1`) and login-shell Franklin autostart logic
+- `56-wayland-sway.yml` - configure sway (Wayland) session to auto-start Franklin GUI stack
 - `60-system-info.yml` - print OS/Python/glibc/Redis info
 - `site.yml` - runs setup playbooks in order
-- `deploy-franklin.yml` - deploy app artifacts to Pi (replacement for `scripts/deploy-to-pi.sh`)
+- `deploy-franklin.yml` - deploy app artifacts to Pi (replacement for `scripts/deploy-to-pi.sh`), including `franklin-tui.py` and `franklin-gui.py`
 
 ## Files
 
@@ -58,7 +59,7 @@ ansible-playbook -i playbooks/inventory.ini playbooks/site.yml \
 - Most tasks are idempotent; rerunning should be safe.
 - `15-franklin-user.yml` creates a dedicated runtime user (`franklin` by default), sets shell to zsh, and installs Ghostty terminfo for that user.
 - Ghostty terminfo install uses `infocmp -x xterm-ghostty` from the control machine when missing on the target.
-- Boot behavior is configurable with `franklin_enable_autologin`, `franklin_enable_autostart`, and `franklin_autologin_tty` in `group_vars/all.yml`.
+- Boot behavior is configurable with `franklin_enable_autologin`, `franklin_enable_autostart`, `franklin_enable_wayland_boot`, and `franklin_autologin_tty` in `group_vars/all.yml`.
 - `30-tmuxinator.yml` installs tmuxinator only if it is missing.
 - This setup stage prepares the target machine; deployment of app binaries/files remains in your existing deploy flow.
 - `deploy-franklin.yml` does not copy `.env`; host/runtime settings should be managed in Ansible vars.

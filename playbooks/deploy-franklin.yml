@@ -8,8 +8,10 @@
     pi_arch: "{{ lookup('ansible.builtin.env', 'RUST_PI_TARGET') | default('aarch64-unknown-linux-gnu', true) }}"
     rust_binary_local: "{{ project_root }}/rust/target/{{ pi_arch }}/release/franklin-hardware-monitor"
     startup_script_local: "{{ project_root }}/scripts/start-franklin.sh"
+    startup_gui_script_local: "{{ project_root }}/scripts/start-franklin-gui-session.sh"
     app_files_local:
-      - "{{ project_root }}/franklin.py"
+      - "{{ project_root }}/franklin-tui.py"
+      - "{{ project_root }}/franklin-gui.py"
       - "{{ project_root }}/web_server.py"
       - "{{ project_root }}/database.py"
 
@@ -29,14 +31,22 @@
             description: "Rust hardware monitor binary",
           }
         - {
-            path: "{{ project_root }}/franklin.py",
+            path: "{{ project_root }}/franklin-tui.py",
             description: "Franklin TUI script",
+          }
+        - {
+            path: "{{ project_root }}/franklin-gui.py",
+            description: "Franklin GTK GUI script",
           }
         - {
             path: "{{ project_root }}/web_server.py",
             description: "Web server script",
           }
         - { path: "{{ startup_script_local }}", description: "Startup script" }
+        - {
+            path: "{{ startup_gui_script_local }}",
+            description: "GUI startup script",
+          }
 
     - name: Fail when required local files are missing
       ansible.builtin.fail:
@@ -86,13 +96,22 @@
         mode: "0644"
       loop: "{{ app_files_local }}"
 
-    - name: Deploy startup script
+    - name: Deploy startup scripts
       ansible.builtin.copy:
-        src: "{{ startup_script_local }}"
-        dest: "{{ pi_dest_dir }}/start-franklin.sh"
+        src: "{{ item.src }}"
+        dest: "{{ item.dest }}"
         owner: "{{ franklin_user }}"
         group: "{{ franklin_group }}"
         mode: "0755"
+      loop:
+        - {
+            src: "{{ startup_script_local }}",
+            dest: "{{ pi_dest_dir }}/start-franklin.sh",
+          }
+        - {
+            src: "{{ startup_gui_script_local }}",
+            dest: "{{ pi_dest_dir }}/start-franklin-gui-session.sh",
+          }
 
     - name: Deploy optional static directory
       ansible.builtin.copy:
@@ -127,9 +146,11 @@
       register: remote_required_file_stats
       loop:
         - "{{ pi_dest_dir }}/franklin-hardware-monitor"
-        - "{{ pi_dest_dir }}/franklin.py"
+        - "{{ pi_dest_dir }}/franklin-tui.py"
+        - "{{ pi_dest_dir }}/franklin-gui.py"
         - "{{ pi_dest_dir }}/web_server.py"
         - "{{ pi_dest_dir }}/start-franklin.sh"
+        - "{{ pi_dest_dir }}/start-franklin-gui-session.sh"
       loop_control:
         label: "{{ item }}"
 
@@ -161,6 +182,6 @@
       ansible.builtin.debug:
         msg:
           - "Deployment complete to {{ inventory_hostname }}:{{ pi_dest_dir }}"
-          - "Deployed: franklin-hardware-monitor, franklin.py, web_server.py, database.py, start-franklin.sh"
+          - "Deployed: franklin-hardware-monitor, franklin-tui.py, franklin-gui.py, web_server.py, database.py, start-franklin.sh, start-franklin-gui-session.sh"
           - "Optional content copied when present: static/, race/ (race module code), tmuxinator/"
           - "Start on Pi with: cd {{ pi_dest_dir }} && ./start-franklin.sh"

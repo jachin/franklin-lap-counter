@@ -34,4 +34,4 @@ python web_server.py &
 WEB_PID=$!
 
 echo "Starting Franklin in sim mode (race UI)..."
-python franklin.py --race
+python franklin-tui.py --race

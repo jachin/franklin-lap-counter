@@ -70,7 +70,7 @@ windows:
             - echo "Waiting for services to be ready..."
             - sleep 3
             - echo "Starting Franklin TUI..."
-            - python franklin.py
+            - python franklin-tui.py
   - web:
       layout: main-horizontal
       panes:

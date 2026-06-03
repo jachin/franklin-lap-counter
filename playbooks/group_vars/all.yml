@@ -6,11 +6,15 @@ franklin_home: "/home/{{ franklin_user }}"
 franklin_shell: /usr/bin/zsh
 franklin_supplementary_groups:
   - dialout
+  - video
+  - input
+  - render
 
 # Boot/login behavior
 franklin_autologin_tty: tty1
 franklin_enable_autologin: true
 franklin_enable_autostart: true
+franklin_enable_wayland_boot: true
 
 # Default target app directory on the Pi
 pi_dest_dir: "{{ franklin_home }}/franklin-lap-counter"
@@ -25,6 +29,11 @@ system_packages:
   - zsh
   - ncurses-bin
   - lnav
+  - python3-gi
+  - gir1.2-gtk-4.0
+  - sway
+  - xwayland
+  - seatd
 
 # Python packages installed in the app venv
 python_packages:

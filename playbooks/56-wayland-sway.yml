@@ -1,0 +1,32 @@
+---
+- name: Configure sway Wayland session for Franklin GUI autostart
+  hosts: all
+  become: true
+  tasks:
+    - name: Ensure sway config directory exists
+      ansible.builtin.file:
+        path: "{{ franklin_home }}/.config/sway"
+        state: directory
+        owner: "{{ franklin_user }}"
+        group: "{{ franklin_group }}"
+        mode: "0755"
+      when: franklin_enable_wayland_boot
+
+    - name: Install sway config that auto-starts Franklin GUI session
+      ansible.builtin.copy:
+        dest: "{{ franklin_home }}/.config/sway/config"
+        owner: "{{ franklin_user }}"
+        group: "{{ franklin_group }}"
+        mode: "0644"
+        content: |
+          # Managed by Ansible: Franklin sway session
+          set $mod Mod4
+          bindsym $mod+Shift+e exec swaynag -t warning -m 'Exit session?' -B 'Yes' 'swaymsg exit'
+
+          # Keep visuals simple on kiosk-like setup
+          default_border pixel 1
+          output * bg #1e1e1e solid_color
+
+          # Start Franklin GUI stack once per sway session
+          exec {{ pi_dest_dir }}/start-franklin-gui-session.sh
+      when: franklin_enable_wayland_boot

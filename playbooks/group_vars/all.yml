@@ -29,7 +29,7 @@ system_packages:
 # Python packages installed in the app venv
 python_packages:
   - textual
-  - redis
+  - redis<6
   - typing-extensions
   - aiohttp
   - pygments

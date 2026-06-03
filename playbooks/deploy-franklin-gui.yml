@@ -1,0 +1,28 @@
+---
+- name: Deploy only franklin-gui.py to Raspberry Pi
+  hosts: all
+  gather_facts: false
+  become: true
+
+  tasks:
+    - name: Ensure destination directory exists
+      ansible.builtin.file:
+        path: "{{ pi_dest_dir }}"
+        state: directory
+        owner: "{{ franklin_user }}"
+        group: "{{ franklin_group }}"
+        mode: "0755"
+
+    - name: Deploy franklin-gui.py only
+      ansible.builtin.copy:
+        src: "{{ playbook_dir }}/../franklin-gui.py"
+        dest: "{{ pi_dest_dir }}/franklin-gui.py"
+        owner: "{{ franklin_user }}"
+        group: "{{ franklin_group }}"
+        mode: "0644"
+
+    - name: Deployment summary
+      ansible.builtin.debug:
+        msg:
+          - "Deployed franklin-gui.py to {{ inventory_hostname }}:{{ pi_dest_dir }}/franklin-gui.py"
+          - "Restart GUI session on Pi to pick up changes"

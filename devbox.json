@@ -50,6 +50,9 @@
       "deploy-pi": [
         "ansible-playbook -i playbooks/inventory.ini playbooks/deploy-franklin.yml"
       ],
+      "deploy-pi-gui": [
+        "ansible-playbook -i playbooks/inventory.ini playbooks/deploy-franklin-gui.yml"
+      ],
       "rust-hw-sim": [
         "cargo run --manifest-path rust/Cargo.toml --bin franklin-hardware-monitor -- --sim"
       ],

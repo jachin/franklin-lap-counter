@@ -39,7 +39,7 @@ from race.race_contestants import RaceContestants
 from race.race_mode import RaceMode
 
 gi.require_version("Gtk", "4.0")
-from gi.repository import GLib, Gtk
+from gi.repository import Gio, GLib, Gtk
 
 
 class FranklinGuiApp(Gtk.Application):
@@ -56,7 +56,7 @@ class FranklinGuiApp(Gtk.Application):
 
         # Logging
         logging.basicConfig(
-            filename="race.log",
+            filename="gui.log",
             filemode="a",
             format="%(asctime)s %(levelname)s:%(message)s",
             level=logging.INFO,
@@ -105,10 +105,48 @@ class FranklinGuiApp(Gtk.Application):
 
         self._last_race_state_publish = 0.0
 
+        self._register_actions_and_shortcuts()
+
         in_progress = self.db.get_in_progress_race()
         if in_progress:
             logging.info("Resuming in-progress race: %s", in_progress["id"])
             self.current_race_id = int(in_progress["id"])
+
+    def _register_actions_and_shortcuts(self) -> None:
+        action_defs: list[tuple[str, Any, list[str]]] = [
+            ("start_race", self._action_start_race, ["<Primary>s"]),
+            ("end_race", self._action_end_race, ["<Primary>e"]),
+            ("toggle_mode", self._action_toggle_mode, ["<Primary>t"]),
+            ("rename_driver", self._action_rename_driver, ["<Primary>r"]),
+        ]
+
+        for name, callback, accels in action_defs:
+            action = Gio.SimpleAction.new(name, None)
+            action.connect("activate", callback)
+            self.add_action(action)
+            self.set_accels_for_action(f"app.{name}", accels)
+
+    def _action_start_race(self, _action: Gio.SimpleAction, _param: Any) -> None:
+        self.on_start_clicked(None)
+
+    def _action_end_race(self, _action: Gio.SimpleAction, _param: Any) -> None:
+        self.on_end_clicked(None)
+
+    def _action_toggle_mode(self, _action: Gio.SimpleAction, _param: Any) -> None:
+        if self.race.state == RaceState.RUNNING:
+            self.append_event("Cannot change mode while race is running")
+            return
+        modes = [RaceMode.REAL, RaceMode.FAKE, RaceMode.TRAINING]
+        idx = modes.index(self.race_mode)
+        next_mode = modes[(idx + 1) % len(modes)]
+        self.race_mode = next_mode
+        if self.mode_combo:
+            self.mode_combo.set_active(modes.index(next_mode))
+        self.append_event(f"Mode changed to {self.race_mode}")
+        self.refresh_views()
+
+    def _action_rename_driver(self, _action: Gio.SimpleAction, _param: Any) -> None:
+        self.on_rename_driver_clicked(None)
 
     def do_activate(self) -> None:  # type: ignore[override]
         self.window = Gtk.ApplicationWindow(application=self)
@@ -121,6 +159,12 @@ class FranklinGuiApp(Gtk.Application):
         root.set_margin_start(12)
         root.set_margin_end(12)
 
+        self.time_label = Gtk.Label()
+        self.time_label.set_markup('<span size="48000" weight="bold">00:00.0</span>')
+        self.time_label.set_xalign(0.5)
+        self.time_label.set_halign(Gtk.Align.CENTER)
+        self.time_label.set_hexpand(True)
+
         controls = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         self.mode_combo = Gtk.ComboBoxText()
         self.mode_combo.append_text(RaceMode.REAL.name)
@@ -131,31 +175,29 @@ class FranklinGuiApp(Gtk.Application):
         )
         self.mode_combo.connect("changed", self.on_mode_changed)
 
-        self.start_btn = Gtk.Button(label="Start Race")
+        self.start_btn = Gtk.Button(label="Start Race (Ctrl+S)")
         self.start_btn.connect("clicked", self.on_start_clicked)
 
-        self.stop_btn = Gtk.Button(label="End Race")
+        self.stop_btn = Gtk.Button(label="End Race (Ctrl+E)")
         self.stop_btn.set_sensitive(False)
         self.stop_btn.connect("clicked", self.on_end_clicked)
 
-        rename_btn = Gtk.Button(label="Rename Driver")
+        rename_btn = Gtk.Button(label="Rename Driver (Ctrl+R)")
         rename_btn.connect("clicked", self.on_rename_driver_clicked)
 
-        controls.append(Gtk.Label(label="Mode:"))
+        controls.append(Gtk.Label(label="Mode (Ctrl+T):"))
         controls.append(self.mode_combo)
         controls.append(self.start_btn)
         controls.append(self.stop_btn)
         controls.append(rename_btn)
 
         status = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=16)
-        self.time_label = Gtk.Label(label="Time: 00:00.0")
         self.state_label = Gtk.Label(label="State: NOT_STARTED")
         self.detect_label = Gtk.Label(label="Hardware: Waiting")
         self.laps_remaining_label = Gtk.Label(
             label=f"Laps Remaining: {self.total_laps}"
         )
         for lbl in [
-            self.time_label,
             self.state_label,
             self.detect_label,
             self.laps_remaining_label,
@@ -186,6 +228,7 @@ class FranklinGuiApp(Gtk.Application):
         panes.set_start_child(leaderboard_box)
         panes.set_end_child(events_box)
 
+        root.append(self.time_label)
         root.append(controls)
         root.append(status)
         root.append(panes)
@@ -252,7 +295,9 @@ class FranklinGuiApp(Gtk.Application):
             minutes = int(self.race.elapsed_time // 60)
             seconds = int(self.race.elapsed_time % 60)
             tenths = int((self.race.elapsed_time - int(self.race.elapsed_time)) * 10)
-            self.time_label.set_text(f"Time: {minutes:02}:{seconds:02}.{tenths}")
+            self.time_label.set_markup(
+                f'<span size="48000" weight="bold">{minutes:02}:{seconds:02}.{tenths}</span>'
+            )
 
         now = time.monotonic()
         if now - self._last_race_state_publish > 1.0:
@@ -265,7 +310,7 @@ class FranklinGuiApp(Gtk.Application):
         self.race_mode = RaceMode[text]
         self.append_event(f"Mode changed to {self.race_mode}")
 
-    def on_start_clicked(self, _button: Gtk.Button) -> None:
+    def on_start_clicked(self, _button: Gtk.Button | None) -> None:
         self.race = Race(previous_race=self.previous_race)
         self.race.total_laps = self.total_laps
         self.race.start(start_time=time.monotonic())
@@ -287,7 +332,7 @@ class FranklinGuiApp(Gtk.Application):
 
         self.refresh_views()
 
-    def on_end_clicked(self, _button: Gtk.Button) -> None:
+    def on_end_clicked(self, _button: Gtk.Button | None) -> None:
         if not is_race_going(self.race):
             return
 
@@ -309,7 +354,7 @@ class FranklinGuiApp(Gtk.Application):
         self.append_event("Race ended")
         self.refresh_views()
 
-    def on_rename_driver_clicked(self, _button: Gtk.Button) -> None:
+    def on_rename_driver_clicked(self, _button: Gtk.Button | None) -> None:
         if not self.window:
             return
 
@@ -375,7 +420,9 @@ class FranklinGuiApp(Gtk.Application):
             self._redis_pubsub = self._redis_client.pubsub()
             self._redis_pubsub.subscribe(self.redis_out_channel)
             self.append_event("Connected to Redis")
+            self.append_event(f"Subscribed to Redis channel: {self.redis_out_channel}")
             logging.info("Connected to Redis")
+            logging.info("Subscribed to Redis channel: %s", self.redis_out_channel)
         except Exception as exc:
             self.append_event(f"Redis connect failed: {exc}")
             logging.error("Failed to connect to Redis: %s", exc)

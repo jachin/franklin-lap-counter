@@ -40,6 +40,7 @@ from race.race import (
 from race.race_contestants import RaceContestants
 from race.race_mode import RaceMode
 
+gi.require_version("Gdk", "4.0")
 gi.require_version("Gtk", "4.0")
 from gi.repository import Gdk, Gio, GLib, Gtk
 
@@ -430,7 +431,7 @@ class FranklinGuiApp(Gtk.Application):
             return
 
         css = f".leaderboard-view {{ font-size: {point_size}pt; }}"
-        self._leaderboard_css_provider.load_from_data(css)
+        self._leaderboard_css_provider.load_from_data(css.encode("utf-8"))
         self._leaderboard_font_pt = point_size
 
     def _update_leaderboard_font_size(self, racer_count: int) -> None:

@@ -16,6 +16,8 @@ import argparse
 import json
 import logging
 import queue
+import socket
+import subprocess
 import threading
 import time
 from pathlib import Path
@@ -100,6 +102,8 @@ class FranklinGuiApp(Gtk.Application):
         self.state_label: Gtk.Label | None = None
         self.detect_label: Gtk.Label | None = None
         self.laps_remaining_label: Gtk.Label | None = None
+        self.ethernet_label: Gtk.Label | None = None
+        self.wifi_label: Gtk.Label | None = None
         self.leaderboard_view: Gtk.TextView | None = None
         self.events_view: Gtk.TextView | None = None
         self.panes: Gtk.Paned | None = None
@@ -107,6 +111,7 @@ class FranklinGuiApp(Gtk.Application):
         self._events_visible = False
 
         self._last_race_state_publish = 0.0
+        self._system_status_thread: threading.Thread | None = None
 
         self._register_actions_and_shortcuts()
 
@@ -200,13 +205,11 @@ class FranklinGuiApp(Gtk.Application):
 
         status = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=16)
         self.state_label = Gtk.Label(label="State: NOT_STARTED")
-        self.detect_label = Gtk.Label(label="Hardware: Waiting")
         self.laps_remaining_label = Gtk.Label(
             label=f"Laps Remaining: {self.total_laps}"
         )
         for lbl in [
             self.state_label,
-            self.detect_label,
             self.laps_remaining_label,
         ]:
             lbl.set_xalign(0)
@@ -234,10 +237,26 @@ class FranklinGuiApp(Gtk.Application):
 
         self.panes.set_start_child(leaderboard_box)
 
+        status_bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=20)
+        self.detect_label = Gtk.Label(label="HW: Waiting")
+        self.detect_label.set_xalign(0)
+        self.ethernet_label = Gtk.Label(label="Ethernet: checking...")
+        self.ethernet_label.set_xalign(0)
+        self.wifi_label = Gtk.Label(label="Wi-Fi: checking...")
+        self.wifi_label.set_xalign(0)
+
+        status_bar.append(self.detect_label)
+        status_bar.append(Gtk.Separator(orientation=Gtk.Orientation.VERTICAL))
+        status_bar.append(self.ethernet_label)
+        status_bar.append(Gtk.Separator(orientation=Gtk.Orientation.VERTICAL))
+        status_bar.append(self.wifi_label)
+
         root.append(self.time_label)
         root.append(controls)
         root.append(status)
         root.append(self.panes)
+        root.append(Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL))
+        root.append(status_bar)
 
         self.window.set_child(root)
         self.window.present()
@@ -247,6 +266,7 @@ class FranklinGuiApp(Gtk.Application):
         GLib.timeout_add(50, self.drain_incoming_messages)
 
         self.toggle_event_log_visibility(show=False)
+        self._start_system_status_updater()
 
         self.append_event("GUI ready")
         self.refresh_views()
@@ -263,6 +283,8 @@ class FranklinGuiApp(Gtk.Application):
                 self._redis_client.close()
         except Exception:
             pass
+        if self._system_status_thread and self._system_status_thread.is_alive():
+            self._system_status_thread.join(timeout=1.0)
         self.db.close()
         super().do_shutdown()
 
@@ -279,6 +301,104 @@ class FranklinGuiApp(Gtk.Application):
             self.panes.set_end_child(None)
             self._events_visible = False
 
+    def _run_command(self, args: list[str], timeout: float = 1.0) -> str:
+        try:
+            result = subprocess.run(
+                args,
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+                check=False,
+            )
+            if result.returncode == 0:
+                return result.stdout.strip()
+        except Exception:
+            return ""
+        return ""
+
+    def _detect_ethernet_interface(self) -> str | None:
+        try:
+            names = sorted(p.name for p in Path("/sys/class/net").iterdir())
+        except Exception:
+            return None
+
+        for prefix in ("eth", "en"):
+            for name in names:
+                if name.startswith(prefix):
+                    return name
+        return None
+
+    def _get_ipv4_for_interface(self, interface: str) -> str | None:
+        out = self._run_command(["ip", "-4", "-o", "addr", "show", "dev", interface])
+        for part in out.split():
+            if "/" in part and part.count(".") == 3:
+                return part.split("/")[0]
+        return None
+
+    def _has_internet_access(self) -> bool:
+        try:
+            with socket.create_connection(("1.1.1.1", 53), timeout=0.7):
+                return True
+        except OSError:
+            return False
+
+    def _get_ethernet_status_text(self) -> str:
+        iface = self._detect_ethernet_interface()
+        if not iface:
+            return "Ethernet: unavailable"
+
+        ipv4 = self._get_ipv4_for_interface(iface)
+        if not ipv4:
+            return f"Ethernet ({iface}): disconnected"
+
+        internet = "internet ok" if self._has_internet_access() else "no internet"
+        return f"Ethernet ({iface}): {ipv4} | {internet}"
+
+    def _get_wifi_ssid(self) -> str | None:
+        ssid = self._run_command(["iwgetid", "-r"], timeout=0.8)
+        return ssid if ssid else None
+
+    def _get_wifi_password(self, ssid: str) -> str:
+        psk = self._run_command(
+            [
+                "nmcli",
+                "-s",
+                "-g",
+                "802-11-wireless-security.psk",
+                "connection",
+                "show",
+                ssid,
+            ],
+            timeout=1.0,
+        )
+        return psk if psk else "Unavailable"
+
+    def _get_wifi_status_text(self) -> str:
+        ssid = self._get_wifi_ssid()
+        if not ssid:
+            return "Wi-Fi: disconnected"
+        password = self._get_wifi_password(ssid)
+        return f"Wi-Fi: {ssid} | PW: {password}"
+
+    def _apply_system_status(self, ethernet_text: str, wifi_text: str) -> bool:
+        if self.ethernet_label:
+            self.ethernet_label.set_text(ethernet_text)
+        if self.wifi_label:
+            self.wifi_label.set_text(wifi_text)
+        return False
+
+    def _start_system_status_updater(self) -> None:
+        def worker() -> None:
+            while not self._shutdown.is_set():
+                ethernet_text = self._get_ethernet_status_text()
+                wifi_text = self._get_wifi_status_text()
+                GLib.idle_add(self._apply_system_status, ethernet_text, wifi_text)
+                if self._shutdown.wait(5.0):
+                    break
+
+        self._system_status_thread = threading.Thread(target=worker, daemon=True)
+        self._system_status_thread.start()
+
     def append_event(self, text: str) -> None:
         if not self.events_view:
             return
@@ -291,8 +411,13 @@ class FranklinGuiApp(Gtk.Application):
         if self.state_label:
             self.state_label.set_text(f"State: {self.race.state.name}")
         if self.detect_label:
-            status = "Connected" if self.lap_counter_detected else "Waiting"
-            self.detect_label.set_text(f"Hardware: {status}")
+            now = time.monotonic()
+            connected = (
+                self._last_lap_counter_signal_time is not None
+                and (now - self._last_lap_counter_signal_time) < 5.0
+            )
+            status = "Connected" if connected else "Waiting"
+            self.detect_label.set_text(f"HW: {status}")
         if self.laps_remaining_label:
             leader_remaining, _ = self.race.laps_remaining()
             self.laps_remaining_label.set_text(f"Laps Remaining: {leader_remaining}")

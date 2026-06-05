@@ -102,6 +102,9 @@ class FranklinGuiApp(Gtk.Application):
         self.laps_remaining_label: Gtk.Label | None = None
         self.leaderboard_view: Gtk.TextView | None = None
         self.events_view: Gtk.TextView | None = None
+        self.panes: Gtk.Paned | None = None
+        self.events_box: Gtk.Box | None = None
+        self._events_visible = False
 
         self._last_race_state_publish = 0.0
 
@@ -117,6 +120,7 @@ class FranklinGuiApp(Gtk.Application):
             ("start_race", self._action_start_race, ["<Primary>s"]),
             ("end_race", self._action_end_race, ["<Primary>e"]),
             ("toggle_mode", self._action_toggle_mode, ["<Primary>t"]),
+            ("toggle_event_log", self._action_toggle_event_log, ["<Primary>l"]),
             ("manage_drivers", self._action_manage_drivers, ["<Primary>r"]),
         ]
 
@@ -144,6 +148,9 @@ class FranklinGuiApp(Gtk.Application):
             self.mode_combo.set_active(modes.index(next_mode))
         self.append_event(f"Mode changed to {self.race_mode}")
         self.refresh_views()
+
+    def _action_toggle_event_log(self, _action: Gio.SimpleAction, _param: Any) -> None:
+        self.toggle_event_log_visibility()
 
     def _action_manage_drivers(self, _action: Gio.SimpleAction, _param: Any) -> None:
         self.on_manage_drivers_clicked(None)
@@ -205,7 +212,7 @@ class FranklinGuiApp(Gtk.Application):
             lbl.set_xalign(0)
             status.append(lbl)
 
-        panes = Gtk.Paned.new(Gtk.Orientation.HORIZONTAL)
+        self.panes = Gtk.Paned.new(Gtk.Orientation.HORIZONTAL)
 
         leaderboard_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
         leaderboard_box.append(Gtk.Label(label="Leaderboard"))
@@ -216,22 +223,21 @@ class FranklinGuiApp(Gtk.Application):
         leaderboard_scroll.set_child(self.leaderboard_view)
         leaderboard_box.append(leaderboard_scroll)
 
-        events_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
-        events_box.append(Gtk.Label(label="Events"))
+        self.events_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        self.events_box.append(Gtk.Label(label="Events"))
         self.events_view = Gtk.TextView()
         self.events_view.set_editable(False)
         self.events_view.set_monospace(True)
         events_scroll = Gtk.ScrolledWindow()
         events_scroll.set_child(self.events_view)
-        events_box.append(events_scroll)
+        self.events_box.append(events_scroll)
 
-        panes.set_start_child(leaderboard_box)
-        panes.set_end_child(events_box)
+        self.panes.set_start_child(leaderboard_box)
 
         root.append(self.time_label)
         root.append(controls)
         root.append(status)
-        root.append(panes)
+        root.append(self.panes)
 
         self.window.set_child(root)
         self.window.present()
@@ -239,6 +245,8 @@ class FranklinGuiApp(Gtk.Application):
         self.connect_redis()
         GLib.timeout_add(100, self.update_time)
         GLib.timeout_add(50, self.drain_incoming_messages)
+
+        self.toggle_event_log_visibility(show=False)
 
         self.append_event("GUI ready")
         self.refresh_views()
@@ -257,6 +265,19 @@ class FranklinGuiApp(Gtk.Application):
             pass
         self.db.close()
         super().do_shutdown()
+
+    def toggle_event_log_visibility(self, show: bool | None = None) -> None:
+        if not self.panes or not self.events_box:
+            return
+
+        target = (not self._events_visible) if show is None else show
+        if target:
+            self.panes.set_end_child(self.events_box)
+            self._events_visible = True
+            self.append_event("Events log shown")
+        else:
+            self.panes.set_end_child(None)
+            self._events_visible = False
 
     def append_event(self, text: str) -> None:
         if not self.events_view:

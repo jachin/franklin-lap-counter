@@ -10,9 +10,10 @@ These playbooks replace the behavior from `scripts/setup-pi.sh` in a modular, id
 - `20-python-venv.yml` - app dir, `.venv`, pip + Python deps (owned by `franklin`)
 - `30-tmuxinator.yml` - Ruby + tmuxinator gem
 - `40-redis.yml` - enable/start `redis-server`
-- `50-startup-script.yml` - copy `scripts/start-franklin.sh` to target dir
+- `50-startup-script.yml` - copy startup scripts and tmuxinator project configs to target dir
 - `55-autologin-startup.yml` - configure boot autologin (`tty1`) and login-shell Franklin autostart logic
 - `56-wayland-sway.yml` - configure sway (Wayland) session to auto-start Franklin GUI stack
+- `57-hdmi-hotplug.yml` - ensure `hdmi_force_hotplug=1` in firmware config for monitor detection reliability
 - `60-system-info.yml` - print OS/Python/glibc/Redis info
 - `site.yml` - runs setup playbooks in order
 - `deploy-franklin.yml` - deploy app artifacts to Pi (replacement for `scripts/deploy-to-pi.sh`), including `franklin-tui.py` and `franklin-gui.py`
@@ -60,6 +61,7 @@ ansible-playbook -i playbooks/inventory.ini playbooks/site.yml \
 - `15-franklin-user.yml` creates a dedicated runtime user (`franklin` by default), sets shell to zsh, and installs Ghostty terminfo for that user.
 - Ghostty terminfo install uses `infocmp -x xterm-ghostty` from the control machine when missing on the target.
 - Boot behavior is configurable with `franklin_enable_autologin`, `franklin_enable_autostart`, `franklin_enable_wayland_boot`, and `franklin_autologin_tty` in `group_vars/all.yml`.
+- Firmware display setting uses `pi_firmware_config_path` (defaults to `/boot/firmware/config.txt`) and enforces `hdmi_force_hotplug=1`.
 - `30-tmuxinator.yml` installs tmuxinator only if it is missing.
 - This setup stage prepares the target machine; deployment of app binaries/files remains in your existing deploy flow.
 - `deploy-franklin.yml` does not copy `.env`; host/runtime settings should be managed in Ansible vars.

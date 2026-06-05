@@ -1,26 +1,21 @@
 #!/usr/bin/env bash
-# Start Franklin services for GUI/Wayland session
+# Start Franklin GUI with tmux-managed backend services
 
 set -euo pipefail
 
 cd "$(dirname "$0")"
 
-HW_PID=""
-WEB_PID=""
+TMUX_SESSION_NAME="${TMUX_SESSION_NAME:-franklin-services}"
+TMUXINATOR_CONFIG="${TMUXINATOR_CONFIG:-tmuxinator/franklin-services.yml}"
+
+log() {
+  echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*"
+}
 
 cleanup() {
-  if [ -n "${WEB_PID}" ] && kill -0 "${WEB_PID}" 2>/dev/null; then
-    kill "${WEB_PID}" 2>/dev/null || true
-    wait "${WEB_PID}" 2>/dev/null || true
-  fi
-
-  if [ -n "${HW_PID}" ] && kill -0 "${HW_PID}" 2>/dev/null; then
-    kill "${HW_PID}" 2>/dev/null || true
-    wait "${HW_PID}" 2>/dev/null || true
-  fi
-
-  if [ -S ./redis.sock ]; then
-    redis-cli -s ./redis.sock shutdown nosave >/dev/null 2>&1 || true
+  if tmux has-session -t "${TMUX_SESSION_NAME}" 2>/dev/null; then
+    log "Stopping tmux session: ${TMUX_SESSION_NAME}"
+    tmux kill-session -t "${TMUX_SESSION_NAME}" || true
   fi
 
   rm -f ./redis.sock
@@ -33,19 +28,29 @@ if [ -d .venv ]; then
   source .venv/bin/activate
 fi
 
-mkdir -p .
-touch race.log gui.log hardware_redis.log redis.log web.log
+touch gui.log hardware_redis.log redis.log web.log
 
-echo "Starting Redis (unix socket)..."
-redis-server --daemonize yes --port 0 --unixsocket ./redis.sock --unixsocketperm 700 --loglevel notice --logfile ./redis.log
+if ! command -v tmux >/dev/null 2>&1; then
+  log "❌ tmux not found"
+  exit 1
+fi
 
-echo "Starting hardware monitor..."
-./franklin-hardware-monitor >> ./hardware.log 2>&1 &
-HW_PID=$!
+if ! command -v tmuxinator >/dev/null 2>&1; then
+  log "❌ tmuxinator not found"
+  exit 1
+fi
 
-echo "Starting web server..."
-python web_server.py >> ./web.log 2>&1 &
-WEB_PID=$!
+if [ ! -f "${TMUXINATOR_CONFIG}" ]; then
+  log "❌ Missing tmuxinator config: ${TMUXINATOR_CONFIG}"
+  exit 1
+fi
 
-echo "Starting Franklin GTK GUI..."
+if tmux has-session -t "${TMUX_SESSION_NAME}" 2>/dev/null; then
+  log "Tmux session '${TMUX_SESSION_NAME}' already running; reusing it"
+else
+  log "Starting tmux services via ${TMUXINATOR_CONFIG}"
+  tmuxinator start -p "${TMUXINATOR_CONFIG}" --no-attach
+fi
+
+log "Starting Franklin GTK GUI..."
 exec python franklin-gui.py --race >> ./gui.log 2>&1

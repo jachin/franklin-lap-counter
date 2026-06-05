@@ -16,6 +16,9 @@ franklin_enable_autologin: true
 franklin_enable_autostart: true
 franklin_enable_wayland_boot: true
 
+# Firmware config path for Raspberry Pi boot settings
+pi_firmware_config_path: /boot/firmware/config.txt
+
 # Default target app directory on the Pi
 pi_dest_dir: "{{ franklin_home }}/franklin-lap-counter"
 

@@ -1,0 +1,11 @@
+---
+- name: Configure Raspberry Pi HDMI hotplug behavior
+  hosts: all
+  become: true
+  tasks:
+    - name: Ensure HDMI hotplug is forced in firmware config
+      ansible.builtin.lineinfile:
+        path: "{{ pi_firmware_config_path }}"
+        regexp: '^#?hdmi_force_hotplug='
+        line: "hdmi_force_hotplug=1"
+        insertafter: EOF

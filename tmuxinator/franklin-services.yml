@@ -1,0 +1,33 @@
+# Franklin services-only tmuxinator configuration (for GUI boot)
+name: franklin-services
+root: .
+
+startup_window: web
+
+pre_window: |
+  source .venv/bin/activate
+  export FRANKLIN_SESSION=tmux
+
+windows:
+  - redis:
+      layout: main-horizontal
+      panes:
+        - redis-server:
+            - echo "Starting Redis with Unix socket (logging to redis.log)..."
+            - redis-server --port 0 --unixsocket ./redis.sock --unixsocketperm 700 --loglevel notice --logfile ./redis.log
+  - hardware:
+      layout: main-horizontal
+      panes:
+        - monitor:
+            - echo "Waiting for Redis to be ready..."
+            - sleep 2
+            - echo "Starting Hardware Monitor..."
+            - ./franklin-hardware-monitor
+  - web:
+      layout: main-horizontal
+      panes:
+        - server:
+            - echo "Waiting for services to be ready..."
+            - sleep 3
+            - echo "Starting Web Server..."
+            - python web_server.py

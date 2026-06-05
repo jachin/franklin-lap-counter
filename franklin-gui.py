@@ -105,6 +105,7 @@ class FranklinGuiApp(Gtk.Application):
         self.ethernet_label: Gtk.Label | None = None
         self.wifi_label: Gtk.Label | None = None
         self.leaderboard_view: Gtk.TextView | None = None
+        self.leaderboard_scroll: Gtk.ScrolledWindow | None = None
         self.events_view: Gtk.TextView | None = None
         self.panes: Gtk.Paned | None = None
         self.events_box: Gtk.Box | None = None
@@ -112,6 +113,8 @@ class FranklinGuiApp(Gtk.Application):
 
         self._last_race_state_publish = 0.0
         self._system_status_thread: threading.Thread | None = None
+        self._leaderboard_css_provider = Gtk.CssProvider()
+        self._leaderboard_font_pt: int | None = None
 
         self._register_actions_and_shortcuts()
 
@@ -127,6 +130,7 @@ class FranklinGuiApp(Gtk.Application):
             ("toggle_mode", self._action_toggle_mode, ["<Primary>t"]),
             ("toggle_event_log", self._action_toggle_event_log, ["<Primary>l"]),
             ("manage_drivers", self._action_manage_drivers, ["<Primary>r"]),
+            ("preferences", self._action_preferences, ["<Primary>comma"]),
         ]
 
         for name, callback, accels in action_defs:
@@ -159,6 +163,9 @@ class FranklinGuiApp(Gtk.Application):
 
     def _action_manage_drivers(self, _action: Gio.SimpleAction, _param: Any) -> None:
         self.on_manage_drivers_clicked(None)
+
+    def _action_preferences(self, _action: Gio.SimpleAction, _param: Any) -> None:
+        self.on_preferences_clicked(None)
 
     def do_activate(self) -> None:  # type: ignore[override]
         self.window = Gtk.ApplicationWindow(application=self)
@@ -197,11 +204,15 @@ class FranklinGuiApp(Gtk.Application):
         manage_drivers_btn = Gtk.Button(label="Manage Drivers (Ctrl+R)")
         manage_drivers_btn.connect("clicked", self.on_manage_drivers_clicked)
 
+        preferences_btn = Gtk.Button(label="Preferences (Ctrl+,)")
+        preferences_btn.connect("clicked", self.on_preferences_clicked)
+
         controls.append(Gtk.Label(label="Mode (Ctrl+T):"))
         controls.append(self.mode_combo)
         controls.append(self.start_btn)
         controls.append(self.stop_btn)
         controls.append(manage_drivers_btn)
+        controls.append(preferences_btn)
 
         status = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=16)
         self.state_label = Gtk.Label(label="State: NOT_STARTED")
@@ -216,15 +227,28 @@ class FranklinGuiApp(Gtk.Application):
             status.append(lbl)
 
         self.panes = Gtk.Paned.new(Gtk.Orientation.HORIZONTAL)
+        self.panes.set_vexpand(True)
+        self.panes.set_hexpand(True)
 
         leaderboard_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
         leaderboard_box.append(Gtk.Label(label="Leaderboard"))
         self.leaderboard_view = Gtk.TextView()
         self.leaderboard_view.set_editable(False)
         self.leaderboard_view.set_monospace(True)
-        leaderboard_scroll = Gtk.ScrolledWindow()
-        leaderboard_scroll.set_child(self.leaderboard_view)
-        leaderboard_box.append(leaderboard_scroll)
+        self.leaderboard_scroll = Gtk.ScrolledWindow()
+        self.leaderboard_scroll.set_vexpand(True)
+        self.leaderboard_scroll.set_hexpand(True)
+        self.leaderboard_scroll.set_child(self.leaderboard_view)
+        leaderboard_box.append(self.leaderboard_scroll)
+
+        self.leaderboard_view.add_css_class("leaderboard-view")
+        display = Gdk.Display.get_default()
+        if display is not None:
+            Gtk.StyleContext.add_provider_for_display(
+                display,
+                self._leaderboard_css_provider,
+                Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION,
+            )
 
         self.events_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
         self.events_box.append(Gtk.Label(label="Events"))
@@ -232,6 +256,8 @@ class FranklinGuiApp(Gtk.Application):
         self.events_view.set_editable(False)
         self.events_view.set_monospace(True)
         events_scroll = Gtk.ScrolledWindow()
+        events_scroll.set_vexpand(True)
+        events_scroll.set_hexpand(True)
         events_scroll.set_child(self.events_view)
         self.events_box.append(events_scroll)
 
@@ -399,6 +425,32 @@ class FranklinGuiApp(Gtk.Application):
         self._system_status_thread = threading.Thread(target=worker, daemon=True)
         self._system_status_thread.start()
 
+    def _set_leaderboard_font_size(self, point_size: int) -> None:
+        if point_size == self._leaderboard_font_pt:
+            return
+
+        css = f".leaderboard-view {{ font-size: {point_size}pt; }}"
+        self._leaderboard_css_provider.load_from_data(css)
+        self._leaderboard_font_pt = point_size
+
+    def _update_leaderboard_font_size(self, racer_count: int) -> None:
+        if not self.leaderboard_scroll:
+            return
+
+        min_pt = 14
+        max_pt = 28
+        allocated_height = self.leaderboard_scroll.get_allocated_height()
+
+        # First render pass can be 0; keep a reasonable default.
+        if allocated_height <= 0:
+            self._set_leaderboard_font_size(20)
+            return
+
+        rows_to_fit = max(10, racer_count) + 1  # +1 for header line
+        estimated_pt = int(allocated_height / (rows_to_fit * 1.6))
+        target_pt = max(min_pt, min(max_pt, estimated_pt))
+        self._set_leaderboard_font_size(target_pt)
+
     def append_event(self, text: str) -> None:
         if not self.events_view:
             return
@@ -423,8 +475,9 @@ class FranklinGuiApp(Gtk.Application):
             self.laps_remaining_label.set_text(f"Laps Remaining: {leader_remaining}")
 
         if self.leaderboard_view:
+            leaderboard_data = self.race.leaderboard()
             lines = ["Pos  Racer                 Laps  Best    Last    Total"]
-            for pos, racer_id, lap_count, best, last, total in self.race.leaderboard():
+            for pos, racer_id, lap_count, best, last, total in leaderboard_data:
                 name = self.global_contestants.get_contestant_name(racer_id)
                 best_s = "--" if best == float("inf") else f"{best:0.2f}"
                 last_s = "--" if last == float("inf") else f"{last:0.2f}"
@@ -433,6 +486,7 @@ class FranklinGuiApp(Gtk.Application):
                     f"{pos:>3}  {name[:20]:<20} {lap_count:>4}  {best_s:>6}  {last_s:>6}  {total_s:>6}"
                 )
             self.leaderboard_view.get_buffer().set_text("\n".join(lines))
+            self._update_leaderboard_font_size(len(leaderboard_data))
 
     def update_time(self) -> bool:
         if self.race.state == RaceState.RUNNING and self.race.start_time is not None:
@@ -499,6 +553,52 @@ class FranklinGuiApp(Gtk.Application):
 
         self.append_event("Race ended")
         self.refresh_views()
+
+    def on_preferences_clicked(self, _button: Gtk.Button | None) -> None:
+        if not self.window:
+            return
+
+        dialog = Gtk.Dialog(title="Preferences", transient_for=self.window, modal=True)
+        dialog.add_button("Cancel", Gtk.ResponseType.CANCEL)
+        dialog.add_button("Save", Gtk.ResponseType.OK)
+
+        content = dialog.get_content_area()
+        root = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        root.set_margin_top(10)
+        root.set_margin_bottom(10)
+        root.set_margin_start(10)
+        root.set_margin_end(10)
+
+        help_text = Gtk.Label(
+            label="Set regular race lap count. Changes are saved to config and apply to new races."
+        )
+        help_text.set_xalign(0)
+        root.append(help_text)
+
+        laps_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        laps_row.append(Gtk.Label(label="Regular Race Laps:"))
+        laps_spin = Gtk.SpinButton.new_with_range(1, 500, 1)
+        laps_spin.set_value(float(self.total_laps))
+        laps_row.append(laps_spin)
+        root.append(laps_row)
+
+        content.append(root)
+
+        def on_response(d: Gtk.Dialog, response: int) -> None:
+            if response == Gtk.ResponseType.OK:
+                new_total_laps = int(laps_spin.get_value_as_int())
+                self.total_laps = new_total_laps
+                if self.race.state != RaceState.RUNNING:
+                    self.race.total_laps = new_total_laps
+                self.save_config()
+                self.refresh_views()
+                self.append_event(
+                    f"Preferences saved: regular race laps = {new_total_laps}"
+                )
+            d.destroy()
+
+        dialog.connect("response", on_response)
+        dialog.present()
 
     def on_manage_drivers_clicked(self, _button: Gtk.Button | None) -> None:
         if not self.window:

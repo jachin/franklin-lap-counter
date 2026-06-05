@@ -13,3 +13,23 @@
       loop:
         - start-franklin.sh
         - start-franklin-gui-session.sh
+
+    - name: Ensure tmuxinator config directory exists
+      ansible.builtin.file:
+        path: "{{ pi_dest_dir }}/tmuxinator"
+        state: directory
+        owner: "{{ franklin_user }}"
+        group: "{{ franklin_group }}"
+        mode: "0755"
+
+    - name: Copy tmuxinator project configs
+      ansible.builtin.copy:
+        src: "{{ playbook_dir }}/../tmuxinator/{{ item }}"
+        dest: "{{ pi_dest_dir }}/tmuxinator/{{ item }}"
+        owner: "{{ franklin_user }}"
+        group: "{{ franklin_group }}"
+        mode: "0644"
+      loop:
+        - franklin.yml
+        - franklin-services.yml
+        - full-sim.yml

@@ -63,7 +63,7 @@ ansible-playbook -i playbooks/inventory.ini playbooks/site.yml \
 - `15-franklin-user.yml` creates a dedicated runtime user (`franklin` by default), sets shell to zsh, and installs Ghostty terminfo for that user.
 - Ghostty terminfo install uses `infocmp -x xterm-ghostty` from the control machine when missing on the target.
 - Boot behavior is configurable with `franklin_enable_autologin`, `franklin_enable_autostart`, `franklin_enable_wayland_boot`, and `franklin_autologin_tty` in `group_vars/all.yml`.
-- WayVNC behavior is configurable with `franklin_enable_wayvnc`, `franklin_wayvnc_bind_address`, and `franklin_wayvnc_port` in `group_vars/all.yml`.
+- WayVNC behavior is configurable with `franklin_enable_wayvnc`, `franklin_wayvnc_bind_address`, `franklin_wayvnc_port`, `franklin_wayvnc_enable_auth`, `franklin_wayvnc_username`, and `franklin_wayvnc_password` in `group_vars/all.yml`.
 - Firmware display setting uses `pi_firmware_config_path` (defaults to `/boot/firmware/config.txt`) and enforces `hdmi_force_hotplug=1`.
 - `30-tmuxinator.yml` installs tmuxinator only if it is missing.
 - This setup stage prepares the target machine; deployment of app binaries/files remains in your existing deploy flow.

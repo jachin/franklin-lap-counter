@@ -18,6 +18,9 @@ franklin_enable_wayland_boot: true
 franklin_enable_wayvnc: true
 franklin_wayvnc_bind_address: 127.0.0.1
 franklin_wayvnc_port: 5900
+franklin_wayvnc_enable_auth: false
+franklin_wayvnc_username: franklin
+franklin_wayvnc_password: franklinvnc
 
 # Firmware config path for Raspberry Pi boot settings
 pi_firmware_config_path: /boot/firmware/config.txt

@@ -3,10 +3,70 @@
   hosts: all
   become: true
   tasks:
-    - name: Ensure wayvnc is installed
+    - name: Ensure wayvnc and openssl are installed
       ansible.builtin.apt:
-        name: wayvnc
+        name:
+          - wayvnc
+          - openssl
         state: present
+
+    - name: Ensure wayvnc config directory exists
+      ansible.builtin.file:
+        path: "{{ franklin_home }}/.config/wayvnc"
+        state: directory
+        owner: "{{ franklin_user }}"
+        group: "{{ franklin_group }}"
+        mode: "0700"
+
+    - name: Generate wayvnc TLS private key if missing
+      ansible.builtin.shell: |
+        sudo -u "{{ franklin_user }}" -H bash -lc '
+        test -f "{{ franklin_home }}/.config/wayvnc/tls_key.pem" || \
+          openssl genrsa -out "{{ franklin_home }}/.config/wayvnc/tls_key.pem" 2048
+        chmod 600 "{{ franklin_home }}/.config/wayvnc/tls_key.pem"
+        '
+      args:
+        executable: /bin/bash
+
+    - name: Generate wayvnc self-signed TLS certificate if missing
+      ansible.builtin.shell: |
+        sudo -u "{{ franklin_user }}" -H bash -lc '
+        test -f "{{ franklin_home }}/.config/wayvnc/tls_cert.pem" || \
+          openssl req -new -x509 -key "{{ franklin_home }}/.config/wayvnc/tls_key.pem" \
+          -out "{{ franklin_home }}/.config/wayvnc/tls_cert.pem" -days 3650 \
+          -subj "/CN=franklin-wayvnc"
+        chmod 600 "{{ franklin_home }}/.config/wayvnc/tls_cert.pem"
+        '
+      args:
+        executable: /bin/bash
+
+    - name: Generate wayvnc RSA key in legacy PEM format (Apple DH compatibility)
+      ansible.builtin.shell: |
+        sudo -u "{{ franklin_user }}" -H bash -lc '
+        openssl genrsa -traditional -out "{{ franklin_home }}/.config/wayvnc/rsa_key.pem" 2048
+        chmod 600 "{{ franklin_home }}/.config/wayvnc/rsa_key.pem"
+        '
+      args:
+        executable: /bin/bash
+
+    - name: Write wayvnc config for Screen Sharing compatibility
+      ansible.builtin.copy:
+        dest: "{{ franklin_home }}/.config/wayvnc/config"
+        owner: "{{ franklin_user }}"
+        group: "{{ franklin_group }}"
+        mode: "0600"
+        content: |
+          use_relative_paths=true
+          address={{ franklin_wayvnc_bind_address }}
+          port={{ franklin_wayvnc_port }}
+          enable_auth={{ 'true' if franklin_wayvnc_enable_auth else 'false' }}
+          {% if franklin_wayvnc_enable_auth %}
+          relax_encryption=true
+          username={{ franklin_wayvnc_username }}
+          password={{ franklin_wayvnc_password }}
+          private_key_file=tls_key.pem
+          certificate_file=tls_cert.pem
+          {% endif %}
 
     - name: Install wayvnc launcher script in app directory
       ansible.builtin.copy:
@@ -22,7 +82,7 @@
           touch wayvnc.log
 
           # Bind to loopback only. Access through SSH tunnel.
-          exec wayvnc {{ franklin_wayvnc_bind_address }} {{ franklin_wayvnc_port }} >> ./wayvnc.log 2>&1
+          exec wayvnc -C "{{ franklin_home }}/.config/wayvnc/config" -L info >> ./wayvnc.log 2>&1
 
     - name: Ensure sway autostarts wayvnc when enabled
       ansible.builtin.blockinfile:

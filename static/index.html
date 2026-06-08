@@ -337,7 +337,7 @@
                         </div>
                         <div class="race-info-item">
                             <span class="race-info-label">Elapsed:</span>
-                            <span id="raceTimeDisplay">00:00.000</span>
+                            <span id="raceTimeDisplay">00:00:00</span>
                         </div>
                         <div class="race-info-item">
                             <span class="race-info-label">Total Laps:</span>
@@ -414,12 +414,19 @@
             // Helper functions
             function formatTime(timeInSeconds) {
                 if (timeInSeconds === null || timeInSeconds === undefined)
-                    return "--";
+                    return "00:00:00";
 
-                // Format as MM:SS.mmm
-                const minutes = Math.floor(timeInSeconds / 60);
-                const seconds = timeInSeconds % 60;
-                return `${minutes.toString().padStart(2, "0")}:${seconds.toFixed(3).padStart(6, "0")}`;
+                const totalCentiseconds = Math.max(
+                    0,
+                    Math.floor(Number(timeInSeconds) * 100),
+                );
+                const minutes = Math.min(
+                    99,
+                    Math.floor(totalCentiseconds / 6000),
+                );
+                const seconds = Math.floor(totalCentiseconds / 100) % 60;
+                const centiseconds = totalCentiseconds % 100;
+                return `${minutes.toString().padStart(2, "0")}:${seconds.toString().padStart(2, "0")}:${centiseconds.toString().padStart(2, "0")}`;
             }
 
             function formatTimestamp(date) {
@@ -456,7 +463,7 @@
                 if (!state.currentRace) {
                     elements.raceStateDisplay.textContent = "No Active Race";
                     elements.raceTypeDisplay.textContent = "N/A";
-                    elements.raceTimeDisplay.textContent = "00:00.000";
+                    elements.raceTimeDisplay.textContent = "00:00:00";
                     elements.totalLapsDisplay.textContent = state.config
                         ? state.config.total_laps
                         : "?";
@@ -533,7 +540,7 @@
                         state.raceStats.race_time,
                     );
                 } else {
-                    elements.raceTimeDisplay.textContent = "00:00.000";
+                    elements.raceTimeDisplay.textContent = "00:00:00";
                 }
 
                 // Update total laps
@@ -639,13 +646,13 @@
                     const lapCount = entry.lap_count || 0;
                     const lastLapTime = entry.last_lap_time
                         ? formatTime(entry.last_lap_time)
-                        : "--";
+                        : "00:00:00";
                     const bestLapTime = entry.best_lap_time
                         ? formatTime(entry.best_lap_time)
-                        : "--";
+                        : "00:00:00";
                     const totalTime = entry.total_time
                         ? formatTime(entry.total_time)
-                        : "--";
+                        : "00:00:00";
 
                     // Determine if this driver has the best lap
                     const hasBestLap =
@@ -685,7 +692,7 @@
                 let dataStr = "";
                 if (eventType === "lap") {
                     const driverName = getDriverName(eventData.racer_id);
-                    dataStr = `${driverName} completed a lap (Sensor ${eventData.sensor_id}) - Time: ${eventData.race_time.toFixed(3)}s`;
+                    dataStr = `${driverName} completed a lap (Sensor ${eventData.sensor_id}) - Time: ${formatTime(eventData.race_time)}`;
                 } else if (eventType === "status") {
                     dataStr =
                         eventData.message ||

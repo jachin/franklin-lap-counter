@@ -41,6 +41,17 @@ from race.race_contestants import RaceContestants
 from race.race_mode import RaceMode
 
 
+def format_time_cs(seconds_value: float | None) -> str:
+    if seconds_value is None or seconds_value == float("inf"):
+        return "00:00:00"
+
+    total_cs = max(0, int(seconds_value * 100))
+    minutes = min(99, total_cs // 6000)
+    seconds = (total_cs // 100) % 60
+    centiseconds = total_cs % 100
+    return f"{minutes:02}:{seconds:02}:{centiseconds:02}"
+
+
 class LapDataDisplay(Static):
     laps: reactive[list[Any]] = reactive([])  # type: ignore[valid-type]
 
@@ -58,11 +69,11 @@ class LapDataDisplay(Static):
             # Replace racer ID with contestant name if available
             if lap.lap_number == 0:
                 lines.append(
-                    f"Racer {display_name} START TRIGGER | Time: {lap.seconds_from_race_start:.2f}s"
+                    f"Racer {display_name} START TRIGGER | Time: {format_time_cs(lap.seconds_from_race_start)}"
                 )
             else:
                 lines.append(
-                    f"Racer {display_name} Lap {lap.lap_number} | Hardware: {lap.seconds_from_race_start:.2f}s, Internal: {lap.internal_lap_time:.2f}s, Lap Time: {lap.lap_time:.2f}s"
+                    f"Racer {display_name} Lap {lap.lap_number} | Hardware: {format_time_cs(lap.seconds_from_race_start)}, Internal: {format_time_cs(lap.internal_lap_time)}, Lap Time: {format_time_cs(lap.lap_time)}"
                 )
         return "\n".join(lines)
 
@@ -111,9 +122,9 @@ class LeaderboardDisplay(DataTable[Any]):  # type: ignore[type-arg]
             "Position",
             "Racer",
             "Lap Count",
-            "Best Lap Time (s)",
-            "Last Lap Time (s)",
-            "Total Time (s)",
+            "Best Lap Time",
+            "Last Lap Time",
+            "Total Time",
         )
         if not self.leaderboard:
             return
@@ -126,16 +137,9 @@ class LeaderboardDisplay(DataTable[Any]):  # type: ignore[type-arg]
             total_time,
         ) in self.leaderboard:
             display_name = self.contestants.get_contestant_name(racer_id)
-            # Format lap times, showing blank instead of "inf"
-            best_lap_display = (
-                "" if best_lap_time == float("inf") else f"{best_lap_time:.2f}"
-            )
-            last_lap_display = (
-                "" if last_lap_time == float("inf") else f"{last_lap_time:.2f}"
-            )
-            total_time_display = (
-                "" if total_time == float("inf") else f"{total_time:.2f}"
-            )
+            best_lap_display = format_time_cs(best_lap_time)
+            last_lap_display = format_time_cs(last_lap_time)
+            total_time_display = format_time_cs(total_time)
 
             row = (
                 position,
@@ -161,10 +165,7 @@ class RaceTimeDisplay(Digits):
 
     def watch_elapsed_time(self, elapsed_time: float) -> None:
         """Called when the time attribute changes."""
-        minutes = int(self.elapsed_time // 60)
-        seconds = int(self.elapsed_time % 60)
-        tenths = int((self.elapsed_time - seconds) * 10)
-        self.update(f"{minutes}:{seconds}:{tenths}")
+        self.update(format_time_cs(self.elapsed_time))
 
 
 class Franklin(App[Any]):  # type: ignore[type-arg]

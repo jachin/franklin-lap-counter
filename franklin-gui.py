@@ -123,7 +123,9 @@ class FranklinGuiApp(Gtk.Application):
         self._start_light_count = 4
         self._start_light_left_areas: list[Gtk.Widget] = []
         self._start_light_right_areas: list[Gtk.Widget] = []
-        self._start_light_color_class = "start-light-red"
+        self._start_light_classes: list[str] = [
+            "start-light-red"
+        ] * self._start_light_count
         self._start_light_spacing_px = 6
         self._start_light_diameter_px: int | None = None
         self._start_sequence_running = False
@@ -193,7 +195,7 @@ class FranklinGuiApp(Gtk.Application):
         root.set_margin_end(12)
 
         time_label = Gtk.Label()
-        time_label.set_markup('<span size="48000" weight="bold">00:00.0</span>')
+        time_label.set_markup('<span size="48000" weight="bold">00:00:00</span>')
         time_label.set_xalign(0.5)
         time_label.set_halign(Gtk.Align.CENTER)
         time_label.set_hexpand(False)
@@ -397,10 +399,10 @@ class FranklinGuiApp(Gtk.Application):
 
     def _create_start_light_stack(self) -> list[Gtk.Widget]:
         lights: list[Gtk.Widget] = []
-        for _ in range(self._start_light_count):
+        for idx in range(self._start_light_count):
             light = Gtk.Box()
             light.add_css_class("start-light")
-            light.add_css_class(self._start_light_color_class)
+            light.add_css_class(self._start_light_classes[idx])
             light.set_size_request(24, 24)
             light.set_hexpand(False)
             light.set_vexpand(False)
@@ -409,12 +411,30 @@ class FranklinGuiApp(Gtk.Application):
 
     def _wrap_start_light_stack(self, areas: list[Gtk.Widget]) -> Gtk.Box:
         box = Gtk.Box(
-            orientation=Gtk.Orientation.VERTICAL, spacing=self._start_light_spacing_px
+            orientation=Gtk.Orientation.HORIZONTAL, spacing=self._start_light_spacing_px
         )
         box.set_valign(Gtk.Align.CENTER)
         for area in areas:
             box.append(area)
         return box
+
+    def _set_start_light_pattern(self, classes: list[str]) -> None:
+        if len(classes) != self._start_light_count:
+            return
+
+        if classes == self._start_light_classes:
+            return
+
+        previous = self._start_light_classes
+        self._start_light_classes = classes.copy()
+
+        for idx, area in enumerate(self._start_light_left_areas):
+            area.remove_css_class(previous[idx])
+            area.add_css_class(classes[idx])
+
+        for idx, area in enumerate(self._start_light_right_areas):
+            area.remove_css_class(previous[idx])
+            area.add_css_class(classes[idx])
 
     def _set_start_lights(self, color_hex: str) -> None:
         target_class = {
@@ -422,16 +442,7 @@ class FranklinGuiApp(Gtk.Application):
             "#f9a825": "start-light-yellow",
             "#2e7d32": "start-light-green",
         }.get(color_hex, "start-light-red")
-
-        if target_class == self._start_light_color_class:
-            return
-
-        previous_class = self._start_light_color_class
-        self._start_light_color_class = target_class
-
-        for area in self._start_light_left_areas + self._start_light_right_areas:
-            area.remove_css_class(previous_class)
-            area.add_css_class(target_class)
+        self._set_start_light_pattern([target_class] * self._start_light_count)
 
     def _sync_start_lights_with_race_state(self) -> None:
         if self._start_sequence_running:
@@ -456,17 +467,28 @@ class FranklinGuiApp(Gtk.Application):
         self.state_label.set_text(f"State: Starting - {phase}")
 
     def _update_start_light_size(self) -> None:
-        if not self.time_label:
+        if not self.time_label or not self.window:
             return
 
         timer_height = self.time_label.get_allocated_height()
-        if timer_height <= 0:
+        timer_width = self.time_label.get_allocated_width()
+        window_width = self.window.get_allocated_width()
+        if timer_height <= 0 or timer_width <= 0 or window_width <= 0:
             return
 
         total_spacing = self._start_light_spacing_px * (self._start_light_count - 1)
-        diameter = max(
-            10, int((timer_height - total_spacing) / self._start_light_count)
+
+        # Don't exceed timer text height.
+        max_by_height = max(10, timer_height - 4)
+
+        # Fit all 4 lights on each side of the timer.
+        # clock_row spacing is 24 between [left-lights][timer][right-lights] => 48 total
+        approx_side_width = max(40, int((window_width - timer_width - 48) / 2))
+        max_by_width = max(
+            10, int((approx_side_width - total_spacing) / self._start_light_count)
         )
+
+        diameter = max(10, min(max_by_height, max_by_width))
         if self._start_light_diameter_px == diameter:
             return
 
@@ -479,9 +501,9 @@ class FranklinGuiApp(Gtk.Application):
             return
 
         self._start_sequence_running = True
-        self._set_start_sequence_phase("Ready")
+        self._set_start_sequence_phase("Starting")
         self._set_start_lights("#c62828")
-        self.append_event("Ready")
+        self.append_event("Start countdown")
 
         if self.start_btn:
             self.start_btn.set_sensitive(False)
@@ -489,6 +511,21 @@ class FranklinGuiApp(Gtk.Application):
             self.stop_btn.set_sensitive(False)
 
         def set_yellow() -> bool:
+            if not self._start_sequence_running:
+                return False
+            self._set_start_sequence_phase("Ready")
+            self._set_start_light_pattern(
+                [
+                    "start-light-yellow",
+                    "start-light-red",
+                    "start-light-red",
+                    "start-light-yellow",
+                ]
+            )
+            self.append_event("Ready")
+            return False
+
+        def set_all_yellow() -> bool:
             if not self._start_sequence_running:
                 return False
             self._set_start_sequence_phase("Set")
@@ -507,7 +544,8 @@ class FranklinGuiApp(Gtk.Application):
             return False
 
         GLib.timeout_add(1000, set_yellow)
-        GLib.timeout_add(2000, set_green_and_start)
+        GLib.timeout_add(2000, set_all_yellow)
+        GLib.timeout_add(3000, set_green_and_start)
 
     def _start_race_now(self) -> None:
         self.race = Race(previous_race=self.previous_race)
@@ -662,6 +700,16 @@ class FranklinGuiApp(Gtk.Application):
         timestamp = time.strftime("%H:%M:%S")
         buf.insert(end, f"[{timestamp}] {text}\n")
 
+    def _format_time_cs(self, seconds_value: float | None) -> str:
+        if seconds_value is None or seconds_value == float("inf"):
+            return "00:00:00"
+
+        total_cs = max(0, int(seconds_value * 100))
+        minutes = min(99, total_cs // 6000)
+        seconds = (total_cs // 100) % 60
+        centiseconds = total_cs % 100
+        return f"{minutes:02}:{seconds:02}:{centiseconds:02}"
+
     def _humanize_race_state(self, state: RaceState) -> str:
         return state.name.replace("_", " ").title()
 
@@ -694,11 +742,11 @@ class FranklinGuiApp(Gtk.Application):
             lines = ["Pos  Racer                 Laps  Best    Last    Total"]
             for pos, racer_id, lap_count, best, last, total in leaderboard_data:
                 name = self.global_contestants.get_contestant_name(racer_id)
-                best_s = "--" if best == float("inf") else f"{best:0.2f}"
-                last_s = "--" if last == float("inf") else f"{last:0.2f}"
-                total_s = "--" if total == float("inf") else f"{total:0.2f}"
+                best_s = self._format_time_cs(best)
+                last_s = self._format_time_cs(last)
+                total_s = self._format_time_cs(total)
                 lines.append(
-                    f"{pos:>3}  {name[:20]:<20} {lap_count:>4}  {best_s:>6}  {last_s:>6}  {total_s:>6}"
+                    f"{pos:>3}  {name[:20]:<20} {lap_count:>4}  {best_s:>8}  {last_s:>8}  {total_s:>8}"
                 )
             self.leaderboard_view.get_buffer().set_text("\n".join(lines))
             self._update_leaderboard_font_size(len(leaderboard_data))
@@ -709,11 +757,8 @@ class FranklinGuiApp(Gtk.Application):
         if self.race.state == RaceState.RUNNING and self.race.start_time is not None:
             self.race.elapsed_time = time.monotonic() - self.race.start_time
         if self.time_label:
-            minutes = int(self.race.elapsed_time // 60)
-            seconds = int(self.race.elapsed_time % 60)
-            tenths = int((self.race.elapsed_time - int(self.race.elapsed_time)) * 10)
             self.time_label.set_markup(
-                f'<span size="48000" weight="bold">{minutes:02}:{seconds:02}.{tenths}</span>'
+                f'<span size="48000" weight="bold">{self._format_time_cs(self.race.elapsed_time)}</span>'
             )
 
         now = time.monotonic()
@@ -1121,7 +1166,7 @@ class FranklinGuiApp(Gtk.Application):
 
         name = self.global_contestants.get_contestant_name(lap.racer_id)
         self.append_event(
-            f"LAP: {name} (ID {lap.racer_id}) lap {lap.lap_number} at {lap.seconds_from_race_start:.3f}s"
+            f"LAP: {name} (ID {lap.racer_id}) lap {lap.lap_number} at {self._format_time_cs(lap.seconds_from_race_start)}"
         )
         self.refresh_views()
 

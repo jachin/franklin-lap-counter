@@ -166,7 +166,7 @@ class FranklinGuiApp(Gtk.Application):
         self.on_end_clicked(None)
 
     def _action_toggle_mode(self, _action: Gio.SimpleAction, _param: Any) -> None:
-        if self.race.state == RaceState.RUNNING:
+        if is_race_going(self.race):
             self.append_event("Cannot change mode while race is running")
             return
         modes = [RaceMode.REAL, RaceMode.FAKE, RaceMode.TRAINING]
@@ -453,7 +453,7 @@ class FranklinGuiApp(Gtk.Application):
     def _sync_start_lights_with_race_state(self) -> None:
         if self._start_sequence_running:
             return
-        if self.race.state == RaceState.RUNNING:
+        if is_race_going(self.race):
             self._set_start_lights("#2e7d32")
         else:
             self._set_start_lights("#c62828")
@@ -816,7 +816,7 @@ class FranklinGuiApp(Gtk.Application):
     def update_time(self) -> bool:
         self._update_start_light_size()
 
-        if self.race.state == RaceState.RUNNING and self.race.start_time is not None:
+        if is_race_going(self.race) and self.race.start_time is not None:
             self.race.elapsed_time = time.monotonic() - self.race.start_time
         if self.time_label:
             self.time_label.set_markup(
@@ -940,7 +940,7 @@ class FranklinGuiApp(Gtk.Application):
 
                 self.total_laps = new_total_laps
                 self.race_end_mode = new_end_mode
-                if self.race.state != RaceState.RUNNING:
+                if not is_race_going(self.race):
                     self.race.total_laps = new_total_laps
                     self.race.race_end_mode = new_end_mode
 
@@ -1244,7 +1244,7 @@ class FranklinGuiApp(Gtk.Application):
         if msg_type != "lap":
             return
 
-        if self.race.state != RaceState.RUNNING:
+        if not is_race_going(self.race):
             logging.error("Cannot add lap - race is not running")
             self.append_event("Ignored lap: race is not running")
             return
@@ -1324,7 +1324,7 @@ class FranklinGuiApp(Gtk.Application):
         def playback() -> None:
             try:
                 for ts, lap in sorted_laps:
-                    if self._shutdown.is_set() or self.race.state != RaceState.RUNNING:
+                    if self._shutdown.is_set() or not is_race_going(self.race):
                         return
                     elapsed = time.monotonic() - race_start
                     wait_time = ts - elapsed

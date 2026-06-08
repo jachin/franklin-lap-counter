@@ -3,7 +3,7 @@ import logging
 from pathlib import Path
 from typing import Any
 
-from race.race import RaceEndMode
+from race.race_state import RaceEndMode
 
 
 def load_initial_config(

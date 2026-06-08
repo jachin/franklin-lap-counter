@@ -1,9 +1,10 @@
 import logging
 import random
-from enum import Enum, auto
 from typing import List, Optional, Set, Tuple
 
 from race.lap import InternalLapTime, Lap, LapTime, SecondsFromRaceStart
+from race.race_end_logic import resolve_post_lap_state
+from race.race_state import RaceEndMode, RaceState, is_race_going_state
 
 
 def generate_fake_race():
@@ -58,20 +59,6 @@ def generate_fake_race():
             )
     logging.info(f"Generated fake race with {len(fake_race.laps)} laps")
     return fake_race
-
-
-class RaceState(Enum):
-    NOT_STARTED = auto()
-    RUNNING = auto()
-    PAUSED = auto()
-    WINNER_DECLARED = auto()
-    FINISHED = auto()
-
-
-class RaceEndMode(Enum):
-    WINNER = "winner"
-    LAST_CAR = "last_car"
-    MANUAL = "manual"
 
 
 class Race:
@@ -153,48 +140,25 @@ class Race:
             leader_position, leader_id, leader_laps, _, _, _ = leaderboard[0]
             logging.debug(f"Current leader: Racer {leader_id} with {leader_laps} laps")
 
-            # First racer to complete all laps is the winner
-            if leader_laps >= self.total_laps and self.state == RaceState.RUNNING:
-                if self.race_end_mode == RaceEndMode.WINNER:
-                    logging.info(
-                        f"Winner mode: racer {leader_id} finished {leader_laps} laps - ending race"
-                    )
-                    self.finish()
-                    return
-                if self.race_end_mode == RaceEndMode.LAST_CAR:
-                    self.state = RaceState.WINNER_DECLARED
-                    logging.info(
-                        f"Winner declared! Racer {leader_id} finished {leader_laps} laps"
-                    )
-                else:
-                    logging.info(
-                        f"Manual mode: racer {leader_id} reached finish, race continues until manual end"
-                    )
+        previous_state = self.state
+        self.state = resolve_post_lap_state(
+            current_state=self.state,
+            race_end_mode=self.race_end_mode,
+            total_laps=self.total_laps,
+            leaderboard=leaderboard,
+            active_contestants=self.active_contestants,
+        )
 
-            # In LAST_CAR mode, finish when all active racers are done.
-            if self.race_end_mode == RaceEndMode.LAST_CAR and self.active_contestants:
-                all_active_finished = True
-                for (
-                    position,
-                    racer_id,
-                    lap_count,
-                    best_lap,
-                    last_lap,
-                    total_time,
-                ) in leaderboard:
-                    if racer_id in self.active_contestants:
-                        logging.debug(
-                            f"Checking racer {racer_id}: {lap_count}/{self.total_laps} laps"
-                        )
-                        if lap_count < self.total_laps:
-                            all_active_finished = False
-                            break
-
-                if all_active_finished:
-                    logging.info(
-                        f"All active racers ({self.active_contestants}) have completed their laps - Race finished!"
-                    )
-                    self.finish()
+        if previous_state != self.state:
+            if self.state == RaceState.WINNER_DECLARED and leaderboard:
+                _, leader_id, leader_laps, _, _, _ = leaderboard[0]
+                logging.info(
+                    f"Winner declared! Racer {leader_id} finished {leader_laps} laps"
+                )
+            elif self.state == RaceState.FINISHED:
+                logging.info(
+                    f"Race finished automatically in {self.race_end_mode.value} mode"
+                )
 
     def add_fake_lap(self, lap: Lap) -> None:
         """Add a fake lap during race simulation. Also adds the racer to active contestants."""
@@ -373,6 +337,6 @@ def make_fake_lap(
     )
 
 
-# If a race is RUNNING or a WINNER_DECLARED we still consider the race going.False
+# If a race is RUNNING or WINNER_DECLARED we still consider the race going.
 def is_race_going(race: Race) -> bool:
-    return race.state == RaceState.RUNNING or race.state == RaceState.WINNER_DECLARED
+    return is_race_going_state(race.state)

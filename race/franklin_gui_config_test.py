@@ -4,7 +4,7 @@ import unittest
 from pathlib import Path
 
 from gui_config import load_initial_config
-from race.race import RaceEndMode
+from race.race_state import RaceEndMode
 
 
 class TestLoadInitialConfig(unittest.TestCase):

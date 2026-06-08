@@ -195,7 +195,7 @@ class FranklinGuiApp(Gtk.Application):
         time_label.set_markup('<span size="48000" weight="bold">00:00.0</span>')
         time_label.set_xalign(0.5)
         time_label.set_halign(Gtk.Align.CENTER)
-        time_label.set_hexpand(True)
+        time_label.set_hexpand(False)
         self.time_label = time_label
 
         clock_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=24)
@@ -375,19 +375,22 @@ class FranklinGuiApp(Gtk.Application):
             area = Gtk.DrawingArea()
             area.set_content_width(24)
             area.set_content_height(24)
+            area.set_size_request(24, 24)
             area.set_hexpand(False)
             area.set_vexpand(False)
 
-            def draw_func(
-                draw_area: Gtk.DrawingArea,
-                cr: Any,
-                width: int,
-                height: int,
-                light_idx: int = idx,
-            ) -> None:
+            def draw_func(*args: Any, default_idx: int = idx) -> None:
+                # Gtk may pass (area, cr, w, h) or (area, cr, w, h, user_data)
+                draw_area = args[0]
+                cr = args[1]
+                width = args[2]
+                height = args[3]
+                light_idx = default_idx
+                if len(args) >= 5 and isinstance(args[4], int):
+                    light_idx = args[4]
                 self._draw_start_light(draw_area, cr, width, height, light_idx)
 
-            area.set_draw_func(draw_func)
+            area.set_draw_func(draw_func, idx)
             areas.append(area)
         return areas
 
@@ -477,6 +480,7 @@ class FranklinGuiApp(Gtk.Application):
         for area in self._start_light_left_areas + self._start_light_right_areas:
             area.set_content_width(diameter)
             area.set_content_height(diameter)
+            area.set_size_request(diameter, diameter)
 
     def _start_race_countdown(self) -> None:
         if self._start_sequence_running:

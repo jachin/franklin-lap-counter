@@ -744,8 +744,8 @@ class FranklinGuiApp(Gtk.Application):
 
     def _leaderboard_name_col_width(self) -> int:
         # Non-name characters in:
-        # {pos:>3}  {name:<N} {laps:>4}  {best:>8}  {last:>8}  {total:>8}
-        non_name_chars = 40
+        # {pos:>3}  {status:^6} {name:<N} {laps:>4}  {best:>8}  {last:>8}  {total:>8}
+        non_name_chars = 48
         min_name_chars = 12
         max_name_chars = 48
 
@@ -765,6 +765,24 @@ class FranklinGuiApp(Gtk.Application):
 
     def _humanize_race_state(self, state: RaceState) -> str:
         return state.name.replace("_", " ").title()
+
+    def _leaderboard_status_symbol(self, position: int, lap_count: int) -> str:
+        if self.race.state == RaceState.FINISHED:
+            if position == 1:
+                return "🥇"
+            if position == 2:
+                return "🥈"
+            if position == 3:
+                return "🥉"
+            return ""
+
+        if self.race.state == RaceState.WINNER_DECLARED and position == 1:
+            return "🏁"
+
+        if lap_count == (self.total_laps - 1):
+            return "🔔"
+
+        return ""
 
     def refresh_views(self) -> None:
         self._sync_start_lights_with_race_state()
@@ -796,16 +814,17 @@ class FranklinGuiApp(Gtk.Application):
         if self.leaderboard_view:
             leaderboard_data = self.race.leaderboard()
             name_w = self._leaderboard_name_col_width()
-            header_line = f"{'Pos':>3}  {'Racer':<{name_w}} {'Laps':>4}  {'Best':>8}  {'Last':>8}  {'Total':>8}"
+            header_line = f"{'Pos':>3}  {'Status':^6} {'Racer':<{name_w}} {'Laps':>4}  {'Best':>8}  {'Last':>8}  {'Total':>8}"
 
             rows: list[str] = []
             for pos, racer_id, lap_count, best, last, total in leaderboard_data:
                 name = self.global_contestants.get_contestant_name(racer_id)
+                status_symbol = self._leaderboard_status_symbol(pos, lap_count)
                 best_s = self._format_time_cs(best)
                 last_s = self._format_time_cs(last)
                 total_s = self._format_time_cs(total)
                 rows.append(
-                    f"{pos:>3}  {name[:name_w]:<{name_w}} {lap_count:>4}  {best_s:>8}  {last_s:>8}  {total_s:>8}"
+                    f"{pos:>3}  {status_symbol:^6} {name[:name_w]:<{name_w}} {lap_count:>4}  {best_s:>8}  {last_s:>8}  {total_s:>8}"
                 )
 
             buffer = self.leaderboard_view.get_buffer()

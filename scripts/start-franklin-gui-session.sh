@@ -52,5 +52,5 @@ else
   tmuxinator start -p "${TMUXINATOR_CONFIG}" --no-attach
 fi
 
-log "Starting Franklin GTK GUI..."
-exec python franklin-gui.py --race >> ./gui.log 2>&1
+log "Starting Franklin GTK GUI (using saved mode preference unless CLI override is provided)..."
+exec python franklin-gui.py >> ./gui.log 2>&1

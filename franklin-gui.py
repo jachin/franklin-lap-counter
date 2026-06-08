@@ -126,6 +126,7 @@ class FranklinGuiApp(Gtk.Application):
         self._start_light_spacing_px = 6
         self._start_light_diameter_px: int | None = None
         self._start_sequence_running = False
+        self._start_sequence_phase: str | None = None
 
         self._register_actions_and_shortcuts()
 
@@ -374,7 +375,19 @@ class FranklinGuiApp(Gtk.Application):
             area = Gtk.DrawingArea()
             area.set_content_width(24)
             area.set_content_height(24)
-            area.set_draw_func(self._draw_start_light, idx)
+            area.set_hexpand(False)
+            area.set_vexpand(False)
+
+            def draw_func(
+                draw_area: Gtk.DrawingArea,
+                cr: Any,
+                width: int,
+                height: int,
+                light_idx: int = idx,
+            ) -> None:
+                self._draw_start_light(draw_area, cr, width, height, light_idx)
+
+            area.set_draw_func(draw_func)
             areas.append(area)
         return areas
 
@@ -431,6 +444,20 @@ class FranklinGuiApp(Gtk.Application):
         else:
             self._set_start_lights("#c62828")
 
+    def _set_start_sequence_phase(self, phase: str | None) -> None:
+        self._start_sequence_phase = phase
+
+        if not self.state_label:
+            return
+
+        if phase is None:
+            self.state_label.set_text(
+                f"State: {self._humanize_race_state(self.race.state)}"
+            )
+            return
+
+        self.state_label.set_text(f"State: Starting - {phase}")
+
     def _update_start_light_size(self) -> None:
         if not self.time_label:
             return
@@ -456,6 +483,7 @@ class FranklinGuiApp(Gtk.Application):
             return
 
         self._start_sequence_running = True
+        self._set_start_sequence_phase("Ready")
         self._set_start_lights("#c62828")
         self.append_event("Ready")
 
@@ -467,6 +495,7 @@ class FranklinGuiApp(Gtk.Application):
         def set_yellow() -> bool:
             if not self._start_sequence_running:
                 return False
+            self._set_start_sequence_phase("Set")
             self._set_start_lights("#f9a825")
             self.append_event("Set")
             return False
@@ -474,14 +503,15 @@ class FranklinGuiApp(Gtk.Application):
         def set_green_and_start() -> bool:
             if not self._start_sequence_running:
                 return False
+            self._set_start_sequence_phase("Go")
             self._set_start_lights("#2e7d32")
             self.append_event("Go")
             self._start_sequence_running = False
             self._start_race_now()
             return False
 
-        GLib.timeout_add(900, set_yellow)
-        GLib.timeout_add(1800, set_green_and_start)
+        GLib.timeout_add(1000, set_yellow)
+        GLib.timeout_add(2000, set_green_and_start)
 
     def _start_race_now(self) -> None:
         self.race = Race(previous_race=self.previous_race)
@@ -495,6 +525,7 @@ class FranklinGuiApp(Gtk.Application):
         if self.stop_btn:
             self.stop_btn.set_sensitive(True)
 
+        self._set_start_sequence_phase(None)
         self.append_event("Race started")
         if self.race_mode == RaceMode.FAKE:
             self.start_fake_playback()
@@ -642,9 +673,14 @@ class FranklinGuiApp(Gtk.Application):
         self._sync_start_lights_with_race_state()
 
         if self.state_label:
-            self.state_label.set_text(
-                f"State: {self._humanize_race_state(self.race.state)}"
-            )
+            if self._start_sequence_phase is not None:
+                self.state_label.set_text(
+                    f"State: Starting - {self._start_sequence_phase}"
+                )
+            else:
+                self.state_label.set_text(
+                    f"State: {self._humanize_race_state(self.race.state)}"
+                )
         if self.detect_label:
             now = time.monotonic()
             connected = (

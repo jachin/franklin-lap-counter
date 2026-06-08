@@ -46,12 +46,18 @@
       "setup-pi": [
         "ansible-playbook -i playbooks/inventory.ini playbooks/site.yml"
       ],
+      "setup-pi-vnc": [
+        "ansible-playbook -i playbooks/inventory.ini playbooks/58-wayvnc.yml"
+      ],
       "install-tmuxinator": ["./scripts/install-tmuxinator-pi.sh"],
       "deploy-pi": [
         "ansible-playbook -i playbooks/inventory.ini playbooks/deploy-franklin.yml"
       ],
       "deploy-pi-gui": [
         "ansible-playbook -i playbooks/inventory.ini playbooks/deploy-franklin-gui.yml"
+      ],
+      "pi-health-check": [
+        "ansible-playbook -i playbooks/inventory.ini playbooks/61-health-check.yml"
       ],
       "rust-hw-sim": [
         "cargo run --manifest-path rust/Cargo.toml --bin franklin-hardware-monitor -- --sim"

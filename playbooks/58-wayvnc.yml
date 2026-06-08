@@ -1,0 +1,50 @@
+---
+- name: Configure WayVNC for SSH-tunneled remote GUI access
+  hosts: all
+  become: true
+  tasks:
+    - name: Ensure wayvnc is installed
+      ansible.builtin.apt:
+        name: wayvnc
+        state: present
+
+    - name: Install wayvnc launcher script in app directory
+      ansible.builtin.copy:
+        dest: "{{ pi_dest_dir }}/start-wayvnc.sh"
+        owner: "{{ franklin_user }}"
+        group: "{{ franklin_group }}"
+        mode: "0755"
+        content: |
+          #!/usr/bin/env bash
+          set -euo pipefail
+
+          cd "$(dirname "$0")"
+          touch wayvnc.log
+
+          # Bind to loopback only. Access through SSH tunnel.
+          exec wayvnc {{ franklin_wayvnc_bind_address }} {{ franklin_wayvnc_port }} >> ./wayvnc.log 2>&1
+
+    - name: Ensure sway autostarts wayvnc when enabled
+      ansible.builtin.blockinfile:
+        path: "{{ franklin_home }}/.config/sway/config"
+        owner: "{{ franklin_user }}"
+        group: "{{ franklin_group }}"
+        mode: "0644"
+        marker: "# {mark} ANSIBLE MANAGED WAYVNC"
+        block: |
+          # Start WayVNC bound to localhost; use SSH port forwarding for access.
+          exec {{ pi_dest_dir }}/start-wayvnc.sh
+      when:
+        - franklin_enable_wayland_boot
+        - franklin_enable_wayvnc
+
+    - name: Remove sway wayvnc block when disabled
+      ansible.builtin.blockinfile:
+        path: "{{ franklin_home }}/.config/sway/config"
+        owner: "{{ franklin_user }}"
+        group: "{{ franklin_group }}"
+        mode: "0644"
+        marker: "# {mark} ANSIBLE MANAGED WAYVNC"
+        block: ""
+        state: absent
+      when: not franklin_enable_wayvnc

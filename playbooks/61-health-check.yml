@@ -1,0 +1,48 @@
+---
+- name: Franklin Pi runtime health check
+  hosts: all
+  gather_facts: false
+  become: true
+
+  tasks:
+    - name: Collect runtime health report as franklin user
+      ansible.builtin.shell: |
+        sudo -u "{{ franklin_user }}" -H bash -lc '
+        set +e
+        cd "{{ pi_dest_dir }}"
+
+        echo "=== tmux sessions ==="
+        tmux ls || true
+        echo
+
+        echo "=== redis socket + ping ==="
+        ls -l ./redis.sock || true
+        redis-cli -s ./redis.sock PING || true
+        echo
+
+        echo "=== hardware:out heartbeat sample (6s) ==="
+        timeout 6 redis-cli -s ./redis.sock SUBSCRIBE hardware:out 2>/dev/null | grep -m1 "\"type\":\"heartbeat\"" || true
+        echo
+
+        echo "=== wayvnc process/port ==="
+        pgrep -af wayvnc | grep -v "bash -lc" || echo "wayvnc not running"
+        ss -lnt | grep ":{{ franklin_wayvnc_port }} " || true
+        echo
+
+        echo "=== gui.log errors (last 120 lines) ==="
+        tail -n 120 ./gui.log | grep -E "Traceback|TypeError|Redis connect failed|ERROR" || echo "No matching GUI errors found"
+        echo
+
+        echo "=== hardware_redis.log (last 20) ==="
+        tail -n 20 ./hardware_redis.log || true
+
+        exit 0
+        '
+      args:
+        executable: /bin/bash
+      register: health_check
+      changed_when: false
+
+    - name: Print health report
+      ansible.builtin.debug:
+        msg: "{{ health_check.stdout_lines }}"

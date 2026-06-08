@@ -9,4 +9,5 @@
 - import_playbook: 55-autologin-startup.yml
 - import_playbook: 56-wayland-sway.yml
 - import_playbook: 57-hdmi-hotplug.yml
+- import_playbook: 58-wayvnc.yml
 - import_playbook: 60-system-info.yml

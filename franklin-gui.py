@@ -119,10 +119,11 @@ class FranklinGuiApp(Gtk.Application):
         self._leaderboard_font_pt: int | None = None
 
         # Start light UI (mirrored on both sides of the timer)
+        self._start_lights_css_provider = Gtk.CssProvider()
         self._start_light_count = 4
-        self._start_light_left_areas: list[Gtk.DrawingArea] = []
-        self._start_light_right_areas: list[Gtk.DrawingArea] = []
-        self._start_light_colors: list[str] = ["#c62828"] * self._start_light_count
+        self._start_light_left_areas: list[Gtk.Widget] = []
+        self._start_light_right_areas: list[Gtk.Widget] = []
+        self._start_light_color_class = "start-light-red"
         self._start_light_spacing_px = 6
         self._start_light_diameter_px: int | None = None
         self._start_sequence_running = False
@@ -205,6 +206,7 @@ class FranklinGuiApp(Gtk.Application):
         right_lights = self._create_start_light_stack()
         self._start_light_left_areas = left_lights
         self._start_light_right_areas = right_lights
+        self._set_start_lights("#c62828")
         clock_row.append(self._wrap_start_light_stack(left_lights))
         clock_row.append(time_label)
         clock_row.append(self._wrap_start_light_stack(right_lights))
@@ -285,6 +287,30 @@ class FranklinGuiApp(Gtk.Application):
                 self._leaderboard_css_provider,
                 Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION,
             )
+            Gtk.StyleContext.add_provider_for_display(
+                display,
+                self._start_lights_css_provider,
+                Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION,
+            )
+
+        self._start_lights_css_provider.load_from_data(
+            b"""
+            .start-light {
+                border-radius: 999px;
+                border: 2px solid #141414;
+                background-color: #c62828;
+            }
+            .start-light-red {
+                background-color: #c62828;
+            }
+            .start-light-yellow {
+                background-color: #f9a825;
+            }
+            .start-light-green {
+                background-color: #2e7d32;
+            }
+            """
+        )
 
         events_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
         events_box.append(Gtk.Label(label="Events"))
@@ -369,32 +395,19 @@ class FranklinGuiApp(Gtk.Application):
             self.panes.set_end_child(None)
             self._events_visible = False
 
-    def _create_start_light_stack(self) -> list[Gtk.DrawingArea]:
-        areas: list[Gtk.DrawingArea] = []
-        for idx in range(self._start_light_count):
-            area = Gtk.DrawingArea()
-            area.set_content_width(24)
-            area.set_content_height(24)
-            area.set_size_request(24, 24)
-            area.set_hexpand(False)
-            area.set_vexpand(False)
+    def _create_start_light_stack(self) -> list[Gtk.Widget]:
+        lights: list[Gtk.Widget] = []
+        for _ in range(self._start_light_count):
+            light = Gtk.Box()
+            light.add_css_class("start-light")
+            light.add_css_class(self._start_light_color_class)
+            light.set_size_request(24, 24)
+            light.set_hexpand(False)
+            light.set_vexpand(False)
+            lights.append(light)
+        return lights
 
-            def draw_func(*args: Any, default_idx: int = idx) -> None:
-                # Gtk may pass (area, cr, w, h) or (area, cr, w, h, user_data)
-                draw_area = args[0]
-                cr = args[1]
-                width = args[2]
-                height = args[3]
-                light_idx = default_idx
-                if len(args) >= 5 and isinstance(args[4], int):
-                    light_idx = args[4]
-                self._draw_start_light(draw_area, cr, width, height, light_idx)
-
-            area.set_draw_func(draw_func, idx)
-            areas.append(area)
-        return areas
-
-    def _wrap_start_light_stack(self, areas: list[Gtk.DrawingArea]) -> Gtk.Box:
+    def _wrap_start_light_stack(self, areas: list[Gtk.Widget]) -> Gtk.Box:
         box = Gtk.Box(
             orientation=Gtk.Orientation.VERTICAL, spacing=self._start_light_spacing_px
         )
@@ -403,41 +416,22 @@ class FranklinGuiApp(Gtk.Application):
             box.append(area)
         return box
 
-    def _draw_start_light(
-        self,
-        _area: Gtk.DrawingArea,
-        cr: Any,
-        width: int,
-        height: int,
-        idx: int,
-    ) -> None:
-        color = (
-            self._start_light_colors[idx]
-            if idx < len(self._start_light_colors)
-            else "#444"
-        )
-        r = int(color[1:3], 16) / 255.0
-        g = int(color[3:5], 16) / 255.0
-        b = int(color[5:7], 16) / 255.0
-
-        cx = width / 2.0
-        cy = height / 2.0
-        radius = max(2.0, min(width, height) / 2.0 - 1.5)
-
-        # Housing ring
-        cr.set_source_rgb(0.12, 0.12, 0.12)
-        cr.arc(cx, cy, radius, 0, 2 * 3.141592653589793)
-        cr.fill()
-
-        # Light fill
-        cr.set_source_rgb(r, g, b)
-        cr.arc(cx, cy, radius * 0.78, 0, 2 * 3.141592653589793)
-        cr.fill()
-
     def _set_start_lights(self, color_hex: str) -> None:
-        self._start_light_colors = [color_hex] * self._start_light_count
+        target_class = {
+            "#c62828": "start-light-red",
+            "#f9a825": "start-light-yellow",
+            "#2e7d32": "start-light-green",
+        }.get(color_hex, "start-light-red")
+
+        if target_class == self._start_light_color_class:
+            return
+
+        previous_class = self._start_light_color_class
+        self._start_light_color_class = target_class
+
         for area in self._start_light_left_areas + self._start_light_right_areas:
-            area.queue_draw()
+            area.remove_css_class(previous_class)
+            area.add_css_class(target_class)
 
     def _sync_start_lights_with_race_state(self) -> None:
         if self._start_sequence_running:
@@ -478,8 +472,6 @@ class FranklinGuiApp(Gtk.Application):
 
         self._start_light_diameter_px = diameter
         for area in self._start_light_left_areas + self._start_light_right_areas:
-            area.set_content_width(diameter)
-            area.set_content_height(diameter)
             area.set_size_request(diameter, diameter)
 
     def _start_race_countdown(self) -> None:

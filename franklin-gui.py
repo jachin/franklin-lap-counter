@@ -702,7 +702,12 @@ class FranklinGuiApp(Gtk.Application):
         if point_size == self._leaderboard_font_pt:
             return
 
-        css = f".leaderboard-view {{ font-size: {point_size}pt; }}"
+        css = (
+            ".leaderboard-view { "
+            f"font-size: {point_size}pt; "
+            "font-family: 'Noto Sans Mono', 'Noto Color Emoji', monospace; "
+            "}"
+        )
         self._leaderboard_css_provider.load_from_data(css.encode("utf-8"))
         self._leaderboard_font_pt = point_size
 

@@ -44,6 +44,8 @@ system_packages:
   - lnav
   - python3-gi
   - gir1.2-gtk-4.0
+  - fonts-noto-color-emoji
+  - fontconfig
   - sway
   - xwayland
   - seatd

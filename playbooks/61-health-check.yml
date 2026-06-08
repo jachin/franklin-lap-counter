@@ -43,6 +43,14 @@
         ss -lnt | grep ":{{ franklin_wayvnc_port }} " || true
         echo
 
+        echo "=== emoji font availability ==="
+        if fc-list | grep -qi "Noto Color Emoji"; then
+          echo "Noto Color Emoji: present"
+        else
+          echo "Noto Color Emoji: missing"
+        fi
+        echo
+
         echo "=== gui.log errors (last 120 lines) ==="
         tail -n 120 ./gui.log | grep -E "Traceback|TypeError|Redis connect failed|ERROR" || echo "No matching GUI errors found"
         echo

@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+
 """
 Franklin GTK GUI (Wayland-friendly) implementation.
 
@@ -42,7 +43,7 @@ from race.race_mode import RaceMode
 
 gi.require_version("Gdk", "4.0")
 gi.require_version("Gtk", "4.0")
-from gi.repository import Gdk, Gio, GLib, Gtk
+from gi.repository import Gdk, Gio, GLib, Gtk  # pyright: ignore[reportAttributeAccessIssue]
 
 
 class FranklinGuiApp(Gtk.Application):
@@ -117,6 +118,15 @@ class FranklinGuiApp(Gtk.Application):
         self._leaderboard_css_provider = Gtk.CssProvider()
         self._leaderboard_font_pt: int | None = None
 
+        # Start light UI (mirrored on both sides of the timer)
+        self._start_light_count = 4
+        self._start_light_left_areas: list[Gtk.DrawingArea] = []
+        self._start_light_right_areas: list[Gtk.DrawingArea] = []
+        self._start_light_colors: list[str] = ["#c62828"] * self._start_light_count
+        self._start_light_spacing_px = 6
+        self._start_light_diameter_px: int | None = None
+        self._start_sequence_running = False
+
         self._register_actions_and_shortcuts()
 
         in_progress = self.db.get_in_progress_race()
@@ -169,9 +179,10 @@ class FranklinGuiApp(Gtk.Application):
         self.on_preferences_clicked(None)
 
     def do_activate(self) -> None:  # type: ignore[override]
-        self.window = Gtk.ApplicationWindow(application=self)
-        self.window.set_title("Franklin Lap Counter (GTK)")
-        self.window.set_default_size(1200, 760)
+        window = Gtk.ApplicationWindow(application=self)
+        window.set_title("Franklin Lap Counter (GTK)")
+        window.set_default_size(1200, 760)
+        self.window = window
 
         root = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
         root.set_margin_top(12)
@@ -179,28 +190,43 @@ class FranklinGuiApp(Gtk.Application):
         root.set_margin_start(12)
         root.set_margin_end(12)
 
-        self.time_label = Gtk.Label()
-        self.time_label.set_markup('<span size="48000" weight="bold">00:00.0</span>')
-        self.time_label.set_xalign(0.5)
-        self.time_label.set_halign(Gtk.Align.CENTER)
-        self.time_label.set_hexpand(True)
+        time_label = Gtk.Label()
+        time_label.set_markup('<span size="48000" weight="bold">00:00.0</span>')
+        time_label.set_xalign(0.5)
+        time_label.set_halign(Gtk.Align.CENTER)
+        time_label.set_hexpand(True)
+        self.time_label = time_label
+
+        clock_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=24)
+        clock_row.set_halign(Gtk.Align.CENTER)
+        clock_row.set_hexpand(True)
+        left_lights = self._create_start_light_stack()
+        right_lights = self._create_start_light_stack()
+        self._start_light_left_areas = left_lights
+        self._start_light_right_areas = right_lights
+        clock_row.append(self._wrap_start_light_stack(left_lights))
+        clock_row.append(time_label)
+        clock_row.append(self._wrap_start_light_stack(right_lights))
 
         controls = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        self.mode_combo = Gtk.ComboBoxText()
-        self.mode_combo.append_text(RaceMode.REAL.name)
-        self.mode_combo.append_text(RaceMode.FAKE.name)
-        self.mode_combo.append_text(RaceMode.TRAINING.name)
-        self.mode_combo.set_active(
+        mode_combo = Gtk.ComboBoxText()
+        mode_combo.append_text(RaceMode.REAL.name)
+        mode_combo.append_text(RaceMode.FAKE.name)
+        mode_combo.append_text(RaceMode.TRAINING.name)
+        mode_combo.set_active(
             [RaceMode.REAL, RaceMode.FAKE, RaceMode.TRAINING].index(self.race_mode)
         )
-        self.mode_combo.connect("changed", self.on_mode_changed)
+        mode_combo.connect("changed", self.on_mode_changed)
+        self.mode_combo = mode_combo
 
-        self.start_btn = Gtk.Button(label="Start Race (Ctrl+S)")
-        self.start_btn.connect("clicked", self.on_start_clicked)
+        start_btn = Gtk.Button(label="Start Race (Ctrl+S)")
+        start_btn.connect("clicked", self.on_start_clicked)
+        self.start_btn = start_btn
 
-        self.stop_btn = Gtk.Button(label="End Race (Ctrl+E)")
-        self.stop_btn.set_sensitive(False)
-        self.stop_btn.connect("clicked", self.on_end_clicked)
+        stop_btn = Gtk.Button(label="End Race (Ctrl+E)")
+        stop_btn.set_sensitive(False)
+        stop_btn.connect("clicked", self.on_end_clicked)
+        self.stop_btn = stop_btn
 
         manage_drivers_btn = Gtk.Button(label="Manage Drivers (Ctrl+R)")
         manage_drivers_btn.connect("clicked", self.on_manage_drivers_clicked)
@@ -209,29 +235,27 @@ class FranklinGuiApp(Gtk.Application):
         preferences_btn.connect("clicked", self.on_preferences_clicked)
 
         controls.append(Gtk.Label(label="Mode (Ctrl+T):"))
-        controls.append(self.mode_combo)
-        controls.append(self.start_btn)
-        controls.append(self.stop_btn)
+        controls.append(mode_combo)
+        controls.append(start_btn)
+        controls.append(stop_btn)
         controls.append(manage_drivers_btn)
         controls.append(preferences_btn)
 
         status = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=16)
-        self.state_label = Gtk.Label(
+        state_label = Gtk.Label(
             label=f"State: {self._humanize_race_state(self.race.state)}"
         )
-        self.laps_remaining_label = Gtk.Label(
-            label=f"Laps Remaining: {self.total_laps}"
-        )
-        for lbl in [
-            self.state_label,
-            self.laps_remaining_label,
-        ]:
+        laps_remaining_label = Gtk.Label(label=f"Laps Remaining: {self.total_laps}")
+        self.state_label = state_label
+        self.laps_remaining_label = laps_remaining_label
+        for lbl in [state_label, laps_remaining_label]:
             lbl.set_xalign(0)
             status.append(lbl)
 
-        self.panes = Gtk.Paned.new(Gtk.Orientation.HORIZONTAL)
-        self.panes.set_vexpand(True)
-        self.panes.set_hexpand(True)
+        panes = Gtk.Paned.new(Gtk.Orientation.HORIZONTAL)
+        panes.set_vexpand(True)
+        panes.set_hexpand(True)
+        self.panes = panes
 
         leaderboard_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
         leaderboard_label = Gtk.Label()
@@ -239,16 +263,20 @@ class FranklinGuiApp(Gtk.Application):
             '<span size="42000" weight="bold">Leaderboard</span>'
         )
         leaderboard_box.append(leaderboard_label)
-        self.leaderboard_view = Gtk.TextView()
-        self.leaderboard_view.set_editable(False)
-        self.leaderboard_view.set_monospace(True)
-        self.leaderboard_scroll = Gtk.ScrolledWindow()
-        self.leaderboard_scroll.set_vexpand(True)
-        self.leaderboard_scroll.set_hexpand(True)
-        self.leaderboard_scroll.set_child(self.leaderboard_view)
-        leaderboard_box.append(self.leaderboard_scroll)
 
-        self.leaderboard_view.add_css_class("leaderboard-view")
+        leaderboard_view = Gtk.TextView()
+        leaderboard_view.set_editable(False)
+        leaderboard_view.set_monospace(True)
+        self.leaderboard_view = leaderboard_view
+
+        leaderboard_scroll = Gtk.ScrolledWindow()
+        leaderboard_scroll.set_vexpand(True)
+        leaderboard_scroll.set_hexpand(True)
+        leaderboard_scroll.set_child(leaderboard_view)
+        leaderboard_box.append(leaderboard_scroll)
+        self.leaderboard_scroll = leaderboard_scroll
+
+        leaderboard_view.add_css_class("leaderboard-view")
         display = Gdk.Display.get_default()
         if display is not None:
             Gtk.StyleContext.add_provider_for_display(
@@ -257,42 +285,48 @@ class FranklinGuiApp(Gtk.Application):
                 Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION,
             )
 
-        self.events_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
-        self.events_box.append(Gtk.Label(label="Events"))
-        self.events_view = Gtk.TextView()
-        self.events_view.set_editable(False)
-        self.events_view.set_monospace(True)
+        events_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        events_box.append(Gtk.Label(label="Events"))
+        events_view = Gtk.TextView()
+        events_view.set_editable(False)
+        events_view.set_monospace(True)
+        self.events_view = events_view
+
         events_scroll = Gtk.ScrolledWindow()
         events_scroll.set_vexpand(True)
         events_scroll.set_hexpand(True)
-        events_scroll.set_child(self.events_view)
-        self.events_box.append(events_scroll)
+        events_scroll.set_child(events_view)
+        events_box.append(events_scroll)
+        self.events_box = events_box
 
-        self.panes.set_start_child(leaderboard_box)
+        panes.set_start_child(leaderboard_box)
 
         status_bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=20)
-        self.detect_label = Gtk.Label(label="HW: Waiting")
-        self.detect_label.set_xalign(0)
-        self.ethernet_label = Gtk.Label(label="Ethernet: checking...")
-        self.ethernet_label.set_xalign(0)
-        self.wifi_label = Gtk.Label(label="Wi-Fi: checking...")
-        self.wifi_label.set_xalign(0)
+        detect_label = Gtk.Label(label="HW: Waiting")
+        detect_label.set_xalign(0)
+        ethernet_label = Gtk.Label(label="Ethernet: checking...")
+        ethernet_label.set_xalign(0)
+        wifi_label = Gtk.Label(label="Wi-Fi: checking...")
+        wifi_label.set_xalign(0)
+        self.detect_label = detect_label
+        self.ethernet_label = ethernet_label
+        self.wifi_label = wifi_label
 
-        status_bar.append(self.detect_label)
+        status_bar.append(detect_label)
         status_bar.append(Gtk.Separator(orientation=Gtk.Orientation.VERTICAL))
-        status_bar.append(self.ethernet_label)
+        status_bar.append(ethernet_label)
         status_bar.append(Gtk.Separator(orientation=Gtk.Orientation.VERTICAL))
-        status_bar.append(self.wifi_label)
+        status_bar.append(wifi_label)
 
-        root.append(self.time_label)
+        root.append(clock_row)
         root.append(controls)
         root.append(status)
-        root.append(self.panes)
+        root.append(panes)
         root.append(Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL))
         root.append(status_bar)
 
-        self.window.set_child(root)
-        self.window.present()
+        window.set_child(root)
+        window.present()
 
         self.connect_redis()
         GLib.timeout_add(100, self.update_time)
@@ -333,6 +367,141 @@ class FranklinGuiApp(Gtk.Application):
         else:
             self.panes.set_end_child(None)
             self._events_visible = False
+
+    def _create_start_light_stack(self) -> list[Gtk.DrawingArea]:
+        areas: list[Gtk.DrawingArea] = []
+        for idx in range(self._start_light_count):
+            area = Gtk.DrawingArea()
+            area.set_content_width(24)
+            area.set_content_height(24)
+            area.set_draw_func(self._draw_start_light, idx)
+            areas.append(area)
+        return areas
+
+    def _wrap_start_light_stack(self, areas: list[Gtk.DrawingArea]) -> Gtk.Box:
+        box = Gtk.Box(
+            orientation=Gtk.Orientation.VERTICAL, spacing=self._start_light_spacing_px
+        )
+        box.set_valign(Gtk.Align.CENTER)
+        for area in areas:
+            box.append(area)
+        return box
+
+    def _draw_start_light(
+        self,
+        _area: Gtk.DrawingArea,
+        cr: Any,
+        width: int,
+        height: int,
+        idx: int,
+    ) -> None:
+        color = (
+            self._start_light_colors[idx]
+            if idx < len(self._start_light_colors)
+            else "#444"
+        )
+        r = int(color[1:3], 16) / 255.0
+        g = int(color[3:5], 16) / 255.0
+        b = int(color[5:7], 16) / 255.0
+
+        cx = width / 2.0
+        cy = height / 2.0
+        radius = max(2.0, min(width, height) / 2.0 - 1.5)
+
+        # Housing ring
+        cr.set_source_rgb(0.12, 0.12, 0.12)
+        cr.arc(cx, cy, radius, 0, 2 * 3.141592653589793)
+        cr.fill()
+
+        # Light fill
+        cr.set_source_rgb(r, g, b)
+        cr.arc(cx, cy, radius * 0.78, 0, 2 * 3.141592653589793)
+        cr.fill()
+
+    def _set_start_lights(self, color_hex: str) -> None:
+        self._start_light_colors = [color_hex] * self._start_light_count
+        for area in self._start_light_left_areas + self._start_light_right_areas:
+            area.queue_draw()
+
+    def _sync_start_lights_with_race_state(self) -> None:
+        if self._start_sequence_running:
+            return
+        if self.race.state == RaceState.RUNNING:
+            self._set_start_lights("#2e7d32")
+        else:
+            self._set_start_lights("#c62828")
+
+    def _update_start_light_size(self) -> None:
+        if not self.time_label:
+            return
+
+        timer_height = self.time_label.get_allocated_height()
+        if timer_height <= 0:
+            return
+
+        total_spacing = self._start_light_spacing_px * (self._start_light_count - 1)
+        diameter = max(
+            10, int((timer_height - total_spacing) / self._start_light_count)
+        )
+        if self._start_light_diameter_px == diameter:
+            return
+
+        self._start_light_diameter_px = diameter
+        for area in self._start_light_left_areas + self._start_light_right_areas:
+            area.set_content_width(diameter)
+            area.set_content_height(diameter)
+
+    def _start_race_countdown(self) -> None:
+        if self._start_sequence_running:
+            return
+
+        self._start_sequence_running = True
+        self._set_start_lights("#c62828")
+        self.append_event("Ready")
+
+        if self.start_btn:
+            self.start_btn.set_sensitive(False)
+        if self.stop_btn:
+            self.stop_btn.set_sensitive(False)
+
+        def set_yellow() -> bool:
+            if not self._start_sequence_running:
+                return False
+            self._set_start_lights("#f9a825")
+            self.append_event("Set")
+            return False
+
+        def set_green_and_start() -> bool:
+            if not self._start_sequence_running:
+                return False
+            self._set_start_lights("#2e7d32")
+            self.append_event("Go")
+            self._start_sequence_running = False
+            self._start_race_now()
+            return False
+
+        GLib.timeout_add(900, set_yellow)
+        GLib.timeout_add(1800, set_green_and_start)
+
+    def _start_race_now(self) -> None:
+        self.race = Race(previous_race=self.previous_race)
+        self.race.total_laps = self.total_laps
+        self.race.start(start_time=time.monotonic())
+
+        self.current_race_id = self.db.create_race(
+            notes=f"Mode: {self.race_mode}, Total Laps: {self.total_laps}"
+        )
+
+        if self.stop_btn:
+            self.stop_btn.set_sensitive(True)
+
+        self.append_event("Race started")
+        if self.race_mode == RaceMode.FAKE:
+            self.start_fake_playback()
+        else:
+            self.publish_command("start_race")
+
+        self.refresh_views()
 
     def _run_command(self, args: list[str], timeout: float = 1.0) -> str:
         try:
@@ -470,6 +639,8 @@ class FranklinGuiApp(Gtk.Application):
         return state.name.replace("_", " ").title()
 
     def refresh_views(self) -> None:
+        self._sync_start_lights_with_race_state()
+
         if self.state_label:
             self.state_label.set_text(
                 f"State: {self._humanize_race_state(self.race.state)}"
@@ -501,6 +672,8 @@ class FranklinGuiApp(Gtk.Application):
             self._update_leaderboard_font_size(len(leaderboard_data))
 
     def update_time(self) -> bool:
+        self._update_start_light_size()
+
         if self.race.state == RaceState.RUNNING and self.race.start_time is not None:
             self.race.elapsed_time = time.monotonic() - self.race.start_time
         if self.time_label:
@@ -523,25 +696,10 @@ class FranklinGuiApp(Gtk.Application):
         self.append_event(f"Mode changed to {self.race_mode}")
 
     def on_start_clicked(self, _button: Gtk.Button | None) -> None:
-        self.race = Race(previous_race=self.previous_race)
-        self.race.total_laps = self.total_laps
-        self.race.start(start_time=time.monotonic())
+        if self._start_sequence_running or is_race_going(self.race):
+            return
 
-        self.current_race_id = self.db.create_race(
-            notes=f"Mode: {self.race_mode}, Total Laps: {self.total_laps}"
-        )
-
-        if self.start_btn:
-            self.start_btn.set_sensitive(False)
-        if self.stop_btn:
-            self.stop_btn.set_sensitive(True)
-
-        self.append_event("Race started")
-        if self.race_mode == RaceMode.FAKE:
-            self.start_fake_playback()
-        else:
-            self.publish_command("start_race")
-
+        self._start_race_countdown()
         self.refresh_views()
 
     def on_end_clicked(self, _button: Gtk.Button | None) -> None:
@@ -905,14 +1063,17 @@ class FranklinGuiApp(Gtk.Application):
 
         racer_id = msg.get("racer_id")
         hardware_race_time = msg.get("race_time")
-        sensor_id = msg.get("sensor_id", racer_id)
 
         if racer_id is None or hardware_race_time is None:
             self.append_event("Invalid lap data received")
             return
 
+        racer_id_i = int(racer_id)
+        sensor_id_raw = msg.get("sensor_id", racer_id_i)
+        sensor_id_i = int(sensor_id_raw)
+
         lap = make_lap_from_sensor_data_and_race(
-            int(racer_id), float(hardware_race_time), time.monotonic(), self.race
+            racer_id_i, float(hardware_race_time), time.monotonic(), self.race
         )
         self.race.add_lap(lap)
 
@@ -920,7 +1081,7 @@ class FranklinGuiApp(Gtk.Application):
             self.db.add_lap(
                 race_id=self.current_race_id,
                 racer_id=lap.racer_id,
-                sensor_id=int(sensor_id),
+                sensor_id=sensor_id_i,
                 race_time=lap.seconds_from_race_start,
                 lap_number=lap.lap_number,
                 lap_time=lap.lap_time if lap.lap_number > 0 else None,

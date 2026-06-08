@@ -204,6 +204,7 @@ class FranklinGuiApp(Gtk.Application):
         clock_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=24)
         clock_row.set_halign(Gtk.Align.CENTER)
         clock_row.set_hexpand(True)
+        clock_row.set_margin_bottom(10)
         left_lights = self._create_start_light_stack()
         right_lights = self._create_start_light_stack()
         self._start_light_left_areas = left_lights
@@ -722,6 +723,27 @@ class FranklinGuiApp(Gtk.Application):
         centiseconds = total_cs % 100
         return f"{minutes:02}:{seconds:02}:{centiseconds:02}"
 
+    def _leaderboard_name_col_width(self) -> int:
+        # Non-name characters in:
+        # {pos:>3}  {name:<N} {laps:>4}  {best:>8}  {last:>8}  {total:>8}
+        non_name_chars = 40
+        min_name_chars = 12
+        max_name_chars = 48
+
+        if not self.leaderboard_scroll:
+            return 20
+
+        width_px = self.leaderboard_scroll.get_allocated_width()
+        if width_px <= 0:
+            return 20
+
+        # Approx monospace character width based on current leaderboard font size.
+        pt = self._leaderboard_font_pt or 20
+        approx_char_px = max(7.0, pt * 0.83)
+        total_chars = int((width_px - 12) / approx_char_px)
+        target = total_chars - non_name_chars
+        return max(min_name_chars, min(max_name_chars, target))
+
     def _humanize_race_state(self, state: RaceState) -> str:
         return state.name.replace("_", " ").title()
 
@@ -751,7 +773,8 @@ class FranklinGuiApp(Gtk.Application):
 
         if self.leaderboard_view:
             leaderboard_data = self.race.leaderboard()
-            header_line = f"{'Pos':>3}  {'Racer':<20} {'Laps':>4}  {'Best':>8}  {'Last':>8}  {'Total':>8}"
+            name_w = self._leaderboard_name_col_width()
+            header_line = f"{'Pos':>3}  {'Racer':<{name_w}} {'Laps':>4}  {'Best':>8}  {'Last':>8}  {'Total':>8}"
 
             rows: list[str] = []
             for pos, racer_id, lap_count, best, last, total in leaderboard_data:
@@ -760,19 +783,20 @@ class FranklinGuiApp(Gtk.Application):
                 last_s = self._format_time_cs(last)
                 total_s = self._format_time_cs(total)
                 rows.append(
-                    f"{pos:>3}  {name[:20]:<20} {lap_count:>4}  {best_s:>8}  {last_s:>8}  {total_s:>8}"
+                    f"{pos:>3}  {name[:name_w]:<{name_w}} {lap_count:>4}  {best_s:>8}  {last_s:>8}  {total_s:>8}"
                 )
 
             buffer = self.leaderboard_view.get_buffer()
             tag_table = buffer.get_tag_table()
             header_tag = tag_table.lookup("leaderboard-header")
             if header_tag is None:
-                header_tag = buffer.create_tag(
-                    "leaderboard-header",
-                    weight=700,
-                    scale=0.9,
-                    background="#ececec",
-                )
+                header_tag = buffer.create_tag("leaderboard-header")
+
+            # Keep header aligned with monospaced row data by using same scale,
+            # and style it via weight + paragraph background.
+            header_tag.set_property("weight", 700)
+            header_tag.set_property("scale", 1.0)
+            header_tag.set_property("paragraph-background", "#ececec")
 
             buffer.set_text("")
             end = buffer.get_end_iter()

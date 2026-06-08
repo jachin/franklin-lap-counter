@@ -232,7 +232,11 @@ class FranklinGuiApp(Gtk.Application):
         self.panes.set_hexpand(True)
 
         leaderboard_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
-        leaderboard_box.append(Gtk.Label(label="Leaderboard"))
+        leaderboard_label = Gtk.Label()
+        leaderboard_label.set_markup(
+            '<span size="42000" weight="bold">Leaderboard</span>'
+        )
+        leaderboard_box.append(leaderboard_label)
         self.leaderboard_view = Gtk.TextView()
         self.leaderboard_view.set_editable(False)
         self.leaderboard_view.set_monospace(True)

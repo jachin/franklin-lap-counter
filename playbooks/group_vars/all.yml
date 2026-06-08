@@ -11,6 +11,10 @@ franklin_supplementary_groups:
   - render
 
 # Boot/login behavior
+# WayVNC binds to loopback only (franklin_wayvnc_bind_address) and is reachable
+# solely through an SSH tunnel, so VNC-layer auth/encryption is disabled
+# (enable_auth=false). SSH provides the encryption and authentication. Use a
+# client that supports the "None" security type (e.g. TigerVNC).
 franklin_autologin_tty: tty1
 franklin_enable_autologin: true
 franklin_enable_autostart: true

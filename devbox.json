@@ -20,7 +20,8 @@
     "ansible@latest",
     "lnav@latest",
     "gtk4@latest",
-    "python313Packages.pygobject3@latest"
+    "python313Packages.pygobject3@latest",
+    "biome@latest"
   ],
 
   "shell": {
@@ -35,7 +36,11 @@
       "full-sim": ["tmuxinator start -p tmuxinator/full-sim.yml"],
       "full-sim-attach": ["tmux attach-session -t franklin-full-sim"],
       "full-sim-stop": ["tmux kill-session -t franklin-full-sim"],
-      "lint-franklin": ["basedpyright franklin-tui.py franklin-gui.py"],
+      "lint-franklin": [
+        "ruff check franklin-tui.py franklin-gui.py web_server.py database.py race",
+        "basedpyright franklin-tui.py franklin-gui.py web_server.py database.py race"
+      ],
+      "lint-web": ["biome check --files-ignore-unknown=true static"],
       "web": ["python web_server.py"],
       "rust-build": ["cargo build --manifest-path rust/Cargo.toml"],
       "rust-build-pi-image": ["./scripts/build-rust-image.sh"],

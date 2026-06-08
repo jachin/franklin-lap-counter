@@ -43,7 +43,7 @@ from race.race_mode import RaceMode
 
 gi.require_version("Gdk", "4.0")
 gi.require_version("Gtk", "4.0")
-from gi.repository import Gdk, Gio, GLib, Gtk  # pyright: ignore[reportAttributeAccessIssue]
+from gi.repository import Gdk, Gio, GLib, Gtk  # pyright: ignore[reportAttributeAccessIssue]  # noqa: E402
 
 
 class FranklinGuiApp(Gtk.Application):
@@ -496,6 +496,15 @@ class FranklinGuiApp(Gtk.Application):
         for area in self._start_light_left_areas + self._start_light_right_areas:
             area.set_size_request(diameter, diameter)
 
+    def _publish_countdown_phase(self, phase: str) -> None:
+        # Countdown cues are intended for real hardware races.
+        if self.race_mode == RaceMode.FAKE:
+            return
+        if not self._redis_client:
+            return
+
+        self.publish_command("countdown_phase", phase=phase, message=phase.upper())
+
     def _start_race_countdown(self) -> None:
         if self._start_sequence_running:
             return
@@ -523,6 +532,7 @@ class FranklinGuiApp(Gtk.Application):
                 ]
             )
             self.append_event("Ready")
+            self._publish_countdown_phase("ready")
             return False
 
         def set_all_yellow() -> bool:
@@ -531,6 +541,7 @@ class FranklinGuiApp(Gtk.Application):
             self._set_start_sequence_phase("Set")
             self._set_start_lights("#f9a825")
             self.append_event("Set")
+            self._publish_countdown_phase("set")
             return False
 
         def set_green_and_start() -> bool:
@@ -539,6 +550,7 @@ class FranklinGuiApp(Gtk.Application):
             self._set_start_sequence_phase("Go")
             self._set_start_lights("#2e7d32")
             self.append_event("Go")
+            self._publish_countdown_phase("go")
             self._start_sequence_running = False
             self._start_race_now()
             return False
@@ -739,16 +751,36 @@ class FranklinGuiApp(Gtk.Application):
 
         if self.leaderboard_view:
             leaderboard_data = self.race.leaderboard()
-            lines = ["Pos  Racer                 Laps  Best    Last    Total"]
+            header_line = f"{'Pos':>3}  {'Racer':<20} {'Laps':>4}  {'Best':>8}  {'Last':>8}  {'Total':>8}"
+
+            rows: list[str] = []
             for pos, racer_id, lap_count, best, last, total in leaderboard_data:
                 name = self.global_contestants.get_contestant_name(racer_id)
                 best_s = self._format_time_cs(best)
                 last_s = self._format_time_cs(last)
                 total_s = self._format_time_cs(total)
-                lines.append(
+                rows.append(
                     f"{pos:>3}  {name[:20]:<20} {lap_count:>4}  {best_s:>8}  {last_s:>8}  {total_s:>8}"
                 )
-            self.leaderboard_view.get_buffer().set_text("\n".join(lines))
+
+            buffer = self.leaderboard_view.get_buffer()
+            tag_table = buffer.get_tag_table()
+            header_tag = tag_table.lookup("leaderboard-header")
+            if header_tag is None:
+                header_tag = buffer.create_tag(
+                    "leaderboard-header",
+                    weight=700,
+                    scale=0.9,
+                    background="#ececec",
+                )
+
+            buffer.set_text("")
+            end = buffer.get_end_iter()
+            buffer.insert_with_tags(end, header_line + "\n", header_tag)
+            if rows:
+                end = buffer.get_end_iter()
+                buffer.insert(end, "\n".join(rows))
+
             self._update_leaderboard_font_size(len(leaderboard_data))
 
     def update_time(self) -> bool:
@@ -775,6 +807,10 @@ class FranklinGuiApp(Gtk.Application):
     def on_start_clicked(self, _button: Gtk.Button | None) -> None:
         if self._start_sequence_running or is_race_going(self.race):
             return
+
+        # Reset visible timer immediately when user starts a new race countdown.
+        self.race.elapsed_time = 0.0
+        self.race.start_time = None
 
         self._start_race_countdown()
         self.refresh_views()

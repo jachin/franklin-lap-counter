@@ -317,9 +317,9 @@
 
         <div class="controls">
             <div class="status connecting" id="status">Connecting...</div>
-            <button id="refreshBtn">Refresh Data</button>
-            <button id="clearLogBtn">Clear Log</button>
-            <button id="debugBtn">Debug</button>
+            <button type="button" id="refreshBtn">Refresh Data</button>
+            <button type="button" id="clearLogBtn">Clear Log</button>
+            <button type="button" id="debugBtn">Debug</button>
         </div>
 
         <div class="grid">
@@ -444,11 +444,11 @@
             }
 
             function getDriverName(transmitterId) {
-                if (!state.config || !state.config.contestants)
+                if (!state.config?.contestants)
                     return `Driver ${transmitterId}`;
 
                 const driver = state.config.contestants.find(
-                    (c) => c.transmitter_id === parseInt(transmitterId),
+                    (c) => c.transmitter_id === parseInt(transmitterId, 10),
                 );
                 return driver ? driver.name : `Driver ${transmitterId}`;
             }
@@ -523,19 +523,17 @@
                 }
 
                 // Extract race type from notes field
-                const raceType =
-                    state.currentRace.notes &&
-                    state.currentRace.notes.includes("Mode:")
-                        ? state.currentRace.notes
-                              .split("Mode:")[1]
-                              .split(",")[0]
-                              .trim()
-                        : "Standard";
+                const raceType = state.currentRace.notes?.includes("Mode:")
+                    ? state.currentRace.notes
+                          .split("Mode:")[1]
+                          .split(",")[0]
+                          .trim()
+                    : "Standard";
 
                 elements.raceTypeDisplay.textContent = raceType;
 
                 // Update race time if stats available
-                if (state.raceStats && state.raceStats.race_time) {
+                if (state.raceStats?.race_time) {
                     elements.raceTimeDisplay.textContent = formatTime(
                         state.raceStats.race_time,
                     );
@@ -554,8 +552,7 @@
                 elements.standingsBody.innerHTML = "";
 
                 if (
-                    !state.raceStats ||
-                    !state.raceStats.stats ||
+                    !state.raceStats?.stats ||
                     Object.keys(state.raceStats.stats).length === 0
                 ) {
                     elements.standingsBody.innerHTML = `
@@ -568,8 +565,8 @@
 
                 // Process the stats object into an array for display
                 const leaderboard = Object.entries(state.raceStats.stats).map(
-                    ([id, data]) => ({
-                        racer_id: parseInt(data.racer_id),
+                    ([_id, data]) => ({
+                        racer_id: parseInt(data.racer_id, 10),
                         lap_count: data.lap_count || 0,
                         best_lap_time: data.best_lap_time || null,
                         last_lap_time: null, // Need to calculate from laps
@@ -578,11 +575,7 @@
                 );
 
                 // If we have lap data, enhance the leaderboard with more info
-                if (
-                    state.raceLaps &&
-                    state.raceLaps.laps &&
-                    state.raceLaps.laps.length > 0
-                ) {
+                if (state.raceLaps?.laps && state.raceLaps.laps.length > 0) {
                     // Group laps by racer
                     const lapsByRacer = {};
                     state.raceLaps.laps.forEach((lap) => {
@@ -793,7 +786,8 @@
                     // Only fetch additional data if the race is in progress or recently ended
                     if (
                         latestRace.end_time === null ||
-                        new Date() - new Date(latestRace.end_time) < 3600000
+                        Date.now() - new Date(latestRace.end_time).getTime() <
+                            3600000
                     ) {
                         // Within the last hour
 
@@ -917,18 +911,6 @@
                     );
                     scheduleReconnect();
                 };
-            }
-
-            // Function to manually inject a test race start event
-            function simulateRaceStart() {
-                console.log("Simulating race start event");
-                addEvent({
-                    type: "status",
-                    message: "Race started",
-                });
-
-                // Refresh data after a short delay
-                setTimeout(() => fetchRaceData(), 500);
             }
 
             function clearReconnectTimeout() {

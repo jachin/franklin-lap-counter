@@ -21,7 +21,6 @@ import socket
 import subprocess
 import threading
 import time
-import unicodedata
 from pathlib import Path
 from typing import Any
 
@@ -46,7 +45,7 @@ from race.race_mode import RaceMode
 
 gi.require_version("Gdk", "4.0")
 gi.require_version("Gtk", "4.0")
-from gi.repository import Gdk, Gio, GLib, Gtk  # pyright: ignore[reportAttributeAccessIssue]  # noqa: E402
+from gi.repository import Gdk, Gio, GLib, Gtk, Pango  # pyright: ignore[reportAttributeAccessIssue]  # noqa: E402
 
 
 class FranklinGuiApp(Gtk.Application):
@@ -790,24 +789,41 @@ class FranklinGuiApp(Gtk.Application):
 
         return ""
 
-    def _display_width(self, text: str) -> int:
-        width = 0
-        for char in text:
-            if unicodedata.combining(char):
-                continue
-            east_asian = unicodedata.east_asian_width(char)
-            width += 2 if east_asian in ("W", "F") else 1
-        return width
+    def _configure_leaderboard_tabs(self, name_w: int) -> None:
+        if not self.leaderboard_view:
+            return
 
-    def _pad_to_display_width(self, text: str, target_width: int) -> str:
-        current_width = self._display_width(text)
-        if current_width >= target_width:
-            return text
+        pt = self._leaderboard_font_pt or 20
+        approx_char_px = max(7.0, pt * 0.83)
 
-        remaining = target_width - current_width
-        left = remaining // 2
-        right = remaining - left
-        return (" " * left) + text + (" " * right)
+        pos_w = 3
+        status_w = 6
+        laps_w = 4
+        time_w = 8
+
+        start_status = pos_w + 2
+        start_name = start_status + status_w + 1
+        start_laps = start_name + name_w + 1
+        start_best = start_laps + laps_w + 2
+        start_last = start_best + time_w + 2
+        start_total = start_last + time_w + 2
+
+        tab_stops_chars = [
+            start_status,
+            start_name,
+            start_laps,
+            start_best,
+            start_last,
+            start_total,
+        ]
+
+        tabs = Pango.TabArray.new(len(tab_stops_chars), True)
+        for i, stop_chars in enumerate(tab_stops_chars):
+            tabs.set_tab(
+                i, Pango.TabAlign.LEFT, int(stop_chars * approx_char_px * Pango.SCALE)
+            )
+
+        self.leaderboard_view.set_tabs(tabs)
 
     def refresh_views(self) -> None:
         self._sync_start_lights_with_race_state()
@@ -840,21 +856,32 @@ class FranklinGuiApp(Gtk.Application):
             leaderboard_data = self.race.leaderboard()
             name_w = self._leaderboard_name_col_width()
             status_col_width = 6
-            status_header = " " * status_col_width
-            header_line = f"{'Pos':>3}  {status_header} {'Racer':<{name_w}} {'Laps':>4}  {'Best':>8}  {'Last':>8}  {'Total':>8}"
+            self._configure_leaderboard_tabs(name_w)
+            header_line = (
+                f"{'Pos':>3}\t"
+                f"{'':<{status_col_width}}\t"
+                f"{'Racer':<{name_w}}\t"
+                f"{'Laps':>4}\t"
+                f"{'Best':>8}\t"
+                f"{'Last':>8}\t"
+                f"{'Total':>8}"
+            )
 
             rows: list[str] = []
             for pos, racer_id, lap_count, best, last, total in leaderboard_data:
                 name = self.global_contestants.get_contestant_name(racer_id)
                 status_symbol = self._leaderboard_status_symbol(pos, lap_count)
-                status_cell = self._pad_to_display_width(
-                    status_symbol, status_col_width
-                )
                 best_s = self._format_time_cs(best)
                 last_s = self._format_time_cs(last)
                 total_s = self._format_time_cs(total)
                 rows.append(
-                    f"{pos:>3}  {status_cell} {name[:name_w]:<{name_w}} {lap_count:>4}  {best_s:>8}  {last_s:>8}  {total_s:>8}"
+                    f"{pos:>3}\t"
+                    f"{status_symbol:^{status_col_width}}\t"
+                    f"{name[:name_w]:<{name_w}}\t"
+                    f"{lap_count:>4}\t"
+                    f"{best_s:>8}\t"
+                    f"{last_s:>8}\t"
+                    f"{total_s:>8}"
                 )
 
             buffer = self.leaderboard_view.get_buffer()

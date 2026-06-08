@@ -11,6 +11,20 @@
         set +e
         cd "{{ pi_dest_dir }}"
 
+        echo "=== terminal + terminfo ==="
+        echo "TERM=${TERM:-unset}"
+        if infocmp -x xterm-ghostty >/dev/null 2>&1; then
+          echo "xterm-ghostty terminfo: present"
+        else
+          echo "xterm-ghostty terminfo: missing"
+        fi
+        if TERM=xterm-ghostty tmux ls >/dev/null 2>&1; then
+          echo "tmux with TERM=xterm-ghostty: ok"
+        else
+          echo "tmux with TERM=xterm-ghostty: failed"
+        fi
+        echo
+
         echo "=== tmux sessions ==="
         tmux ls || true
         echo

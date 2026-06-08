@@ -27,30 +27,6 @@
         group: "{{ franklin_group }}"
         mode: "0755"
 
-    - name: Check whether xterm-ghostty terminfo already exists on remote
-      ansible.builtin.command: infocmp -x xterm-ghostty
-      register: remote_ghostty_terminfo
-      changed_when: false
-      failed_when: false
-
-    - name: Read xterm-ghostty terminfo from control machine (if needed)
-      ansible.builtin.command: infocmp -x xterm-ghostty
-      delegate_to: localhost
-      become: false
-      register: local_ghostty_terminfo
-      changed_when: false
-      failed_when: false
-      when: remote_ghostty_terminfo.rc != 0
-
-    - name: Skip Ghostty terminfo install when unavailable on control machine
-      ansible.builtin.debug:
-        msg: >-
-          Skipping xterm-ghostty terminfo install: `infocmp -x xterm-ghostty`
-          is not available on the control machine.
-      when:
-        - remote_ghostty_terminfo.rc != 0
-        - local_ghostty_terminfo is not defined or local_ghostty_terminfo.rc != 0
-
     - name: Ensure franklin terminfo directory exists
       ansible.builtin.file:
         path: "{{ franklin_home }}/.terminfo"
@@ -58,29 +34,17 @@
         owner: "{{ franklin_user }}"
         group: "{{ franklin_group }}"
         mode: "0755"
-      when:
-        - remote_ghostty_terminfo.rc != 0
-        - local_ghostty_terminfo is defined
-        - local_ghostty_terminfo.rc == 0
 
-    - name: Write xterm-ghostty terminfo source on remote
+    - name: Copy checked-in xterm-ghostty terminfo source to remote
       ansible.builtin.copy:
-        content: "{{ local_ghostty_terminfo.stdout }}\n"
+        src: "{{ playbook_dir }}/../terminfo/xterm-ghostty.terminfo"
         dest: /tmp/xterm-ghostty.terminfo
         mode: "0644"
-      when:
-        - remote_ghostty_terminfo.rc != 0
-        - local_ghostty_terminfo is defined
-        - local_ghostty_terminfo.rc == 0
 
     - name: Compile xterm-ghostty terminfo into franklin home
       ansible.builtin.command: >-
         tic -x -o {{ franklin_home }}/.terminfo /tmp/xterm-ghostty.terminfo
       changed_when: true
-      when:
-        - remote_ghostty_terminfo.rc != 0
-        - local_ghostty_terminfo is defined
-        - local_ghostty_terminfo.rc == 0
 
     - name: Ensure franklin owns installed Ghostty terminfo
       ansible.builtin.file:
@@ -89,16 +53,26 @@
         owner: "{{ franklin_user }}"
         group: "{{ franklin_group }}"
         recurse: true
-      when:
-        - remote_ghostty_terminfo.rc != 0
-        - local_ghostty_terminfo is defined
-        - local_ghostty_terminfo.rc == 0
 
     - name: Remove temporary terminfo source file
       ansible.builtin.file:
         path: /tmp/xterm-ghostty.terminfo
         state: absent
-      when:
-        - remote_ghostty_terminfo.rc != 0
-        - local_ghostty_terminfo is defined
-        - local_ghostty_terminfo.rc == 0
+
+    - name: Configure TERM fallback when xterm-ghostty terminfo is unavailable
+      ansible.builtin.blockinfile:
+        path: "{{ franklin_home }}/.zprofile"
+        create: true
+        owner: "{{ franklin_user }}"
+        group: "{{ franklin_group }}"
+        mode: "0644"
+        marker: "# {mark} ANSIBLE MANAGED TERMINAL FALLBACK"
+        block: |
+          # Ensure tmux and related tools work even if xterm-ghostty terminfo
+          # isn't installed on this Pi.
+          export TERMINFO_DIRS="${HOME}/.terminfo:/usr/share/terminfo"
+          if [[ "${TERM:-}" == "xterm-ghostty" ]]; then
+            if ! infocmp -x xterm-ghostty >/dev/null 2>&1; then
+              export TERM="xterm-256color"
+            fi
+          fi

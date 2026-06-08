@@ -1,0 +1,8 @@
+# Minimal xterm-ghostty terminfo entry.
+# This provides a stable TERM target for tmux/CLI tools on hosts
+# where Ghostty's full terminfo is not preinstalled.
+#
+# It intentionally inherits xterm-256color capabilities.
+# If we later want Ghostty-specific capabilities, we can expand this.
+xterm-ghostty|Ghostty terminal emulator,
+	use=xterm-256color,

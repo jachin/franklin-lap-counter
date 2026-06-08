@@ -54,6 +54,9 @@
       "setup-pi": [
         "ansible-playbook -i playbooks/inventory.ini playbooks/site.yml"
       ],
+      "setup-pi-user": [
+        "ansible-playbook -i playbooks/inventory.ini playbooks/15-franklin-user.yml"
+      ],
       "setup-pi-vnc": [
         "ansible-playbook -i playbooks/inventory.ini playbooks/58-wayvnc.yml"
       ],

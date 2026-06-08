@@ -2,8 +2,8 @@
   "lockfile_version": "1",
   "packages": {
     "ansible@latest": {
-      "last_modified": "2026-05-24T03:33:00Z",
-      "resolved": "github:NixOS/nixpkgs/d849bb215dcdf71bce3e686839ccdb4219e84b2f#ansible",
+      "last_modified": "2026-05-31T16:57:23Z",
+      "resolved": "github:NixOS/nixpkgs/3109eaae18e09d0b8aef23dc2579e7d94b8d4b4e#ansible",
       "source": "devbox-search",
       "version": "2.21.0",
       "systems": {
@@ -11,57 +11,57 @@
           "outputs": [
             {
               "name": "out",
-              "path": "/nix/store/ag4bq59zbg57xlwb7gf785f13vha9hzi-python3.13-ansible-core-2.21.0",
+              "path": "/nix/store/17dm2h47m3bg6dg9cs59ry2l0gzhvbw0-python3.13-ansible-core-2.21.0",
               "default": true
             },
             {
               "name": "dist",
-              "path": "/nix/store/drr6madrrna76lssdqpw8py4ln11j3hy-python3.13-ansible-core-2.21.0-dist"
+              "path": "/nix/store/flj9arixb47ml3z8pg20pci5c14vkwib-python3.13-ansible-core-2.21.0-dist"
             }
           ],
-          "store_path": "/nix/store/ag4bq59zbg57xlwb7gf785f13vha9hzi-python3.13-ansible-core-2.21.0"
+          "store_path": "/nix/store/17dm2h47m3bg6dg9cs59ry2l0gzhvbw0-python3.13-ansible-core-2.21.0"
         },
         "aarch64-linux": {
           "outputs": [
             {
               "name": "out",
-              "path": "/nix/store/86vws6rf0xfxxiyrrgf2rigc4p0klpkx-python3.13-ansible-core-2.21.0",
+              "path": "/nix/store/akng2g5z5d3vc8msr3qsw93l86521q6h-python3.13-ansible-core-2.21.0",
               "default": true
             },
             {
               "name": "dist",
-              "path": "/nix/store/y14cmi4hqvgidnrcn0kils59mfi8x5zr-python3.13-ansible-core-2.21.0-dist"
+              "path": "/nix/store/183d2z9w95fnlap09yjqfmf4dqa4kpxm-python3.13-ansible-core-2.21.0-dist"
             }
           ],
-          "store_path": "/nix/store/86vws6rf0xfxxiyrrgf2rigc4p0klpkx-python3.13-ansible-core-2.21.0"
+          "store_path": "/nix/store/akng2g5z5d3vc8msr3qsw93l86521q6h-python3.13-ansible-core-2.21.0"
         },
         "x86_64-darwin": {
           "outputs": [
             {
               "name": "out",
-              "path": "/nix/store/wkfkm1yvr1qwzjbk851532bmdhdv0h9c-python3.13-ansible-core-2.21.0",
+              "path": "/nix/store/5y66b5h63jbj5lpd5xxkzrk51knm63bv-python3.13-ansible-core-2.21.0",
               "default": true
             },
             {
               "name": "dist",
-              "path": "/nix/store/bzad5hvq1k8fbyrc5aqxq7iv9y45scvd-python3.13-ansible-core-2.21.0-dist"
+              "path": "/nix/store/4lj92b5qalbx3yx3fd8ms0857gi46c1w-python3.13-ansible-core-2.21.0-dist"
             }
           ],
-          "store_path": "/nix/store/wkfkm1yvr1qwzjbk851532bmdhdv0h9c-python3.13-ansible-core-2.21.0"
+          "store_path": "/nix/store/5y66b5h63jbj5lpd5xxkzrk51knm63bv-python3.13-ansible-core-2.21.0"
         },
         "x86_64-linux": {
           "outputs": [
             {
               "name": "out",
-              "path": "/nix/store/sr4nqab44kq89pg5zyxyfc10cxngsxk3-python3.13-ansible-core-2.21.0",
+              "path": "/nix/store/h7gnd3hm68ais08hbxx6nb0ylrb5j6sz-python3.13-ansible-core-2.21.0",
               "default": true
             },
             {
               "name": "dist",
-              "path": "/nix/store/0f2hamyrx0ixq0rbrjvn2wwzfnlfyrc1-python3.13-ansible-core-2.21.0-dist"
+              "path": "/nix/store/9ng8x5cb5wxsy8s2kgy8qgl6sfhs3vdp-python3.13-ansible-core-2.21.0-dist"
             }
           ],
-          "store_path": "/nix/store/sr4nqab44kq89pg5zyxyfc10cxngsxk3-python3.13-ansible-core-2.21.0"
+          "store_path": "/nix/store/h7gnd3hm68ais08hbxx6nb0ylrb5j6sz-python3.13-ansible-core-2.21.0"
         }
       }
     },
@@ -162,8 +162,8 @@
       }
     },
     "github:NixOS/nixpkgs/nixpkgs-unstable": {
-      "last_modified": "2026-05-27T10:28:13Z",
-      "resolved": "github:NixOS/nixpkgs/4100e830e085863741bc69b156ec4ccd53ab5be0?lastModified=1779877693&narHash=sha256-NOF9NAREhxr50bbBfVcVOq%2BArCMSoe8dP79Pk2uyARk%3D"
+      "last_modified": "2026-06-06T12:12:42Z",
+      "resolved": "github:NixOS/nixpkgs/cbb5cf358f50aa6acc9efd6113b7bcfbc352cd73?lastModified=1780747962&narHash=sha256-IX7G1dlKrOqPOImfbo7ADDfV5yU1%2Bj%2BMRChI3TL4tAA%3D"
     },
     "gtk4@latest": {
       "last_modified": "2026-05-21T08:15:18Z",
@@ -229,16 +229,16 @@
               "default": true
             },
             {
-              "name": "debug",
-              "path": "/nix/store/6axs68qcfn1j3q0kcmv8rd516z52s78g-gtk4-4.22.4-debug"
-            },
-            {
               "name": "dev",
               "path": "/nix/store/nv8x7438mp3gdd0wdpnc18nm57jxmwah-gtk4-4.22.4-dev"
             },
             {
               "name": "devdoc",
               "path": "/nix/store/xss0n1f7fiqvsjw1h9skf39m1jzs18hf-gtk4-4.22.4-devdoc"
+            },
+            {
+              "name": "debug",
+              "path": "/nix/store/6axs68qcfn1j3q0kcmv8rd516z52s78g-gtk4-4.22.4-debug"
             }
           ],
           "store_path": "/nix/store/hkg2i77ydzyym51dql6q375lnf29f17a-gtk4-4.22.4"
@@ -1107,51 +1107,51 @@
       }
     },
     "redis@latest": {
-      "last_modified": "2026-05-21T08:15:18Z",
+      "last_modified": "2026-05-29T05:01:12Z",
       "plugin_version": "0.0.2",
-      "resolved": "github:NixOS/nixpkgs/4a29d733e8a7d5b824c3d8c958a946a9867b3eb2#redis",
+      "resolved": "github:NixOS/nixpkgs/e9a7635a57597d9754eccebdfc7045e6c8600e6b#redis",
       "source": "devbox-search",
-      "version": "8.6.3",
+      "version": "8.8.0",
       "systems": {
         "aarch64-darwin": {
           "outputs": [
             {
               "name": "out",
-              "path": "/nix/store/xfkbpvb89ly3dqibpangvb3d0dac46rd-redis-8.6.3",
+              "path": "/nix/store/k09zvy10hm4fzml8wmfw8qw66pkipjjd-redis-8.8.0",
               "default": true
             }
           ],
-          "store_path": "/nix/store/xfkbpvb89ly3dqibpangvb3d0dac46rd-redis-8.6.3"
+          "store_path": "/nix/store/k09zvy10hm4fzml8wmfw8qw66pkipjjd-redis-8.8.0"
         },
         "aarch64-linux": {
           "outputs": [
             {
               "name": "out",
-              "path": "/nix/store/ckmdzdj4lqvrnn9yw9j91k5j9d55jl4r-redis-8.6.3",
+              "path": "/nix/store/4n6678b29rxi4r4cfbgwq1pq17cpgard-redis-8.8.0",
               "default": true
             }
           ],
-          "store_path": "/nix/store/ckmdzdj4lqvrnn9yw9j91k5j9d55jl4r-redis-8.6.3"
+          "store_path": "/nix/store/4n6678b29rxi4r4cfbgwq1pq17cpgard-redis-8.8.0"
         },
         "x86_64-darwin": {
           "outputs": [
             {
               "name": "out",
-              "path": "/nix/store/n3b7kb0vk8s9l87yyxzn2af4zvbwy69m-redis-8.6.3",
+              "path": "/nix/store/2y5s46k7x33pvc3wxdlyzwf135ahrvx2-redis-8.8.0",
               "default": true
             }
           ],
-          "store_path": "/nix/store/n3b7kb0vk8s9l87yyxzn2af4zvbwy69m-redis-8.6.3"
+          "store_path": "/nix/store/2y5s46k7x33pvc3wxdlyzwf135ahrvx2-redis-8.8.0"
         },
         "x86_64-linux": {
           "outputs": [
             {
               "name": "out",
-              "path": "/nix/store/rsp2lc6qb5zhzh9x5hbhi50m59pcdxgl-redis-8.6.3",
+              "path": "/nix/store/zkd0ckjz5v4izrbb719rhw6y7bb6z4sp-redis-8.8.0",
               "default": true
             }
           ],
-          "store_path": "/nix/store/rsp2lc6qb5zhzh9x5hbhi50m59pcdxgl-redis-8.6.3"
+          "store_path": "/nix/store/zkd0ckjz5v4izrbb719rhw6y7bb6z4sp-redis-8.8.0"
         }
       }
     },

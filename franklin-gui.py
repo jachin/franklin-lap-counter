@@ -45,7 +45,7 @@ from race.race_mode import RaceMode
 
 gi.require_version("Gdk", "4.0")
 gi.require_version("Gtk", "4.0")
-from gi.repository import Gdk, Gio, GLib, Gtk, Pango  # pyright: ignore[reportAttributeAccessIssue]  # noqa: E402
+from gi.repository import Gdk, Gio, GLib, Gtk  # pyright: ignore[reportAttributeAccessIssue]  # noqa: E402
 
 
 class FranklinGuiApp(Gtk.Application):
@@ -112,7 +112,7 @@ class FranklinGuiApp(Gtk.Application):
         self.laps_remaining_label: Gtk.Label | None = None
         self.ethernet_label: Gtk.Label | None = None
         self.wifi_label: Gtk.Label | None = None
-        self.leaderboard_view: Gtk.TextView | None = None
+        self.leaderboard_grid: Gtk.Grid | None = None
         self.leaderboard_scroll: Gtk.ScrolledWindow | None = None
         self.events_view: Gtk.TextView | None = None
         self.panes: Gtk.Paned | None = None
@@ -284,19 +284,20 @@ class FranklinGuiApp(Gtk.Application):
         )
         leaderboard_box.append(leaderboard_label)
 
-        leaderboard_view = Gtk.TextView()
-        leaderboard_view.set_editable(False)
-        leaderboard_view.set_monospace(True)
-        self.leaderboard_view = leaderboard_view
+        leaderboard_grid = Gtk.Grid()
+        leaderboard_grid.set_column_spacing(16)
+        leaderboard_grid.set_row_spacing(4)
+        leaderboard_grid.set_hexpand(True)
+        leaderboard_grid.set_vexpand(True)
+        leaderboard_grid.add_css_class("leaderboard-grid")
+        self.leaderboard_grid = leaderboard_grid
 
         leaderboard_scroll = Gtk.ScrolledWindow()
         leaderboard_scroll.set_vexpand(True)
         leaderboard_scroll.set_hexpand(True)
-        leaderboard_scroll.set_child(leaderboard_view)
+        leaderboard_scroll.set_child(leaderboard_grid)
         leaderboard_box.append(leaderboard_scroll)
         self.leaderboard_scroll = leaderboard_scroll
-
-        leaderboard_view.add_css_class("leaderboard-view")
         display = Gdk.Display.get_default()
         if display is not None:
             Gtk.StyleContext.add_provider_for_display(
@@ -703,9 +704,13 @@ class FranklinGuiApp(Gtk.Application):
             return
 
         css = (
-            ".leaderboard-view { "
+            ".leaderboard-cell, .leaderboard-header-cell { "
             f"font-size: {point_size}pt; "
             "font-family: 'Noto Sans Mono', 'Noto Color Emoji', monospace; "
+            "}"
+            ".leaderboard-header-cell {"
+            "font-weight: 700;"
+            "background-color: #ececec;"
             "}"
         )
         self._leaderboard_css_provider.load_from_data(css.encode("utf-8"))
@@ -789,39 +794,81 @@ class FranklinGuiApp(Gtk.Application):
 
         return ""
 
-    def _configure_leaderboard_tabs(self, name_w: int) -> None:
-        if not self.leaderboard_view:
+    def _new_leaderboard_label(
+        self,
+        text: str,
+        *,
+        xalign: float,
+        css_class: str,
+        hexpand: bool = False,
+    ) -> Gtk.Label:
+        label = Gtk.Label(label=text)
+        label.set_xalign(xalign)
+        label.add_css_class(css_class)
+        label.set_hexpand(hexpand)
+        return label
+
+    def _render_leaderboard_grid(self) -> None:
+        if not self.leaderboard_grid:
             return
 
-        pt = self._leaderboard_font_pt or 20
-        approx_char_px = max(7.0, pt * 0.83)
+        child = self.leaderboard_grid.get_first_child()
+        while child is not None:
+            next_child = child.get_next_sibling()
+            self.leaderboard_grid.remove(child)
+            child = next_child
 
-        pos_w = 3
-        status_w = 6
-        laps_w = 4
-        time_w = 8
+        leaderboard_data = self.race.leaderboard()
+        name_w = self._leaderboard_name_col_width()
 
-        start_status = pos_w + 2
-        start_name = start_status + status_w + 1
-        start_laps = start_name + name_w + 1
-        start_best = start_laps + laps_w + 2
-        start_last = start_best + time_w + 2
-        start_total = start_last + time_w + 2
-
-        tab_stops_chars = [
-            start_status,
-            start_name,
-            start_laps,
-            start_best,
-            start_last,
-            start_total,
+        header_cells: list[tuple[str, float, bool]] = [
+            ("Pos", 1.0, False),
+            ("", 0.5, False),
+            ("Racer", 0.0, True),
+            ("Laps", 1.0, False),
+            ("Best", 1.0, False),
+            ("Last", 1.0, False),
+            ("Total", 1.0, False),
         ]
 
-        tabs = Pango.TabArray.new(len(tab_stops_chars), True)
-        for i, stop_chars in enumerate(tab_stops_chars):
-            tabs.set_tab(i, Pango.TabAlign.LEFT, int(stop_chars * approx_char_px))
+        for col, (text, xalign, hexpand) in enumerate(header_cells):
+            header_label = self._new_leaderboard_label(
+                text,
+                xalign=xalign,
+                css_class="leaderboard-header-cell",
+                hexpand=hexpand,
+            )
+            self.leaderboard_grid.attach(header_label, col, 0, 1, 1)
 
-        self.leaderboard_view.set_tabs(tabs)
+        for row_index, (pos, racer_id, lap_count, best, last, total) in enumerate(
+            leaderboard_data, start=1
+        ):
+            name = self.global_contestants.get_contestant_name(racer_id)
+            status_symbol = self._leaderboard_status_symbol(pos, lap_count)
+            best_s = self._format_time_cs(best)
+            last_s = self._format_time_cs(last)
+            total_s = self._format_time_cs(total)
+
+            row_values: list[tuple[str, float, bool]] = [
+                (f"{pos}", 1.0, False),
+                (status_symbol, 0.5, False),
+                (name[:name_w], 0.0, True),
+                (f"{lap_count}", 1.0, False),
+                (best_s, 1.0, False),
+                (last_s, 1.0, False),
+                (total_s, 1.0, False),
+            ]
+
+            for col, (text, xalign, hexpand) in enumerate(row_values):
+                cell_label = self._new_leaderboard_label(
+                    text,
+                    xalign=xalign,
+                    css_class="leaderboard-cell",
+                    hexpand=hexpand,
+                )
+                self.leaderboard_grid.attach(cell_label, col, row_index, 1, 1)
+
+        self._update_leaderboard_font_size(len(leaderboard_data))
 
     def refresh_views(self) -> None:
         self._sync_start_lights_with_race_state()
@@ -850,58 +897,7 @@ class FranklinGuiApp(Gtk.Application):
                 laps_remaining, _ = self.race.laps_remaining()
             self.laps_remaining_label.set_text(f"Laps Remaining: {laps_remaining}")
 
-        if self.leaderboard_view:
-            leaderboard_data = self.race.leaderboard()
-            name_w = self._leaderboard_name_col_width()
-            status_col_width = 6
-            self._configure_leaderboard_tabs(name_w)
-            header_line = (
-                f"{'Pos':>3}\t"
-                f"{'':<{status_col_width}}\t"
-                f"{'Racer':<{name_w}}\t"
-                f"{'Laps':>4}\t"
-                f"{'Best':>8}\t"
-                f"{'Last':>8}\t"
-                f"{'Total':>8}"
-            )
-
-            rows: list[str] = []
-            for pos, racer_id, lap_count, best, last, total in leaderboard_data:
-                name = self.global_contestants.get_contestant_name(racer_id)
-                status_symbol = self._leaderboard_status_symbol(pos, lap_count)
-                best_s = self._format_time_cs(best)
-                last_s = self._format_time_cs(last)
-                total_s = self._format_time_cs(total)
-                rows.append(
-                    f"{pos:>3}\t"
-                    f"{status_symbol:^{status_col_width}}\t"
-                    f"{name[:name_w]:<{name_w}}\t"
-                    f"{lap_count:>4}\t"
-                    f"{best_s:>8}\t"
-                    f"{last_s:>8}\t"
-                    f"{total_s:>8}"
-                )
-
-            buffer = self.leaderboard_view.get_buffer()
-            tag_table = buffer.get_tag_table()
-            header_tag = tag_table.lookup("leaderboard-header")
-            if header_tag is None:
-                header_tag = buffer.create_tag("leaderboard-header")
-
-            # Keep header aligned with monospaced row data by using same scale,
-            # and style it via weight + paragraph background.
-            header_tag.set_property("weight", 700)
-            header_tag.set_property("scale", 1.0)
-            header_tag.set_property("paragraph-background", "#ececec")
-
-            buffer.set_text("")
-            end = buffer.get_end_iter()
-            buffer.insert_with_tags(end, header_line + "\n", header_tag)
-            if rows:
-                end = buffer.get_end_iter()
-                buffer.insert(end, "\n".join(rows))
-
-            self._update_leaderboard_font_size(len(leaderboard_data))
+        self._render_leaderboard_grid()
 
     def update_time(self) -> bool:
         self._update_start_light_size()

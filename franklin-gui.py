@@ -716,6 +716,9 @@ class FranklinGuiApp(Gtk.Application):
             "font-weight: 700;"
             "background-color: #ececec;"
             "}"
+            ".leaderboard-best-col { background-color: #eaf4ff; }"
+            ".leaderboard-last-col { background-color: #fff9e8; }"
+            ".leaderboard-total-col { background-color: #ffecec; }"
         )
         self._leaderboard_css_provider.load_from_data(css.encode("utf-8"))
         self._leaderboard_font_pt = point_size
@@ -796,6 +799,9 @@ class FranklinGuiApp(Gtk.Application):
         if lap_count == (self.total_laps - 1):
             return "🔔"
 
+        if lap_count == 0:
+            return "—"
+
         return ""
 
     def _new_leaderboard_label(
@@ -840,11 +846,20 @@ class FranklinGuiApp(Gtk.Application):
         ]
 
         for col, (text, xalign, hexpand) in enumerate(header_cells):
+            header_extra_classes: list[str] = []
+            if col == 4:
+                header_extra_classes.append("leaderboard-best-col")
+            elif col == 5:
+                header_extra_classes.append("leaderboard-last-col")
+            elif col == 6:
+                header_extra_classes.append("leaderboard-total-col")
+
             header_label = self._new_leaderboard_label(
                 text,
                 xalign=xalign,
                 css_class="leaderboard-header-cell",
                 hexpand=hexpand,
+                extra_css_classes=header_extra_classes,
             )
             self.leaderboard_grid.attach(header_label, col, 0, 1, 1)
 
@@ -868,7 +883,16 @@ class FranklinGuiApp(Gtk.Application):
             ]
 
             for col, (text, xalign, hexpand) in enumerate(row_values):
-                extra_classes = ["leaderboard-status-cell"] if col == 1 else None
+                extra_classes: list[str] = []
+                if col == 1:
+                    extra_classes.append("leaderboard-status-cell")
+                if col == 4:
+                    extra_classes.append("leaderboard-best-col")
+                elif col == 5:
+                    extra_classes.append("leaderboard-last-col")
+                elif col == 6:
+                    extra_classes.append("leaderboard-total-col")
+
                 cell_label = self._new_leaderboard_label(
                     text,
                     xalign=xalign,
@@ -938,8 +962,9 @@ class FranklinGuiApp(Gtk.Application):
         if self._start_sequence_running or is_race_going(self.race):
             return
 
-        # Reset visible timer and lap counts immediately when user starts a new race countdown.
-        self.race.reset()
+        # Build next-race lineup immediately from previous race contestants,
+        # with fresh stats/time for pre-race display.
+        self.race = Race(previous_race=self.previous_race)
         self.race.total_laps = self.total_laps
         self.race.race_end_mode = self.race_end_mode
         if self.time_label:
@@ -989,7 +1014,8 @@ class FranklinGuiApp(Gtk.Application):
         if self._start_sequence_running or self.race.state != RaceState.FINISHED:
             return
 
-        self.race.reset()
+        # Keep prior racers visible for the next race with reset stats.
+        self.race = Race(previous_race=self.previous_race)
         self.race.total_laps = self.total_laps
         self.race.race_end_mode = self.race_end_mode
 

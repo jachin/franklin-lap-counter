@@ -191,8 +191,20 @@ class Race:
         (position, racer_id, lap_count, best_lap_time, last_lap_time, total_time)
         sorted by lap_count descending, then best_lap_time ascending,
         with explicit position assigned.
+
+        Racers from `active_contestants` are included even when they have no laps
+        in the current race yet. This keeps the expected next-race lineup visible.
         """
-        stats = {}
+        stats = {
+            racer_id: {
+                "lap_count": 0,
+                "best_lap_time": float("inf"),
+                "last_lap_time": float("inf"),
+                "total_time": 0.0,
+            }
+            for racer_id in self.active_contestants
+        }
+
         for lap in self.laps:
             rid = lap.racer_id
             if rid not in stats:
@@ -202,7 +214,9 @@ class Race:
                     "best_lap_time": float("inf")
                     if lap.lap_number == 0
                     else lap.lap_time,
-                    "last_lap_time": lap.lap_time,
+                    "last_lap_time": lap.lap_time
+                    if lap.lap_number > 0
+                    else float("inf"),
                     "total_time": lap.seconds_from_race_start,
                 }
             else:
@@ -216,7 +230,11 @@ class Race:
                     stats[rid]["total_time"] = lap.seconds_from_race_start
         sorted_stats = sorted(
             stats.items(),
-            key=lambda item: (-item[1]["lap_count"], item[1]["best_lap_time"]),
+            key=lambda item: (
+                -item[1]["lap_count"],
+                item[1]["best_lap_time"],
+                item[0],
+            ),
         )
         leaderboard_with_position = []
         position = 1

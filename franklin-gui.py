@@ -706,7 +706,11 @@ class FranklinGuiApp(Gtk.Application):
         css = (
             ".leaderboard-cell, .leaderboard-header-cell { "
             f"font-size: {point_size}pt; "
-            "font-family: 'Noto Sans Mono', 'Noto Color Emoji', monospace; "
+            "font-family: monospace; "
+            "}"
+            ".leaderboard-status-cell {"
+            f"font-size: {point_size}pt; "
+            "font-family: 'Noto Color Emoji', monospace;"
             "}"
             ".leaderboard-header-cell {"
             "font-weight: 700;"
@@ -801,10 +805,14 @@ class FranklinGuiApp(Gtk.Application):
         xalign: float,
         css_class: str,
         hexpand: bool = False,
+        extra_css_classes: list[str] | None = None,
     ) -> Gtk.Label:
         label = Gtk.Label(label=text)
         label.set_xalign(xalign)
         label.add_css_class(css_class)
+        if extra_css_classes:
+            for extra_css_class in extra_css_classes:
+                label.add_css_class(extra_css_class)
         label.set_hexpand(hexpand)
         return label
 
@@ -860,11 +868,13 @@ class FranklinGuiApp(Gtk.Application):
             ]
 
             for col, (text, xalign, hexpand) in enumerate(row_values):
+                extra_classes = ["leaderboard-status-cell"] if col == 1 else None
                 cell_label = self._new_leaderboard_label(
                     text,
                     xalign=xalign,
                     css_class="leaderboard-cell",
                     hexpand=hexpand,
+                    extra_css_classes=extra_classes,
                 )
                 self.leaderboard_grid.attach(cell_label, col, row_index, 1, 1)
 

@@ -43,6 +43,26 @@ class TestRaceEndModesIntegration(unittest.TestCase):
 
         self.assertEqual(race.state, RaceState.RUNNING)
 
+    def test_manual_mode_ignores_extra_laps_after_racer_finishes(self):
+        race = Race(previous_race=None)
+        race.total_laps = 2
+        race.race_end_mode = RaceEndMode.MANUAL
+        race.start(start_time=0.0)
+
+        self.assertTrue(race.add_lap(make_fake_lap(1, 1, 10.0, 10.0)))
+        self.assertTrue(race.add_lap(make_fake_lap(1, 2, 9.8, 19.8)))
+
+        leaderboard_before = race.leaderboard()
+        self.assertEqual(leaderboard_before[0][2], 2)
+        self.assertEqual(leaderboard_before[0][5], 19.8)
+
+        self.assertFalse(race.add_lap(make_fake_lap(1, 3, 9.7, 29.5)))
+
+        leaderboard_after = race.leaderboard()
+        self.assertEqual(leaderboard_after[0][2], 2)
+        self.assertEqual(leaderboard_after[0][5], 19.8)
+        self.assertEqual(race.state, RaceState.RUNNING)
+
 
 if __name__ == "__main__":
     unittest.main()

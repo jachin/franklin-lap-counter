@@ -113,13 +113,30 @@ class Race:
         """Returns True if the given transmitter_id is an active contestant in this race."""
         return transmitter_id in self.active_contestants
 
-    def add_lap(self, lap: Lap) -> None:
+    def add_lap(self, lap: Lap) -> bool:
         if self.state not in (RaceState.RUNNING, RaceState.WINNER_DECLARED):
             raise RuntimeError(
                 "Cannot add lap unless race is running or waiting for other racers to finish"
             )
 
         logging.info(f"adding lap: {self.state}")
+
+        completed_laps_for_racer = sum(
+            1
+            for existing_lap in self.laps
+            if existing_lap.racer_id == lap.racer_id and existing_lap.lap_number > 0
+        )
+        if (
+            self.race_end_mode == RaceEndMode.MANUAL
+            and lap.lap_number > 0
+            and completed_laps_for_racer >= self.total_laps
+        ):
+            logging.info(
+                "Ignoring lap for racer %s in manual mode: already completed %s laps",
+                lap.racer_id,
+                self.total_laps,
+            )
+            return False
 
         # Add contestant to active racers if this is their first lap
         if lap.lap_number > 0:  # Don't add for lap 0 which is just start trigger
@@ -159,6 +176,8 @@ class Race:
                 logging.info(
                     f"Race finished automatically in {self.race_end_mode.value} mode"
                 )
+
+        return True
 
     def add_fake_lap(self, lap: Lap) -> None:
         """Add a fake lap during race simulation. Also adds the racer to active contestants."""

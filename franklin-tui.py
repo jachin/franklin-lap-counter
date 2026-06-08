@@ -452,7 +452,15 @@ class Franklin(App[Any]):  # type: ignore[type-arg]
             try:
                 lap = await asyncio.wait_for(self.lap_queue.get(), timeout=0.1)
                 logging.info("adding lap: %s", self.race.state)
-                self.race.add_lap(lap)
+                lap_accepted = self.race.add_lap(lap)
+
+                if not lap_accepted:
+                    logging.info(
+                        "Ignored lap for racer %s: already completed %s laps in manual mode",
+                        lap.racer_id,
+                        self.total_laps,
+                    )
+                    continue
 
                 # Save lap to database
                 if self.current_race_id:

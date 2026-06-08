@@ -1264,7 +1264,15 @@ class FranklinGuiApp(Gtk.Application):
             racer_id_i, float(hardware_race_time), time.monotonic(), self.race
         )
         previous_state = self.race.state
-        self.race.add_lap(lap)
+        lap_accepted = self.race.add_lap(lap)
+        if not lap_accepted:
+            name = self.global_contestants.get_contestant_name(lap.racer_id)
+            self.append_event(
+                f"Ignored lap: {name} (ID {lap.racer_id}) already finished {self.total_laps} laps"
+            )
+            self.refresh_views()
+            return
+
         finished_now = (
             previous_state != RaceState.FINISHED
             and self.race.state == RaceState.FINISHED

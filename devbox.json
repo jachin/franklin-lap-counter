@@ -41,6 +41,9 @@
         "basedpyright franklin-tui.py franklin-gui.py web_server.py database.py race"
       ],
       "lint-web": ["biome check --files-ignore-unknown=true static"],
+      "test-franklin-config": [
+        "python -m unittest race.franklin_gui_config_test"
+      ],
       "web": ["python web_server.py"],
       "rust-build": ["cargo build --manifest-path rust/Cargo.toml"],
       "rust-build-pi-image": ["./scripts/build-rust-image.sh"],

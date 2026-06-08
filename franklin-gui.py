@@ -28,6 +28,7 @@ import gi
 import redis
 
 from database import LapDatabase
+from gui_config import load_initial_config
 from race.contestant import Contestant
 from race.race import (
     Race,
@@ -1345,29 +1346,6 @@ class FranklinGuiApp(Gtk.Application):
 
         self._fake_thread = threading.Thread(target=playback, daemon=True)
         self._fake_thread.start()
-
-
-def load_initial_config(
-    config_path: Path,
-) -> tuple[int, RaceEndMode, list[dict[str, Any]]]:
-    total_laps = 10
-    race_end_mode = RaceEndMode.LAST_CAR
-    contestants_data: list[dict[str, Any]] = []
-    if config_path.exists():
-        try:
-            config_data = json.loads(config_path.read_text())
-            total_laps = int(config_data.get("total_laps", 10))
-            race_end_mode_raw = str(
-                config_data.get("race_end_mode", RaceEndMode.LAST_CAR.value)
-            )
-            try:
-                race_end_mode = RaceEndMode(race_end_mode_raw)
-            except ValueError:
-                race_end_mode = RaceEndMode.LAST_CAR
-            contestants_data = config_data.get("contestants", [])
-        except Exception as exc:
-            logging.error("Failed to load config: %s", exc)
-    return total_laps, race_end_mode, contestants_data
 
 
 def parse_mode() -> RaceMode:

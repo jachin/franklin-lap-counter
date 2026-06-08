@@ -1,8 +1,9 @@
-from enum import Enum, auto
-from typing import List, Optional, Tuple, Set
-import random
 import logging
-from race.lap import Lap, SecondsFromRaceStart, InternalLapTime, LapTime
+import random
+from enum import Enum, auto
+from typing import List, Optional, Set, Tuple
+
+from race.lap import InternalLapTime, Lap, LapTime, SecondsFromRaceStart
 
 
 def generate_fake_race():
@@ -30,7 +31,7 @@ def generate_fake_race():
                 lap_number=0,  # Lap 0 = initial start line crossing
                 seconds_from_race_start=SecondsFromRaceStart(start_time),
                 internal_lap_time=InternalLapTime(start_time),
-                lap_time=LapTime(start_time)
+                lap_time=LapTime(start_time),
             )
         )
 
@@ -42,7 +43,9 @@ def generate_fake_race():
             racer_cumulative_times[racer_id] += lap_time
             cumulative_time = racer_cumulative_times[racer_id]
 
-            logging.debug(f"Adding lap {lap_number} for racer {racer_id} at {cumulative_time:.2f}s with time {lap_time:.2f}s")
+            logging.debug(
+                f"Adding lap {lap_number} for racer {racer_id} at {cumulative_time:.2f}s with time {lap_time:.2f}s"
+            )
             # For a fake lap, use the same value for hardware and internal times.
             fake_race.add_fake_lap(
                 Lap(
@@ -50,7 +53,7 @@ def generate_fake_race():
                     lap_number=lap_number,
                     seconds_from_race_start=SecondsFromRaceStart(cumulative_time),
                     internal_lap_time=InternalLapTime(lap_time),
-                    lap_time=LapTime(lap_time)
+                    lap_time=LapTime(lap_time),
                 )
             )
     logging.info(f"Generated fake race with {len(fake_race.laps)} laps")
@@ -65,22 +68,31 @@ class RaceState(Enum):
     FINISHED = auto()
 
 
+class RaceEndMode(Enum):
+    WINNER = "winner"
+    LAST_CAR = "last_car"
+    MANUAL = "manual"
+
 
 class Race:
     """Manages a race with laps and state, computes leaderboards and best lap."""
 
-    def __init__(self, *, previous_race: Optional['Race'] = None):
+    def __init__(self, *, previous_race: Optional["Race"] = None):
         self.laps: List[Lap] = []
         self.state: RaceState = RaceState.NOT_STARTED
         self.start_time: Optional[float] = None
         self.elapsed_time: float = 0.0
         self.total_laps: int = 10  # Race ends after 10 laps
         self.active_contestants: Set[int] = set()  # Set of transmitter_ids
+        self.race_end_mode: RaceEndMode = RaceEndMode.LAST_CAR
 
         # If we have a previous race, copy its settings and active contestants
         if previous_race:
             self.total_laps = previous_race.total_laps
-            self.active_contestants = {lap.racer_id for lap in previous_race.laps if lap.lap_number > 0}
+            self.active_contestants = {
+                lap.racer_id for lap in previous_race.laps if lap.lap_number > 0
+            }
+            self.race_end_mode = previous_race.race_end_mode
 
     def start(self, start_time: float) -> None:
         if self.state in (RaceState.NOT_STARTED, RaceState.PAUSED):
@@ -95,7 +107,9 @@ class Race:
 
     def finish(self) -> None:
         self.state = RaceState.FINISHED
-        logging.info(f"Race finished with {len(self.active_contestants)} active contestants")
+        logging.info(
+            f"Race finished with {len(self.active_contestants)} active contestants"
+        )
 
     def reset(self) -> None:
         self.laps.clear()
@@ -103,7 +117,6 @@ class Race:
         self.start_time = None
         self.elapsed_time = 0.0
         self.active_contestants.clear()
-
 
     def get_active_contestant_ids(self) -> Set[int]:
         """Returns the set of transmitter IDs for contestants who are active in this race."""
@@ -115,7 +128,9 @@ class Race:
 
     def add_lap(self, lap: Lap) -> None:
         if self.state not in (RaceState.RUNNING, RaceState.WINNER_DECLARED):
-            raise RuntimeError("Cannot add lap unless race is running or waiting for other racers to finish")
+            raise RuntimeError(
+                "Cannot add lap unless race is running or waiting for other racers to finish"
+            )
 
         logging.info(f"adding lap: {self.state}")
 
@@ -124,10 +139,14 @@ class Race:
             if lap.racer_id not in self.active_contestants:
                 logging.info(f"Adding new active contestant {lap.racer_id}")
             self.active_contestants.add(lap.racer_id)
-            logging.debug(f"Added racer {lap.racer_id} to active contestants. Active: {self.active_contestants}")
+            logging.debug(
+                f"Added racer {lap.racer_id} to active contestants. Active: {self.active_contestants}"
+            )
 
         self.laps.append(lap)
-        logging.info(f"Lap added - Racer: {lap.racer_id}, Lap: {lap.lap_number}, Time: {lap.lap_time:.2f}")
+        logging.info(
+            f"Lap added - Racer: {lap.racer_id}, Lap: {lap.lap_number}, Time: {lap.lap_time:.2f}"
+        )
 
         leaderboard = self.leaderboard()
         if leaderboard:
@@ -136,23 +155,45 @@ class Race:
 
             # First racer to complete all laps is the winner
             if leader_laps >= self.total_laps and self.state == RaceState.RUNNING:
-                self.state = RaceState.WINNER_DECLARED
-                logging.info(f"Winner declared! Racer {leader_id} finished {leader_laps} laps")
+                if self.race_end_mode == RaceEndMode.WINNER:
+                    logging.info(
+                        f"Winner mode: racer {leader_id} finished {leader_laps} laps - ending race"
+                    )
+                    self.finish()
+                    return
+                if self.race_end_mode == RaceEndMode.LAST_CAR:
+                    self.state = RaceState.WINNER_DECLARED
+                    logging.info(
+                        f"Winner declared! Racer {leader_id} finished {leader_laps} laps"
+                    )
+                else:
+                    logging.info(
+                        f"Manual mode: racer {leader_id} reached finish, race continues until manual end"
+                    )
 
-            # Only check for race completion if we have active contestants
-            if self.active_contestants:
-                # Check if all active racers have finished their laps
+            # In LAST_CAR mode, finish when all active racers are done.
+            if self.race_end_mode == RaceEndMode.LAST_CAR and self.active_contestants:
                 all_active_finished = True
-                for position, racer_id, lap_count, best_lap, last_lap, total_time in leaderboard:
+                for (
+                    position,
+                    racer_id,
+                    lap_count,
+                    best_lap,
+                    last_lap,
+                    total_time,
+                ) in leaderboard:
                     if racer_id in self.active_contestants:
-                        logging.debug(f"Checking racer {racer_id}: {lap_count}/{self.total_laps} laps")
+                        logging.debug(
+                            f"Checking racer {racer_id}: {lap_count}/{self.total_laps} laps"
+                        )
                         if lap_count < self.total_laps:
                             all_active_finished = False
                             break
 
-                # If all active racers are done, finish the race
                 if all_active_finished:
-                    logging.info(f"All active racers ({self.active_contestants}) have completed their laps - Race finished!")
+                    logging.info(
+                        f"All active racers ({self.active_contestants}) have completed their laps - Race finished!"
+                    )
                     self.finish()
 
     def add_fake_lap(self, lap: Lap) -> None:
@@ -175,7 +216,9 @@ class Race:
                 # Exclude lap 0 from lap count and best lap time
                 stats[rid] = {
                     "lap_count": 0 if lap.lap_number == 0 else 1,
-                    "best_lap_time": float('inf') if lap.lap_number == 0 else lap.lap_time,
+                    "best_lap_time": float("inf")
+                    if lap.lap_number == 0
+                    else lap.lap_time,
                     "last_lap_time": lap.lap_time,
                     "total_time": lap.seconds_from_race_start,
                 }
@@ -196,7 +239,14 @@ class Race:
         position = 1
         for racer_id, data in sorted_stats:
             leaderboard_with_position.append(
-                (position, racer_id, data["lap_count"], data["best_lap_time"], data["last_lap_time"], data["total_time"])
+                (
+                    position,
+                    racer_id,
+                    data["lap_count"],
+                    data["best_lap_time"],
+                    data["last_lap_time"],
+                    data["total_time"],
+                )
             )
             position += 1
         return leaderboard_with_position
@@ -242,6 +292,7 @@ class Race:
             f"active_contestants={self.active_contestants!r})"
         )
 
+
 def order_laps_by_occurrence(laps: List[Lap]) -> List[Tuple[float, Lap]]:
     """
     Given a list of Lap objects, returns a list of tuples ordered by the time
@@ -274,7 +325,9 @@ def order_laps_by_occurrence(laps: List[Lap]) -> List[Tuple[float, Lap]]:
     return laps_with_cumulative_time
 
 
-def make_lap_from_sensor_data_and_race(racer_id: int, race_time: float, interal_time: float, race: Race) -> Lap:
+def make_lap_from_sensor_data_and_race(
+    racer_id: int, race_time: float, interal_time: float, race: Race
+) -> Lap:
     lap_number = sum(1 for lap in race.laps if lap.racer_id == racer_id) or 0
     if race.start_time is None:
         raise ValueError("Race has not started")
@@ -293,12 +346,15 @@ def make_lap_from_sensor_data_and_race(racer_id: int, race_time: float, interal_
         lap_number=lap_number,
         seconds_from_race_start=SecondsFromRaceStart(race_time),
         internal_lap_time=InternalLapTime(interal_time),
-        lap_time=LapTime(lap_time)
+        lap_time=LapTime(lap_time),
     )
 
     return new_lap
 
-def make_fake_lap(racer_id: int, lap_number: int, lap_time: float, seconds_from_start: float) -> Lap:
+
+def make_fake_lap(
+    racer_id: int, lap_number: int, lap_time: float, seconds_from_start: float
+) -> Lap:
     """
     Create a fake lap with proper timing values.
 
@@ -313,8 +369,9 @@ def make_fake_lap(racer_id: int, lap_number: int, lap_time: float, seconds_from_
         lap_number=lap_number,
         seconds_from_race_start=SecondsFromRaceStart(seconds_from_start),
         internal_lap_time=InternalLapTime(lap_time),
-        lap_time=LapTime(lap_time)
+        lap_time=LapTime(lap_time),
     )
+
 
 # If a race is RUNNING or a WINNER_DECLARED we still consider the race going.False
 def is_race_going(race: Race) -> bool:

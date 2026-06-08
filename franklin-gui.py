@@ -31,6 +31,7 @@ from database import LapDatabase
 from race.contestant import Contestant
 from race.race import (
     Race,
+    RaceEndMode,
     RaceState,
     generate_fake_race,
     is_race_going,
@@ -53,6 +54,7 @@ class FranklinGuiApp(Gtk.Application):
         initial_mode: RaceMode,
         total_laps: int,
         contestants_data: list[dict[str, Any]],
+        race_end_mode: RaceEndMode,
         redis_socket: str = "./redis.sock",
         db_path: str = "lap_counter.db",
     ) -> None:
@@ -71,10 +73,12 @@ class FranklinGuiApp(Gtk.Application):
         # Core state
         self.total_laps = total_laps
         self.race_mode = initial_mode
+        self.race_end_mode = race_end_mode
         self.global_contestants = RaceContestants(contestants_data)
         self.previous_race: Race | None = None
         self.race = Race(previous_race=None)
         self.race.total_laps = total_laps
+        self.race.race_end_mode = race_end_mode
 
         self.redis_socket = redis_socket
         self.redis_in_channel = "hardware:in"
@@ -563,6 +567,7 @@ class FranklinGuiApp(Gtk.Application):
     def _start_race_now(self) -> None:
         self.race = Race(previous_race=self.previous_race)
         self.race.total_laps = self.total_laps
+        self.race.race_end_mode = self.race_end_mode
         self.race.start(start_time=time.monotonic())
 
         self.current_race_id = self.db.create_race(
@@ -839,11 +844,12 @@ class FranklinGuiApp(Gtk.Application):
         self._start_race_countdown()
         self.refresh_views()
 
-    def on_end_clicked(self, _button: Gtk.Button | None) -> None:
-        if not is_race_going(self.race):
-            return
-
-        self.race.state = RaceState.FINISHED
+    def _finalize_finished_race(
+        self,
+        *,
+        message: str,
+        publish_end_command: bool,
+    ) -> None:
         self.previous_race = self.race
 
         if self.current_race_id:
@@ -855,11 +861,21 @@ class FranklinGuiApp(Gtk.Application):
         if self.stop_btn:
             self.stop_btn.set_sensitive(False)
 
-        if self.race_mode != RaceMode.FAKE:
+        if publish_end_command and self.race_mode != RaceMode.FAKE:
             self.publish_command("end_race")
 
-        self.append_event("Race ended")
+        self.append_event(message)
         self.refresh_views()
+
+    def on_end_clicked(self, _button: Gtk.Button | None) -> None:
+        if not is_race_going(self.race):
+            return
+
+        self.race.state = RaceState.FINISHED
+        self._finalize_finished_race(
+            message="Race ended",
+            publish_end_command=True,
+        )
 
     def on_preferences_clicked(self, _button: Gtk.Button | None) -> None:
         if not self.window:
@@ -877,7 +893,7 @@ class FranklinGuiApp(Gtk.Application):
         root.set_margin_end(10)
 
         help_text = Gtk.Label(
-            label="Set regular race lap count. Changes are saved to config and apply to new races."
+            label="Set regular race lap count and end condition. Changes are saved to config and apply to new races."
         )
         help_text.set_xalign(0)
         root.append(help_text)
@@ -889,18 +905,48 @@ class FranklinGuiApp(Gtk.Application):
         laps_row.append(laps_spin)
         root.append(laps_row)
 
+        end_mode_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        end_mode_row.append(Gtk.Label(label="Race Ends:"))
+        end_mode_combo = Gtk.ComboBoxText()
+        end_mode_options: list[tuple[str, RaceEndMode]] = [
+            ("When winner crosses finish line", RaceEndMode.WINNER),
+            ("When last car crosses finish line", RaceEndMode.LAST_CAR),
+            ("Only when user ends race", RaceEndMode.MANUAL),
+        ]
+        for label, _mode in end_mode_options:
+            end_mode_combo.append_text(label)
+        current_end_mode_index = next(
+            (
+                idx
+                for idx, (_label, mode) in enumerate(end_mode_options)
+                if mode == self.race_end_mode
+            ),
+            1,
+        )
+        end_mode_combo.set_active(current_end_mode_index)
+        end_mode_row.append(end_mode_combo)
+        root.append(end_mode_row)
+
         content.append(root)
 
         def on_response(d: Gtk.Dialog, response: int) -> None:
             if response == Gtk.ResponseType.OK:
                 new_total_laps = int(laps_spin.get_value_as_int())
+                selected_idx = end_mode_combo.get_active()
+                if selected_idx < 0 or selected_idx >= len(end_mode_options):
+                    selected_idx = 1
+                new_end_mode = end_mode_options[selected_idx][1]
+
                 self.total_laps = new_total_laps
+                self.race_end_mode = new_end_mode
                 if self.race.state != RaceState.RUNNING:
                     self.race.total_laps = new_total_laps
+                    self.race.race_end_mode = new_end_mode
+
                 self.save_config()
                 self.refresh_views()
                 self.append_event(
-                    f"Preferences saved: regular race laps = {new_total_laps}"
+                    f"Preferences saved: regular race laps = {new_total_laps}, end mode = {new_end_mode.value}"
                 )
             d.destroy()
 
@@ -1131,7 +1177,11 @@ class FranklinGuiApp(Gtk.Application):
             {"transmitter_id": c.transmitter_id, "name": c.name}
             for c in self.global_contestants.contestants
         ]
-        data = {"total_laps": self.total_laps, "contestants": contestants}
+        data = {
+            "total_laps": self.total_laps,
+            "race_end_mode": self.race_end_mode.value,
+            "contestants": contestants,
+        }
         self.config_path.write_text(json.dumps(data, indent=2))
 
     def connect_redis(self) -> None:
@@ -1212,7 +1262,12 @@ class FranklinGuiApp(Gtk.Application):
         lap = make_lap_from_sensor_data_and_race(
             racer_id_i, float(hardware_race_time), time.monotonic(), self.race
         )
+        previous_state = self.race.state
         self.race.add_lap(lap)
+        finished_now = (
+            previous_state != RaceState.FINISHED
+            and self.race.state == RaceState.FINISHED
+        )
 
         if self.current_race_id:
             self.db.add_lap(
@@ -1222,6 +1277,12 @@ class FranklinGuiApp(Gtk.Application):
                 race_time=lap.seconds_from_race_start,
                 lap_number=lap.lap_number,
                 lap_time=lap.lap_time if lap.lap_number > 0 else None,
+            )
+
+        if finished_now:
+            self._finalize_finished_race(
+                message="Race finished automatically",
+                publish_end_command=True,
             )
 
         name = self.global_contestants.get_contestant_name(lap.racer_id)
@@ -1286,17 +1347,27 @@ class FranklinGuiApp(Gtk.Application):
         self._fake_thread.start()
 
 
-def load_initial_config(config_path: Path) -> tuple[int, list[dict[str, Any]]]:
+def load_initial_config(
+    config_path: Path,
+) -> tuple[int, RaceEndMode, list[dict[str, Any]]]:
     total_laps = 10
+    race_end_mode = RaceEndMode.LAST_CAR
     contestants_data: list[dict[str, Any]] = []
     if config_path.exists():
         try:
             config_data = json.loads(config_path.read_text())
             total_laps = int(config_data.get("total_laps", 10))
+            race_end_mode_raw = str(
+                config_data.get("race_end_mode", RaceEndMode.LAST_CAR.value)
+            )
+            try:
+                race_end_mode = RaceEndMode(race_end_mode_raw)
+            except ValueError:
+                race_end_mode = RaceEndMode.LAST_CAR
             contestants_data = config_data.get("contestants", [])
         except Exception as exc:
             logging.error("Failed to load config: %s", exc)
-    return total_laps, contestants_data
+    return total_laps, race_end_mode, contestants_data
 
 
 def parse_mode() -> RaceMode:
@@ -1318,11 +1389,14 @@ def parse_mode() -> RaceMode:
 
 def main() -> None:
     initial_mode = parse_mode()
-    total_laps, contestants_data = load_initial_config(Path("franklin.config.json"))
+    total_laps, race_end_mode, contestants_data = load_initial_config(
+        Path("franklin.config.json")
+    )
     app = FranklinGuiApp(
         initial_mode=initial_mode,
         total_laps=total_laps,
         contestants_data=contestants_data,
+        race_end_mode=race_end_mode,
     )
     app.run([])
 

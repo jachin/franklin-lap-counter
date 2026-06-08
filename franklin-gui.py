@@ -819,9 +819,7 @@ class FranklinGuiApp(Gtk.Application):
 
         tabs = Pango.TabArray.new(len(tab_stops_chars), True)
         for i, stop_chars in enumerate(tab_stops_chars):
-            tabs.set_tab(
-                i, Pango.TabAlign.LEFT, int(stop_chars * approx_char_px * Pango.SCALE)
-            )
+            tabs.set_tab(i, Pango.TabAlign.LEFT, int(stop_chars * approx_char_px))
 
         self.leaderboard_view.set_tabs(tabs)
 

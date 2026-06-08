@@ -105,6 +105,7 @@ class FranklinGuiApp(Gtk.Application):
         self.mode_combo: Gtk.ComboBoxText | None = None
         self.start_btn: Gtk.Button | None = None
         self.stop_btn: Gtk.Button | None = None
+        self.reset_btn: Gtk.Button | None = None
         self.time_label: Gtk.Label | None = None
         self.state_label: Gtk.Label | None = None
         self.detect_label: Gtk.Label | None = None
@@ -147,6 +148,7 @@ class FranklinGuiApp(Gtk.Application):
         action_defs: list[tuple[str, Any, list[str]]] = [
             ("start_race", self._action_start_race, ["<Primary>s"]),
             ("end_race", self._action_end_race, ["<Primary>e"]),
+            ("reset_race", self._action_reset_race, ["<Primary><Shift>r"]),
             ("toggle_mode", self._action_toggle_mode, ["<Primary>t"]),
             ("toggle_event_log", self._action_toggle_event_log, ["<Primary>l"]),
             ("manage_drivers", self._action_manage_drivers, ["<Primary>r"]),
@@ -164,6 +166,9 @@ class FranklinGuiApp(Gtk.Application):
 
     def _action_end_race(self, _action: Gio.SimpleAction, _param: Any) -> None:
         self.on_end_clicked(None)
+
+    def _action_reset_race(self, _action: Gio.SimpleAction, _param: Any) -> None:
+        self.on_reset_clicked(None)
 
     def _action_toggle_mode(self, _action: Gio.SimpleAction, _param: Any) -> None:
         if is_race_going(self.race):
@@ -221,12 +226,10 @@ class FranklinGuiApp(Gtk.Application):
 
         controls = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         mode_combo = Gtk.ComboBoxText()
-        mode_combo.append_text(RaceMode.REAL.name)
-        mode_combo.append_text(RaceMode.FAKE.name)
-        mode_combo.append_text(RaceMode.TRAINING.name)
-        mode_combo.set_active(
-            [RaceMode.REAL, RaceMode.FAKE, RaceMode.TRAINING].index(self.race_mode)
-        )
+        mode_options = [RaceMode.REAL, RaceMode.FAKE, RaceMode.TRAINING]
+        for mode in mode_options:
+            mode_combo.append_text(mode.value)
+        mode_combo.set_active(mode_options.index(self.race_mode))
         mode_combo.connect("changed", self.on_mode_changed)
         self.mode_combo = mode_combo
 
@@ -239,6 +242,11 @@ class FranklinGuiApp(Gtk.Application):
         stop_btn.connect("clicked", self.on_end_clicked)
         self.stop_btn = stop_btn
 
+        reset_btn = Gtk.Button(label="Reset (Ctrl+Shift+R)")
+        reset_btn.set_sensitive(False)
+        reset_btn.connect("clicked", self.on_reset_clicked)
+        self.reset_btn = reset_btn
+
         manage_drivers_btn = Gtk.Button(label="Manage Drivers (Ctrl+R)")
         manage_drivers_btn.connect("clicked", self.on_manage_drivers_clicked)
 
@@ -249,6 +257,7 @@ class FranklinGuiApp(Gtk.Application):
         controls.append(mode_combo)
         controls.append(start_btn)
         controls.append(stop_btn)
+        controls.append(reset_btn)
         controls.append(manage_drivers_btn)
         controls.append(preferences_btn)
 
@@ -524,6 +533,8 @@ class FranklinGuiApp(Gtk.Application):
             self.start_btn.set_sensitive(False)
         if self.stop_btn:
             self.stop_btn.set_sensitive(False)
+        if self.reset_btn:
+            self.reset_btn.set_sensitive(False)
 
         def set_yellow() -> bool:
             if not self._start_sequence_running:
@@ -577,6 +588,8 @@ class FranklinGuiApp(Gtk.Application):
 
         if self.stop_btn:
             self.stop_btn.set_sensitive(True)
+        if self.reset_btn:
+            self.reset_btn.set_sensitive(False)
 
         self._set_start_sequence_phase(None)
         self.append_event("Race started")
@@ -774,8 +787,11 @@ class FranklinGuiApp(Gtk.Application):
             status = "Connected" if connected else "Waiting"
             self.detect_label.set_text(f"HW: {status}")
         if self.laps_remaining_label:
-            leader_remaining, _ = self.race.laps_remaining()
-            self.laps_remaining_label.set_text(f"Laps Remaining: {leader_remaining}")
+            if self._start_sequence_running:
+                laps_remaining = self.total_laps
+            else:
+                laps_remaining, _ = self.race.laps_remaining()
+            self.laps_remaining_label.set_text(f"Laps Remaining: {laps_remaining}")
 
         if self.leaderboard_view:
             leaderboard_data = self.race.leaderboard()
@@ -830,17 +846,26 @@ class FranklinGuiApp(Gtk.Application):
         return True
 
     def on_mode_changed(self, combo: Gtk.ComboBoxText) -> None:
-        text = combo.get_active_text() or RaceMode.TRAINING.name
-        self.race_mode = RaceMode[text]
+        mode_options = [RaceMode.REAL, RaceMode.FAKE, RaceMode.TRAINING]
+        selected_idx = combo.get_active()
+        if selected_idx < 0 or selected_idx >= len(mode_options):
+            selected_idx = mode_options.index(RaceMode.TRAINING)
+        self.race_mode = mode_options[selected_idx]
+        self.save_config()
         self.append_event(f"Mode changed to {self.race_mode}")
 
     def on_start_clicked(self, _button: Gtk.Button | None) -> None:
         if self._start_sequence_running or is_race_going(self.race):
             return
 
-        # Reset visible timer immediately when user starts a new race countdown.
-        self.race.elapsed_time = 0.0
-        self.race.start_time = None
+        # Reset visible timer and lap counts immediately when user starts a new race countdown.
+        self.race.reset()
+        self.race.total_laps = self.total_laps
+        self.race.race_end_mode = self.race_end_mode
+        if self.time_label:
+            self.time_label.set_markup(
+                f'<span size="48000" weight="bold">{self._format_time_cs(self.race.elapsed_time)}</span>'
+            )
 
         self._start_race_countdown()
         self.refresh_views()
@@ -861,6 +886,8 @@ class FranklinGuiApp(Gtk.Application):
             self.start_btn.set_sensitive(True)
         if self.stop_btn:
             self.stop_btn.set_sensitive(False)
+        if self.reset_btn:
+            self.reset_btn.set_sensitive(True)
 
         if publish_end_command and self.race_mode != RaceMode.FAKE:
             self.publish_command("end_race")
@@ -877,6 +904,29 @@ class FranklinGuiApp(Gtk.Application):
             message="Race ended",
             publish_end_command=True,
         )
+
+    def on_reset_clicked(self, _button: Gtk.Button | None) -> None:
+        if self._start_sequence_running or self.race.state != RaceState.FINISHED:
+            return
+
+        self.race.reset()
+        self.race.total_laps = self.total_laps
+        self.race.race_end_mode = self.race_end_mode
+
+        if self.start_btn:
+            self.start_btn.set_sensitive(True)
+        if self.stop_btn:
+            self.stop_btn.set_sensitive(False)
+        if self.reset_btn:
+            self.reset_btn.set_sensitive(False)
+
+        if self.time_label:
+            self.time_label.set_markup(
+                f'<span size="48000" weight="bold">{self._format_time_cs(self.race.elapsed_time)}</span>'
+            )
+
+        self.append_event("Race reset")
+        self.refresh_views()
 
     def on_preferences_clicked(self, _button: Gtk.Button | None) -> None:
         if not self.window:
@@ -1179,6 +1229,7 @@ class FranklinGuiApp(Gtk.Application):
             for c in self.global_contestants.contestants
         ]
         data = {
+            "race_mode": self.race_mode.value,
             "total_laps": self.total_laps,
             "race_end_mode": self.race_end_mode.value,
             "contestants": contestants,
@@ -1317,7 +1368,7 @@ class FranklinGuiApp(Gtk.Application):
                 "timestamp": time.monotonic(),
                 "race_state": self.race.state.name,
                 "elapsed_time": round(self.race.elapsed_time, 2),
-                "race_mode": self.race_mode.name,
+                "race_mode": self.race_mode.value,
                 "total_laps": self.total_laps,
             }
             self._redis_client.publish("franklin:race_state", json.dumps(race_data))
@@ -1356,7 +1407,7 @@ class FranklinGuiApp(Gtk.Application):
         self._fake_thread.start()
 
 
-def parse_mode() -> RaceMode:
+def parse_mode_override() -> RaceMode | None:
     parser = argparse.ArgumentParser(
         description="Start Franklin GTK GUI in chosen initial mode."
     )
@@ -1370,14 +1421,17 @@ def parse_mode() -> RaceMode:
         return RaceMode.REAL
     if args.fake:
         return RaceMode.FAKE
-    return RaceMode.TRAINING
+    if args.training:
+        return RaceMode.TRAINING
+    return None
 
 
 def main() -> None:
-    initial_mode = parse_mode()
-    total_laps, race_end_mode, contestants_data = load_initial_config(
+    configured_mode, total_laps, race_end_mode, contestants_data = load_initial_config(
         Path("franklin.config.json")
     )
+    mode_override = parse_mode_override()
+    initial_mode = mode_override or configured_mode
     app = FranklinGuiApp(
         initial_mode=initial_mode,
         total_laps=total_laps,

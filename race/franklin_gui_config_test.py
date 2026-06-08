@@ -4,14 +4,18 @@ import unittest
 from pathlib import Path
 
 from gui_config import load_initial_config
+from race.race_mode import RaceMode
 from race.race_state import RaceEndMode
 
 
 class TestLoadInitialConfig(unittest.TestCase):
     def test_missing_config_file_uses_defaults(self):
         missing_path = Path("/tmp/definitely_missing_franklin_config.json")
-        total_laps, race_end_mode, contestants = load_initial_config(missing_path)
+        race_mode, total_laps, race_end_mode, contestants = load_initial_config(
+            missing_path
+        )
 
+        self.assertEqual(race_mode, RaceMode.TRAINING)
         self.assertEqual(total_laps, 10)
         self.assertEqual(race_end_mode, RaceEndMode.LAST_CAR)
         self.assertEqual(contestants, [])
@@ -29,8 +33,11 @@ class TestLoadInitialConfig(unittest.TestCase):
                 )
             )
 
-            total_laps, race_end_mode, contestants = load_initial_config(config_path)
+            race_mode, total_laps, race_end_mode, contestants = load_initial_config(
+                config_path
+            )
 
+            self.assertEqual(race_mode, RaceMode.TRAINING)
             self.assertEqual(total_laps, 7)
             self.assertEqual(race_end_mode, RaceEndMode.LAST_CAR)
             self.assertEqual(contestants, [{"transmitter_id": 3, "name": "Alice"}])
@@ -48,8 +55,11 @@ class TestLoadInitialConfig(unittest.TestCase):
                 )
             )
 
-            total_laps, race_end_mode, contestants = load_initial_config(config_path)
+            race_mode, total_laps, race_end_mode, contestants = load_initial_config(
+                config_path
+            )
 
+            self.assertEqual(race_mode, RaceMode.TRAINING)
             self.assertEqual(total_laps, 10)
             self.assertEqual(race_end_mode, RaceEndMode.MANUAL)
             self.assertEqual(contestants, [{"transmitter_id": 8, "name": "Bob"}])
@@ -67,11 +77,30 @@ class TestLoadInitialConfig(unittest.TestCase):
                 )
             )
 
-            total_laps, race_end_mode, contestants = load_initial_config(config_path)
+            race_mode, total_laps, race_end_mode, contestants = load_initial_config(
+                config_path
+            )
 
+            self.assertEqual(race_mode, RaceMode.TRAINING)
             self.assertEqual(total_laps, 12)
             self.assertEqual(race_end_mode, RaceEndMode.LAST_CAR)
             self.assertEqual(contestants, [{"transmitter_id": 5, "name": "Cara"}])
+
+    def test_race_mode_accepts_human_friendly_and_legacy_values(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config_path = Path(tmpdir) / "franklin.config.json"
+
+            config_path.write_text(json.dumps({"race_mode": "Fake Race Mode"}))
+            race_mode, _total_laps, _end_mode, _contestants = load_initial_config(
+                config_path
+            )
+            self.assertEqual(race_mode, RaceMode.FAKE)
+
+            config_path.write_text(json.dumps({"race_mode": "REAL"}))
+            race_mode, _total_laps, _end_mode, _contestants = load_initial_config(
+                config_path
+            )
+            self.assertEqual(race_mode, RaceMode.REAL)
 
 
 if __name__ == "__main__":

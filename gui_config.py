@@ -3,26 +3,43 @@ import logging
 from pathlib import Path
 from typing import Any
 
+from race.race_mode import RaceMode
 from race.race_state import RaceEndMode
+
+
+def _parse_race_mode(raw_mode: Any, default: RaceMode) -> RaceMode:
+    if isinstance(raw_mode, str):
+        normalized = raw_mode.strip().lower()
+        for mode in RaceMode:
+            if normalized in (mode.name.lower(), mode.value.lower()):
+                return mode
+        if normalized == "race":
+            return RaceMode.REAL
+    logging.warning("Invalid race_mode in config: %r", raw_mode)
+    return default
 
 
 def load_initial_config(
     config_path: Path,
-) -> tuple[int, RaceEndMode, list[dict[str, Any]]]:
+) -> tuple[RaceMode, int, RaceEndMode, list[dict[str, Any]]]:
+    race_mode = RaceMode.TRAINING
     total_laps = 10
     race_end_mode = RaceEndMode.LAST_CAR
     contestants_data: list[dict[str, Any]] = []
 
     if not config_path.exists():
-        return total_laps, race_end_mode, contestants_data
+        return race_mode, total_laps, race_end_mode, contestants_data
 
     try:
         raw_data = json.loads(config_path.read_text())
     except Exception as exc:
         logging.error("Failed to load config: %s", exc)
-        return total_laps, race_end_mode, contestants_data
+        return race_mode, total_laps, race_end_mode, contestants_data
 
     config_data = raw_data if isinstance(raw_data, dict) else {}
+
+    race_mode_raw = config_data.get("race_mode", race_mode.value)
+    race_mode = _parse_race_mode(race_mode_raw, race_mode)
 
     raw_total_laps = config_data.get("total_laps", total_laps)
     try:
@@ -47,4 +64,4 @@ def load_initial_config(
             type(raw_contestants).__name__,
         )
 
-    return total_laps, race_end_mode, contestants_data
+    return race_mode, total_laps, race_end_mode, contestants_data

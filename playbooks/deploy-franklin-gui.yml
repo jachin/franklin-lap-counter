@@ -1,8 +1,29 @@
 ---
-- name: Deploy only franklin-gui.py to Raspberry Pi
+- name: Deploy GUI runtime files to Raspberry Pi
   hosts: all
   gather_facts: false
   become: true
+  vars:
+    project_root: "{{ playbook_dir }}/.."
+    gui_files_local:
+      - "{{ project_root }}/franklin-gui.py"
+      - "{{ project_root }}/gui_config.py"
+      - "{{ project_root }}/database.py"
+
+  pre_tasks:
+    - name: Check required local GUI files exist
+      ansible.builtin.stat:
+        path: "{{ item }}"
+      delegate_to: localhost
+      become: false
+      register: local_gui_file_stats
+      loop: "{{ gui_files_local }}"
+
+    - name: Fail when required local GUI files are missing
+      ansible.builtin.fail:
+        msg: "Missing required GUI deployment file: {{ item.item }}"
+      when: not item.stat.exists
+      loop: "{{ local_gui_file_stats.results }}"
 
   tasks:
     - name: Ensure destination directory exists
@@ -13,16 +34,26 @@
         group: "{{ franklin_group }}"
         mode: "0755"
 
-    - name: Deploy franklin-gui.py only
+    - name: Deploy GUI Python files
       ansible.builtin.copy:
-        src: "{{ playbook_dir }}/../franklin-gui.py"
-        dest: "{{ pi_dest_dir }}/franklin-gui.py"
+        src: "{{ item }}"
+        dest: "{{ pi_dest_dir }}/{{ item | basename }}"
         owner: "{{ franklin_user }}"
         group: "{{ franklin_group }}"
         mode: "0644"
+      loop: "{{ gui_files_local }}"
+
+    - name: Deploy race module directory for GUI imports
+      ansible.builtin.copy:
+        src: "{{ project_root }}/race/"
+        dest: "{{ pi_dest_dir }}/race/"
+        owner: "{{ franklin_user }}"
+        group: "{{ franklin_group }}"
+        mode: preserve
 
     - name: Deployment summary
       ansible.builtin.debug:
         msg:
-          - "Deployed franklin-gui.py to {{ inventory_hostname }}:{{ pi_dest_dir }}/franklin-gui.py"
+          - "Deployed GUI runtime files to {{ inventory_hostname }}:{{ pi_dest_dir }}"
+          - "Updated: franklin-gui.py, gui_config.py, database.py, race/"
           - "Restart GUI session on Pi to pick up changes"

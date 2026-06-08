@@ -50,7 +50,9 @@
         "ansible-playbook -i playbooks/inventory.ini playbooks/58-wayvnc.yml"
       ],
       "pi-vnc-restart": ["./scripts/restart-wayvnc-pi.sh"],
-      "pi-gui-restart": ["bash ./scripts/restart-franklin-gui-pi.sh"],
+      "pi-gui-restart": [
+        "ansible-playbook -i playbooks/inventory.ini playbooks/59-restart-franklin-gui.yml"
+      ],
       "pi-reboot": ["ssh -o ConnectTimeout=8 jachin@10.27.1.64 sudo reboot"],
       "pi-vnc-help": [
         "echo '1) Run: devbox run pi-vnc-tunnel'",

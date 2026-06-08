@@ -216,7 +216,9 @@ class FranklinGuiApp(Gtk.Application):
         controls.append(preferences_btn)
 
         status = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=16)
-        self.state_label = Gtk.Label(label="State: NOT_STARTED")
+        self.state_label = Gtk.Label(
+            label=f"State: {self._humanize_race_state(self.race.state)}"
+        )
         self.laps_remaining_label = Gtk.Label(
             label=f"Laps Remaining: {self.total_laps}"
         )
@@ -464,9 +466,14 @@ class FranklinGuiApp(Gtk.Application):
         timestamp = time.strftime("%H:%M:%S")
         buf.insert(end, f"[{timestamp}] {text}\n")
 
+    def _humanize_race_state(self, state: RaceState) -> str:
+        return state.name.replace("_", " ").title()
+
     def refresh_views(self) -> None:
         if self.state_label:
-            self.state_label.set_text(f"State: {self.race.state.name}")
+            self.state_label.set_text(
+                f"State: {self._humanize_race_state(self.race.state)}"
+            )
         if self.detect_label:
             now = time.monotonic()
             connected = (

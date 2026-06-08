@@ -1,0 +1,61 @@
+---
+- name: Restart Franklin GUI session
+  hosts: all
+  gather_facts: false
+  become: true
+
+  vars:
+    franklin_gui_tmux_session: franklin-services
+
+  tasks:
+    - name: Detect active Wayland display for franklin user
+      ansible.builtin.shell: |
+        set -euo pipefail
+        uid_f=$(id -u "{{ franklin_user }}")
+        rt="/run/user/${uid_f}"
+        wd=$(ls -1 "$rt" 2>/dev/null | grep -E '^wayland-[0-9]+$' | head -1 || true)
+        if [ -z "$wd" ]; then
+          echo "ERROR: no Wayland socket in $rt; is sway running for {{ franklin_user }}?" >&2
+          exit 1
+        fi
+        echo "${rt}|${wd}"
+      args:
+        executable: /bin/bash
+      register: wayland_env
+      changed_when: false
+
+    - name: Parse Wayland runtime values
+      ansible.builtin.set_fact:
+        franklin_xdg_runtime_dir: "{{ wayland_env.stdout.split('|')[0] }}"
+        franklin_wayland_display: "{{ wayland_env.stdout.split('|')[1] }}"
+
+    - name: Stop existing Franklin GUI/session if running
+      ansible.builtin.shell: |
+        set -euo pipefail
+        # Use bracketed patterns so pkill does not match its own command line.
+        pkill -f "python .*[f]ranklin-gui.py" || true
+        pkill -f "[s]tart-franklin-gui-session.sh" || true
+        tmux kill-session -t "{{ franklin_gui_tmux_session }}" 2>/dev/null || true
+      args:
+        executable: /bin/bash
+      become_user: "{{ franklin_user }}"
+      changed_when: false
+
+    - name: Start Franklin GUI session detached
+      ansible.builtin.shell: |
+        nohup ./start-franklin-gui-session.sh </dev/null >/dev/null 2>&1 &
+      args:
+        chdir: "{{ pi_dest_dir }}"
+        executable: /bin/bash
+      environment:
+        XDG_RUNTIME_DIR: "{{ franklin_xdg_runtime_dir }}"
+        WAYLAND_DISPLAY: "{{ franklin_wayland_display }}"
+      become_user: "{{ franklin_user }}"
+      async: 30
+      poll: 0
+
+    - name: Restart summary
+      ansible.builtin.debug:
+        msg:
+          - "Wayland: {{ franklin_xdg_runtime_dir }}/{{ franklin_wayland_display }}"
+          - "Restart requested for Franklin GUI on {{ inventory_hostname }}"

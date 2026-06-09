@@ -38,6 +38,26 @@
         timeout 6 redis-cli -s ./redis.sock SUBSCRIBE hardware:out 2>/dev/null | grep -m1 "\"type\":\"heartbeat\"" || true
         echo
 
+        echo "=== referee web app process + health ==="
+        pgrep -af referee_web_app.py | grep -v "bash -lc" || echo "referee_web_app.py not running"
+        python3 - <<PY
+import json
+import urllib.request
+
+url = "http://127.0.0.1:8081/api/health"
+try:
+    with urllib.request.urlopen(url, timeout=3) as response:
+        payload = response.read().decode("utf-8", "replace")
+    data = json.loads(payload)
+    if data.get("ok") is True:
+        print("referee /api/health: ok")
+    else:
+        print("referee /api/health: unexpected payload", payload)
+except Exception as exc:
+    print(f"referee /api/health: failed ({exc})")
+PY
+        echo
+
         echo "=== wayvnc process/port ==="
         pgrep -af wayvnc | grep -v "bash -lc" || echo "wayvnc not running"
         ss -lnt | grep ":{{ franklin_wayvnc_port }} " || true

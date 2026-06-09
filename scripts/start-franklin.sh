@@ -66,6 +66,10 @@ check_files() {
         missing_files+=("scoreboard_web_app.py")
     fi
 
+    if [ ! -f "referee_web_app.py" ]; then
+        missing_files+=("referee_web_app.py")
+    fi
+
     if [ ! -d ".venv" ]; then
         missing_files+=(".venv (Python virtual environment)")
     fi
@@ -163,9 +167,15 @@ status_franklin() {
     fi
 
     if pgrep -f "scoreboard_web_app.py" >/dev/null 2>&1; then
-        log "  ✓ Web server running"
+        log "  ✓ Scoreboard web server running"
     else
-        log "  ❌ Web server not running"
+        log "  ❌ Scoreboard web server not running"
+    fi
+
+    if pgrep -f "referee_web_app.py" >/dev/null 2>&1; then
+        log "  ✓ Referee web server running"
+    else
+        log "  ❌ Referee web server not running"
     fi
 }
 

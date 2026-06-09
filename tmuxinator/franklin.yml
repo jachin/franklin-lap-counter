@@ -79,6 +79,14 @@ windows:
             - sleep 4
             - echo "Starting Web Server..."
             - python scoreboard_web_app.py
+  - referee:
+      layout: main-horizontal
+      panes:
+        - server:
+            - echo "Waiting for services to be ready..."
+            - sleep 4
+            - echo "Starting Referee Web Server..."
+            - python referee_web_app.py
   - logs:
       layout: main-horizontal
       panes:

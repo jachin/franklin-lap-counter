@@ -139,6 +139,10 @@ All activity is logged to: `hardware_redis.log`
 - `rust-pi-build` - Build release binary for Pi target (`aarch64-unknown-linux-gnu` by default)
 - `full-sim` / `full-sim-attach` / `full-sim-stop` - Manage full simulation tmux session
 
+**Remote GUI (VNC over SSH tunnel):**
+- `vnc:open-tunnel` - Open local tunnel `127.0.0.1:5901 -> Pi:5900`
+- `vnc:connect` - Open VNC client to `vnc://127.0.0.1:5901`
+
 **Quality checks:**
 - `lint` - Run all lint checks
 - `lint:python` / `lint:web` / `lint:rust` - Run targeted lint checks

@@ -37,14 +37,15 @@
       "full-sim-attach": ["tmux attach-session -t franklin-full-sim"],
       "full-sim-stop": ["tmux kill-session -t franklin-full-sim"],
       "lint-franklin": [
-        "ruff check franklin-tui.py franklin-gui.py scoreboard_web_app.py database.py race",
-        "basedpyright franklin-tui.py franklin-gui.py scoreboard_web_app.py database.py race"
+        "ruff check franklin-tui.py franklin-gui.py scoreboard_web_app.py referee_web_app.py database.py race",
+        "basedpyright franklin-tui.py franklin-gui.py scoreboard_web_app.py referee_web_app.py database.py race"
       ],
       "lint-web": ["biome check --files-ignore-unknown=true static"],
       "test-franklin": [
         "python -m unittest discover -s race -t . -p '*_test.py'"
       ],
       "web": ["python scoreboard_web_app.py"],
+      "referee-web": ["python referee_web_app.py"],
       "rust-build": ["cargo build --manifest-path rust/Cargo.toml"],
       "rust-build-pi-image": ["./scripts/build-rust-image.sh"],
       "rust-pi-build": ["./scripts/rust-pi-build.sh"],

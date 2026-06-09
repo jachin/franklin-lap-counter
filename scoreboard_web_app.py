@@ -19,6 +19,7 @@ from database import LapDatabase
 # Configuration
 REDIS_SOCKET_PATH = "./redis.sock"
 REDIS_OUT_CHANNEL = "hardware:out"
+REDIS_EVENTS_CHANNEL = "franklin:events"
 WEB_PORT = 8080
 WEB_HOST = "0.0.0.0"  # Bind to all network interfaces
 STATIC_DIR = Path(__file__).parent / "static"
@@ -257,9 +258,11 @@ class ScoreboardWebAppServer:
                 unix_socket_path=self.redis_socket, decode_responses=True
             )
             self.redis_pubsub = self.redis_client.pubsub()
-            await self.redis_pubsub.subscribe(REDIS_OUT_CHANNEL)
+            await self.redis_pubsub.subscribe(REDIS_OUT_CHANNEL, REDIS_EVENTS_CHANNEL)
 
-            logger.info(f"Subscribed to Redis channel: {REDIS_OUT_CHANNEL}")
+            logger.info(
+                f"Subscribed to Redis channels: {REDIS_OUT_CHANNEL}, {REDIS_EVENTS_CHANNEL}"
+            )
 
             while True:
                 message = await self.redis_pubsub.get_message(

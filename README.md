@@ -8,7 +8,7 @@ The name is a nod to [Benjamin Franklin Miessner](https://en.wikipedia.org/wiki/
 
 ## Architecture
 
-The system uses Redis for communication between components, allowing you to run the hardware interface, race UI, and scoreboard web app in separate terminals.
+The system uses Redis for communication between components, allowing you to run the hardware interface, race UI, scoreboard web app, and referee web app in separate terminals.
 
 ```
 ┌─────────────────────┐         ┌─────────────┐         ┌──────────────────────┐
@@ -230,18 +230,36 @@ devbox shell
 basedpyright
 ```
 
-## Referee Web App (Planned)
+## Referee Web App
 
-A referee-focused web app is planned for race control operations:
+Run the referee web app:
 
-- Start / stop / reset race
-- Remove invalid laps
-- Add 5-second penalties
-- Disqualify racers
+```bash
+devbox shell
+devbox run referee-web
+```
 
-Design and message-contract draft:
+This starts `referee_web_app.py` on `0.0.0.0:8081`.
+
+- On the Pi itself: `http://127.0.0.1:8081`
+- From a device on the same network/AP: `http://<pi-ip>:8081`
+
+Current supported referee actions:
+
+- Start race (`start_race`)
+- End race (`end_race`)
+- Reset race (`reset_race`)
+- Remove lap (`remove_lap`, specific lap or latest lap for racer)
+- Add penalty (`add_penalty`, 5-second increments)
+- Disqualify racer (`disqualify_racer`)
+
+Design notes and architecture:
 
 - `docs/referee-web-app-design.md`
+
+Audit logging:
+
+- Race-control outcomes are persisted to SQLite table `race_control_actions` in `lap_counter.db`.
 
 ## Features
 

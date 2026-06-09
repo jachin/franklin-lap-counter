@@ -137,6 +137,8 @@ class LeaderboardDisplay(DataTable[Any]):  # type: ignore[type-arg]
             total_time,
         ) in self.leaderboard:
             display_name = self.contestants.get_contestant_name(racer_id)
+            if position == "DQ":
+                display_name = f"{display_name} (DQ)"
             best_lap_display = format_time_cs(best_lap_time)
             last_lap_display = format_time_cs(last_lap_time)
             total_time_display = format_time_cs(total_time)
@@ -241,6 +243,10 @@ class Franklin(App[Any]):  # type: ignore[type-arg]
         self.race = Race(previous_race=None)
         self.race.total_laps = self.total_laps
 
+        # Referee adjustments (applied from franklin:events)
+        self.racer_penalties_seconds: dict[int, int] = {}
+        self.disqualified_racers: set[int] = set()
+
         self.lap_counter_detected = reactive(False)
         self._last_lap_counter_signal_time = None
         self._playback_task = None
@@ -315,6 +321,35 @@ class Franklin(App[Any]):  # type: ignore[type-arg]
             self.race_mode = RaceMode.FAKE
         logging.info(f"Toggled race mode to: {self.race_mode}")
         self.update_subtitle()
+
+    def _referee_adjusted_leaderboard_data(self) -> list[tuple[Any, ...]]:
+        base = self.race.leaderboard()
+        active_rows: list[tuple[int, int, float, float, float]] = []
+        dq_rows: list[tuple[int, int, float, float, float]] = []
+
+        for _pos, racer_id, lap_count, best, last, total in base:
+            adjusted_total = total + float(
+                self.racer_penalties_seconds.get(racer_id, 0)
+            )
+            if racer_id in self.disqualified_racers:
+                dq_rows.append((racer_id, lap_count, best, last, adjusted_total))
+            else:
+                active_rows.append((racer_id, lap_count, best, last, adjusted_total))
+
+        active_rows.sort(key=lambda row: (-row[1], row[4], row[2], row[0]))
+
+        rows: list[tuple[Any, ...]] = []
+        for idx, (racer_id, lap_count, best, last, adjusted_total) in enumerate(
+            active_rows, start=1
+        ):
+            rows.append((idx, racer_id, lap_count, best, last, adjusted_total))
+
+        for racer_id, lap_count, best, last, adjusted_total in sorted(
+            dq_rows, key=lambda row: row[0]
+        ):
+            rows.append(("DQ", racer_id, lap_count, best, last, adjusted_total))
+
+        return rows
 
     async def update_race_time(self):
         # TODO this works for now but we should probably use the time that's coming
@@ -402,6 +437,13 @@ class Franklin(App[Any]):  # type: ignore[type-arg]
                                     # Capture the internal (monotonic) time from the event loop.
                                     internal_time = asyncio.get_event_loop().time()
 
+                                    if int(racer_id) in self.disqualified_racers:
+                                        logging.info(
+                                            "Ignored lap for disqualified racer %s",
+                                            racer_id,
+                                        )
+                                        continue
+
                                     lap = make_lap_from_sensor_data_and_race(
                                         racer_id,
                                         hardware_race_time,
@@ -425,14 +467,48 @@ class Franklin(App[Any]):  # type: ignore[type-arg]
                         elif msg_type == "race_control":
                             command = msg.get("command")
                             accepted = bool(msg.get("accepted", True))
+                            racer_id_raw = msg.get("racer_id")
+                            racer_id_i = (
+                                int(racer_id_raw) if racer_id_raw is not None else None
+                            )
                             logging.info(
-                                "Race control event: command=%s accepted=%s message=%s",
+                                "Race control event: command=%s accepted=%s racer_id=%s message=%s",
                                 command,
                                 accepted,
+                                racer_id_i,
                                 msg.get("message", ""),
                             )
                             if accepted and command == "reset_race":
                                 self._apply_race_reset_from_redis()
+                            elif (
+                                accepted
+                                and command == "add_penalty"
+                                and racer_id_i is not None
+                            ):
+                                penalty_seconds = int(
+                                    msg.get("penalty_seconds", 0) or 0
+                                )
+                                if penalty_seconds > 0:
+                                    self.racer_penalties_seconds[racer_id_i] = (
+                                        self.racer_penalties_seconds.get(racer_id_i, 0)
+                                        + penalty_seconds
+                                    )
+                            elif (
+                                accepted
+                                and command == "disqualify_racer"
+                                and racer_id_i is not None
+                            ):
+                                self.disqualified_racers.add(racer_id_i)
+                            elif (
+                                accepted
+                                and command == "remove_lap"
+                                and racer_id_i is not None
+                            ):
+                                lap_no_raw = msg.get("lap_number")
+                                lap_no = (
+                                    int(lap_no_raw) if lap_no_raw is not None else None
+                                )
+                                self._apply_remove_lap_from_redis(racer_id_i, lap_no)
 
                         elif msg_type == "raw":
                             logging.debug(f"Raw message: {msg.get('line', '')}")
@@ -497,7 +573,9 @@ class Franklin(App[Any]):  # type: ignore[type-arg]
                         logging.error(f"Failed to save lap to database: {e}")
 
                 lap_display_events.laps = self.race.laps.copy()
-                lap_display_leaderboard.leaderboard = self.race.leaderboard()
+                lap_display_leaderboard.leaderboard = (
+                    self._referee_adjusted_leaderboard_data()
+                )
                 leader_remaining, last_remaining = self.race.laps_remaining()
                 race_status_display.leader_laps_remaining = leader_remaining
                 race_status_display.last_place_laps_remaining = last_remaining
@@ -505,7 +583,9 @@ class Franklin(App[Any]):  # type: ignore[type-arg]
             except asyncio.TimeoutError:
                 # No new lap data, just refresh displays
                 lap_display_events.laps = self.race.laps.copy()
-                lap_display_leaderboard.leaderboard = self.race.leaderboard()
+                lap_display_leaderboard.leaderboard = (
+                    self._referee_adjusted_leaderboard_data()
+                )
                 leader_remaining, last_remaining = self.race.laps_remaining()
                 race_status_display.leader_laps_remaining = leader_remaining
                 race_status_display.last_place_laps_remaining = last_remaining
@@ -538,8 +618,47 @@ class Franklin(App[Any]):  # type: ignore[type-arg]
                     )
         yield Footer()
 
+    def _apply_remove_lap_from_redis(
+        self, racer_id: int, lap_number: int | None = None
+    ) -> None:
+        target_index: int | None = None
+
+        for idx in range(len(self.race.laps) - 1, -1, -1):
+            lap = self.race.laps[idx]
+            if lap.racer_id != racer_id or lap.lap_number <= 0:
+                continue
+            if lap_number is not None and lap.lap_number != lap_number:
+                continue
+            target_index = idx
+            break
+
+        if target_index is None:
+            logging.info(
+                "REMOVE LAP ignored: racer=%s lap=%s not found",
+                racer_id,
+                lap_number,
+            )
+            return
+
+        removed = self.race.laps.pop(target_index)
+
+        if self.current_race_id:
+            try:
+                _ = self.db.remove_lap(self.current_race_id, racer_id, lap_number)
+            except Exception as e:
+                logging.error(f"Failed to remove lap in database: {e}")
+
+        logging.info(
+            "REMOVE LAP applied: racer=%s removed_lap=%s",
+            racer_id,
+            removed.lap_number,
+        )
+
     def _apply_race_reset_from_redis(self) -> None:
         logging.info("Applying race reset from Redis")
+
+        self.racer_penalties_seconds.clear()
+        self.disqualified_racers.clear()
 
         if self.current_race_id:
             try:
@@ -565,6 +684,8 @@ class Franklin(App[Any]):  # type: ignore[type-arg]
             stop_btn = self.query_one("#stop_btn", Button)
 
             # Create a new race instance with current app settings
+            self.racer_penalties_seconds.clear()
+            self.disqualified_racers.clear()
             self.race = Race(previous_race=self.previous_race)
             self.race.total_laps = self.total_laps
 

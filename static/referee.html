@@ -1,0 +1,395 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>Franklin Referee Control</title>
+        <style>
+            body {
+                font-family:
+                    system-ui,
+                    -apple-system,
+                    Segoe UI,
+                    Roboto,
+                    sans-serif;
+                margin: 16px;
+                background: #111;
+                color: #eee;
+            }
+            h1 {
+                margin-top: 0;
+            }
+            .row {
+                display: flex;
+                gap: 8px;
+                flex-wrap: wrap;
+                margin-bottom: 12px;
+            }
+            button {
+                padding: 8px 12px;
+                border: 1px solid #444;
+                background: #222;
+                color: #eee;
+                border-radius: 6px;
+                cursor: pointer;
+            }
+            input {
+                padding: 8px;
+                border: 1px solid #444;
+                background: #1b1b1b;
+                color: #eee;
+                border-radius: 6px;
+            }
+            #events,
+            #audit {
+                background: #000;
+                border: 1px solid #333;
+                padding: 10px;
+                height: 320px;
+                overflow-y: auto;
+                font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+            }
+            #events {
+                white-space: pre-wrap;
+            }
+            .audit-row {
+                display: flex;
+                align-items: center;
+                gap: 8px;
+                margin-bottom: 6px;
+            }
+            .audit-row-text {
+                white-space: pre-wrap;
+                word-break: break-word;
+                flex: 1;
+            }
+            .copy-btn {
+                padding: 4px 8px;
+                font-size: 12px;
+            }
+        </style>
+    </head>
+    <body>
+        <h1>Referee Control</h1>
+
+        <div class="row">
+            <button type="button" id="start-race">Start Race</button>
+            <button type="button" id="end-race">End Race</button>
+            <button type="button" id="reset-race">Reset Race</button>
+        </div>
+
+        <div class="row">
+            <input
+                id="penalty-racer"
+                type="number"
+                min="1"
+                placeholder="Racer ID"
+            />
+            <input
+                id="penalty-seconds"
+                type="number"
+                min="5"
+                step="5"
+                value="5"
+                placeholder="Penalty seconds"
+            />
+            <input
+                id="penalty-reason"
+                type="text"
+                placeholder="Penalty reason"
+            />
+            <button type="button" id="add-penalty">Add Penalty</button>
+        </div>
+
+        <div class="row">
+            <input
+                id="remove-lap-racer"
+                type="number"
+                min="1"
+                placeholder="Racer ID"
+            />
+            <input
+                id="remove-lap-number"
+                type="number"
+                min="1"
+                placeholder="Lap number (optional)"
+            />
+            <input
+                id="remove-lap-reason"
+                type="text"
+                placeholder="Remove lap reason"
+            />
+            <button type="button" id="remove-lap">Remove Lap</button>
+        </div>
+
+        <div class="row">
+            <input id="dq-racer" type="number" min="1" placeholder="Racer ID" />
+            <input id="dq-reason" type="text" placeholder="DQ reason" />
+            <button type="button" id="disqualify-racer">
+                Disqualify Racer
+            </button>
+        </div>
+
+        <h2>Live Events</h2>
+        <div id="events"></div>
+
+        <h2>Audit Log</h2>
+        <div class="row">
+            <input
+                id="audit-race-id"
+                type="number"
+                min="1"
+                placeholder="Race ID (optional)"
+            />
+            <input id="audit-limit" type="number" min="1" value="100" />
+            <button type="button" id="load-audit">Load Audit</button>
+        </div>
+        <div id="audit"></div>
+
+        <script>
+            const eventsEl = document.getElementById("events");
+            const auditEl = document.getElementById("audit");
+
+            function log(line) {
+                const now = new Date().toLocaleTimeString();
+                eventsEl.textContent += `[${now}] ${line}\n`;
+                eventsEl.scrollTop = eventsEl.scrollHeight;
+            }
+
+            async function copyToClipboard(value) {
+                if (!value) {
+                    throw new Error("No command_id available to copy");
+                }
+                await navigator.clipboard.writeText(value);
+            }
+
+            function buildAuditLine(a) {
+                const ts = a.created_at || "";
+                const status = a.accepted ? "accepted" : "rejected";
+                const cmdId = a.command_id || "-";
+                const details = [];
+                if (a.racer_id != null) details.push(`racer_id=${a.racer_id}`);
+                if (a.lap_number != null)
+                    details.push(`lap_number=${a.lap_number}`);
+                if (a.penalty_seconds != null)
+                    details.push(`penalty_seconds=${a.penalty_seconds}`);
+                if (a.reason) details.push(`reason=${a.reason}`);
+                if (a.message) details.push(`message=${a.message}`);
+
+                return `[${ts}] ${a.command} ${status} command_id=${cmdId}${details.length ? ` (${details.join(", ")})` : ""}`;
+            }
+
+            function renderAudit(actions) {
+                auditEl.replaceChildren();
+
+                if (!actions.length) {
+                    auditEl.textContent = "No audit rows";
+                    return;
+                }
+
+                for (const action of actions) {
+                    const row = document.createElement("div");
+                    row.className = "audit-row";
+
+                    const copyButton = document.createElement("button");
+                    copyButton.type = "button";
+                    copyButton.className = "copy-btn";
+                    copyButton.textContent = "Copy";
+
+                    const commandId = action.command_id;
+                    if (commandId) {
+                        copyButton.dataset.commandId = commandId;
+                        copyButton.title = `Copy command_id ${commandId}`;
+                    } else {
+                        copyButton.disabled = true;
+                        copyButton.title = "No command_id for this row";
+                    }
+
+                    const text = document.createElement("div");
+                    text.className = "audit-row-text";
+                    text.textContent = buildAuditLine(action);
+
+                    row.append(copyButton, text);
+                    auditEl.appendChild(row);
+                }
+            }
+
+            async function loadAudit() {
+                try {
+                    const raceIdRaw =
+                        document.getElementById("audit-race-id").value;
+                    const limitRaw =
+                        document.getElementById("audit-limit").value;
+                    const params = new URLSearchParams();
+                    if (raceIdRaw !== "") params.set("race_id", raceIdRaw);
+                    if (limitRaw !== "") params.set("limit", limitRaw);
+
+                    const res = await fetch(
+                        `/api/control/audit?${params.toString()}`,
+                    );
+                    const data = await res.json();
+                    if (!res.ok || !data.ok) {
+                        throw new Error(
+                            data.error || `Request failed (${res.status})`,
+                        );
+                    }
+                    renderAudit(data.actions || []);
+                    log(`Loaded ${data.count || 0} audit rows`);
+                } catch (err) {
+                    log(`ERROR: ${err.message}`);
+                }
+            }
+
+            async function postJson(url, body = {}) {
+                const res = await fetch(url, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(body),
+                });
+
+                let data = {};
+                try {
+                    data = await res.json();
+                } catch (_) {}
+
+                if (!res.ok) {
+                    throw new Error(
+                        data.error || `Request failed (${res.status})`,
+                    );
+                }
+
+                return data;
+            }
+
+            document.getElementById("start-race").onclick = async () => {
+                try {
+                    await postJson("/api/control/start_race");
+                    log("Sent: start_race");
+                } catch (err) {
+                    log(`ERROR: ${err.message}`);
+                }
+            };
+
+            document.getElementById("end-race").onclick = async () => {
+                try {
+                    await postJson("/api/control/end_race");
+                    log("Sent: end_race");
+                } catch (err) {
+                    log(`ERROR: ${err.message}`);
+                }
+            };
+
+            document.getElementById("reset-race").onclick = async () => {
+                try {
+                    await postJson("/api/control/reset_race");
+                    log("Sent: reset_race");
+                } catch (err) {
+                    log(`ERROR: ${err.message}`);
+                }
+            };
+
+            document.getElementById("add-penalty").onclick = async () => {
+                try {
+                    const racerId = parseInt(
+                        document.getElementById("penalty-racer").value,
+                        10,
+                    );
+                    const penaltySeconds = parseInt(
+                        document.getElementById("penalty-seconds").value,
+                        10,
+                    );
+                    const reason =
+                        document.getElementById("penalty-reason").value || "";
+                    await postJson("/api/control/add_penalty", {
+                        racer_id: racerId,
+                        penalty_seconds: penaltySeconds,
+                        reason,
+                    });
+                    log(
+                        `Sent: add_penalty racer=${racerId} seconds=${penaltySeconds}`,
+                    );
+                } catch (err) {
+                    log(`ERROR: ${err.message}`);
+                }
+            };
+
+            document.getElementById("remove-lap").onclick = async () => {
+                try {
+                    const racerId = parseInt(
+                        document.getElementById("remove-lap-racer").value,
+                        10,
+                    );
+                    const lapNumberRaw =
+                        document.getElementById("remove-lap-number").value;
+                    const reason =
+                        document.getElementById("remove-lap-reason").value ||
+                        "";
+                    const payload = {
+                        racer_id: racerId,
+                        reason,
+                    };
+                    if (lapNumberRaw !== "") {
+                        payload.lap_number = parseInt(lapNumberRaw, 10);
+                    }
+                    await postJson("/api/control/remove_lap", payload);
+                    log(
+                        `Sent: remove_lap racer=${racerId} lap=${payload.lap_number || "latest"}`,
+                    );
+                } catch (err) {
+                    log(`ERROR: ${err.message}`);
+                }
+            };
+
+            document.getElementById("disqualify-racer").onclick = async () => {
+                try {
+                    const racerId = parseInt(
+                        document.getElementById("dq-racer").value,
+                        10,
+                    );
+                    const reason =
+                        document.getElementById("dq-reason").value || "";
+                    await postJson("/api/control/disqualify_racer", {
+                        racer_id: racerId,
+                        reason,
+                    });
+                    log(`Sent: disqualify_racer racer=${racerId}`);
+                } catch (err) {
+                    log(`ERROR: ${err.message}`);
+                }
+            };
+
+            document.getElementById("load-audit").onclick = loadAudit;
+
+            auditEl.addEventListener("click", async (evt) => {
+                const target = evt.target;
+                if (!(target instanceof HTMLElement)) return;
+                if (!target.classList.contains("copy-btn")) return;
+
+                const commandId = target.dataset.commandId;
+                try {
+                    await copyToClipboard(commandId);
+                    log(`Copied command_id: ${commandId}`);
+                } catch (err) {
+                    log(`ERROR: ${err.message}`);
+                }
+            });
+
+            const wsProto =
+                window.location.protocol === "https:" ? "wss" : "ws";
+            const ws = new WebSocket(`${wsProto}://${window.location.host}/ws`);
+            ws.onopen = () => log("WebSocket connected");
+            ws.onmessage = (evt) => {
+                try {
+                    const msg = JSON.parse(evt.data);
+                    log(JSON.stringify(msg));
+                } catch (_) {
+                    log(evt.data);
+                }
+            };
+            ws.onerror = () => log("WebSocket error");
+            ws.onclose = () => log("WebSocket closed");
+
+            void loadAudit();
+        </script>
+    </body>
+</html>

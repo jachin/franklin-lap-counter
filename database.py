@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """
 Database module for RC Lap Counter.
-Manages races and laps using SQLite.
+Manages races, laps, and race-control audit actions using SQLite.
 """
 
+import json
 import sqlite3
 from datetime import datetime
 from pathlib import Path
@@ -51,7 +52,27 @@ class LapDatabase:
             )
         """)
 
-        # Create index for faster queries
+        # Create race-control action audit table
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS race_control_actions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                race_id INTEGER,
+                command TEXT NOT NULL,
+                command_id TEXT,
+                accepted INTEGER NOT NULL,
+                racer_id INTEGER,
+                lap_number INTEGER,
+                penalty_seconds INTEGER,
+                reason TEXT,
+                message TEXT,
+                source TEXT,
+                payload_json TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY (race_id) REFERENCES races(id)
+            )
+        """)
+
+        # Create indexes for faster queries
         cursor.execute("""
             CREATE INDEX IF NOT EXISTS idx_laps_race_id
             ON laps(race_id)
@@ -60,6 +81,29 @@ class LapDatabase:
         cursor.execute("""
             CREATE INDEX IF NOT EXISTS idx_laps_racer_id
             ON laps(race_id, racer_id)
+        """)
+
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_race_control_actions_race_id
+            ON race_control_actions(race_id)
+        """)
+
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_race_control_actions_command
+            ON race_control_actions(command)
+        """)
+
+        # Lightweight migrations for existing databases
+        cursor.execute("PRAGMA table_info(race_control_actions)")
+        existing_columns = {row[1] for row in cursor.fetchall()}
+        if "command_id" not in existing_columns:
+            cursor.execute(
+                "ALTER TABLE race_control_actions ADD COLUMN command_id TEXT"
+            )
+
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_race_control_actions_command_id
+            ON race_control_actions(command_id)
         """)
 
         self.conn.commit()
@@ -168,6 +212,125 @@ class LapDatabase:
         """,
             (race_id, racer_id),
         )
+        return [dict(row) for row in cursor.fetchall()]
+
+    def remove_lap(
+        self, race_id: int, racer_id: int, lap_number: int | None = None
+    ) -> dict[str, Any] | None:
+        """Remove one lap for racer in a race.
+
+        If lap_number is provided, remove that exact lap number.
+        If lap_number is None, remove the latest recorded positive lap for racer.
+        Returns the removed lap row as dict, or None if nothing matched.
+        """
+        assert self.conn is not None
+        cursor = self.conn.cursor()
+
+        if lap_number is None:
+            cursor.execute(
+                """
+                SELECT * FROM laps
+                WHERE race_id = ? AND racer_id = ? AND lap_number > 0
+                ORDER BY lap_number DESC, id DESC
+                LIMIT 1
+            """,
+                (race_id, racer_id),
+            )
+        else:
+            cursor.execute(
+                """
+                SELECT * FROM laps
+                WHERE race_id = ? AND racer_id = ? AND lap_number = ?
+                ORDER BY id DESC
+                LIMIT 1
+            """,
+                (race_id, racer_id, lap_number),
+            )
+
+        row = cursor.fetchone()
+        if not row:
+            return None
+
+        removed = dict(row)
+        cursor.execute("DELETE FROM laps WHERE id = ?", (row["id"],))
+        self.conn.commit()
+        return removed
+
+    def add_race_control_action(
+        self,
+        *,
+        command: str,
+        accepted: bool,
+        payload: dict[str, Any],
+        race_id: int | None = None,
+    ) -> int:
+        """Persist one race-control action audit row and return its ID."""
+        assert self.conn is not None
+        cursor = self.conn.cursor()
+
+        cursor.execute(
+            """
+            INSERT INTO race_control_actions
+            (
+                race_id,
+                command,
+                command_id,
+                accepted,
+                racer_id,
+                lap_number,
+                penalty_seconds,
+                reason,
+                message,
+                source,
+                payload_json,
+                created_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+            (
+                race_id,
+                command,
+                payload.get("command_id"),
+                1 if accepted else 0,
+                payload.get("racer_id"),
+                payload.get("lap_number"),
+                payload.get("penalty_seconds"),
+                payload.get("reason"),
+                payload.get("message"),
+                payload.get("source"),
+                json.dumps(payload, sort_keys=True),
+                datetime.now().isoformat(),
+            ),
+        )
+        self.conn.commit()
+        action_id = cursor.lastrowid
+        assert action_id is not None
+        return action_id
+
+    def get_race_control_actions(
+        self, race_id: int | None = None
+    ) -> list[dict[str, Any]]:
+        """Return race-control audit rows newest-first, optionally filtered by race."""
+        assert self.conn is not None
+        cursor = self.conn.cursor()
+
+        if race_id is None:
+            cursor.execute(
+                """
+                SELECT * FROM race_control_actions
+                ORDER BY created_at DESC, id DESC
+            """
+            )
+        else:
+            cursor.execute(
+                """
+                SELECT * FROM race_control_actions
+                WHERE race_id = ?
+                ORDER BY created_at DESC, id DESC
+            """,
+                (race_id,),
+            )
+
         return [dict(row) for row in cursor.fetchall()]
 
     def get_race_stats(self, race_id: int) -> dict[int, dict[str, Any]]:

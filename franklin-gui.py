@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# pyright: reportAttributeAccessIssue=false
+
 
 """
 Franklin GTK GUI (Wayland-friendly) implementation.
@@ -96,6 +98,10 @@ class FranklinGuiApp(Gtk.Application):
         self.race = Race(previous_race=self.previous_race)
         self.race.total_laps = total_laps
         self.race.race_end_mode = race_end_mode
+
+        # Referee adjustments (applied from franklin:events)
+        self.racer_penalties_seconds: dict[int, int] = {}
+        self.disqualified_racers: set[int] = set()
 
         known_racer_ids = {
             c.transmitter_id for c in self.global_contestants.contestants
@@ -600,6 +606,9 @@ class FranklinGuiApp(Gtk.Application):
         GLib.timeout_add(3000, set_green_and_start)
 
     def _start_race_now(self) -> None:
+        self.racer_penalties_seconds.clear()
+        self.disqualified_racers.clear()
+
         self.race = Race(previous_race=self.previous_race)
         self.race.total_laps = self.total_laps
         self.race.race_end_mode = self.race_end_mode
@@ -1001,6 +1010,48 @@ class FranklinGuiApp(Gtk.Application):
         label.set_hexpand(hexpand)
         return label
 
+    def _referee_adjusted_leaderboard(
+        self,
+    ) -> list[tuple[str, int, int, float, float, float, bool]]:
+        base = self.race.leaderboard()
+        active_rows: list[tuple[int, int, float, float, float]] = []
+        dq_rows: list[tuple[int, int, float, float, float]] = []
+
+        for _pos, racer_id, lap_count, best, last, total in base:
+            adjusted_total = total + float(
+                self.racer_penalties_seconds.get(racer_id, 0)
+            )
+            if racer_id in self.disqualified_racers:
+                dq_rows.append((racer_id, lap_count, best, last, adjusted_total))
+            else:
+                active_rows.append((racer_id, lap_count, best, last, adjusted_total))
+
+        active_rows.sort(
+            key=lambda row: (
+                -row[1],  # lap_count desc
+                row[4],  # adjusted total asc
+                row[2],  # best lap asc
+                row[0],  # stable tie-breaker
+            )
+        )
+
+        adjusted: list[tuple[str, int, int, float, float, float, bool]] = []
+        for idx, (racer_id, lap_count, best, last, adjusted_total) in enumerate(
+            active_rows, start=1
+        ):
+            adjusted.append(
+                (str(idx), racer_id, lap_count, best, last, adjusted_total, False)
+            )
+
+        for racer_id, lap_count, best, last, adjusted_total in sorted(
+            dq_rows, key=lambda row: row[0]
+        ):
+            adjusted.append(
+                ("DQ", racer_id, lap_count, best, last, adjusted_total, True)
+            )
+
+        return adjusted
+
     def _render_leaderboard_grid(self) -> None:
         if not self.leaderboard_grid:
             return
@@ -1014,7 +1065,7 @@ class FranklinGuiApp(Gtk.Application):
             self.leaderboard_grid.remove(child)
             child = next_child
 
-        leaderboard_data = self.race.leaderboard()
+        leaderboard_data = self._referee_adjusted_leaderboard()
         name_w = self._leaderboard_name_col_width()
 
         header_cells: list[tuple[str, float, bool]] = [
@@ -1050,17 +1101,29 @@ class FranklinGuiApp(Gtk.Application):
                 header_label.set_size_request(swatch_col_width_px, -1)
             self.leaderboard_grid.attach(header_label, col, 0, 1, 1)
 
-        for row_index, (pos, racer_id, lap_count, best, last, total) in enumerate(
-            leaderboard_data, start=1
-        ):
+        for row_index, (
+            pos_label,
+            racer_id,
+            lap_count,
+            best,
+            last,
+            total,
+            is_dq,
+        ) in enumerate(leaderboard_data, start=1):
             name = self.global_contestants.get_contestant_name(racer_id)
-            status_symbol = self._leaderboard_status_symbol(pos, lap_count)
+            if is_dq:
+                status_symbol = "⛔"
+                name = f"{name} (DQ)"
+            else:
+                status_symbol = self._leaderboard_status_symbol(
+                    int(pos_label), lap_count
+                )
             best_s = self._format_time_cs(best)
             last_s = self._format_time_cs(last)
             total_s = self._format_time_cs(total)
 
             row_values: list[tuple[str, float, bool, list[str]]] = [
-                (f"{pos}", 1.0, False, []),
+                (pos_label, 1.0, False, []),
                 (status_symbol, 0.5, False, ["leaderboard-status-cell"]),
                 ("", 0.5, False, []),
                 (name[:name_w], 0.0, True, []),
@@ -1201,7 +1264,46 @@ class FranklinGuiApp(Gtk.Application):
             publish_end_command=True,
         )
 
+    def _apply_remove_lap_from_redis(
+        self, racer_id: int, lap_number: int | None = None
+    ) -> None:
+        target_index: int | None = None
+        target_lap_label = (
+            f"lap {lap_number}" if lap_number is not None else "latest lap"
+        )
+
+        for idx in range(len(self.race.laps) - 1, -1, -1):
+            lap = self.race.laps[idx]
+            if lap.racer_id != racer_id or lap.lap_number <= 0:
+                continue
+            if lap_number is not None and lap.lap_number != lap_number:
+                continue
+            target_index = idx
+            break
+
+        if target_index is None:
+            self.append_event(
+                f"REMOVE LAP: racer {racer_id} {target_lap_label} not found"
+            )
+            return
+
+        removed = self.race.laps.pop(target_index)
+
+        if self.current_race_id:
+            try:
+                _ = self.db.remove_lap(self.current_race_id, racer_id, lap_number)
+            except Exception as exc:
+                logging.error("Failed to remove lap in DB: %s", exc)
+
+        self.append_event(
+            f"REMOVE LAP: racer {racer_id} removed lap {removed.lap_number}"
+        )
+        self.refresh_views()
+
     def _apply_race_reset(self, source: str = "local") -> None:
+        self.racer_penalties_seconds.clear()
+        self.disqualified_racers.clear()
+
         # Keep prior racers visible for the next race with reset stats.
         self.race = Race(previous_race=self.previous_race)
         self.race.total_laps = self.total_laps
@@ -1692,12 +1794,33 @@ class FranklinGuiApp(Gtk.Application):
             return
 
         if msg_type == "race_control":
-            command = msg.get("command")
+            command = str(msg.get("command", ""))
             accepted = bool(msg.get("accepted", True))
-            detail = msg.get("message", "")
-            self.append_event(f"RACE_CONTROL: {command} accepted={accepted} {detail}")
+            detail = str(msg.get("message", ""))
+            racer_id_raw = msg.get("racer_id")
+            racer_id_i = int(racer_id_raw) if racer_id_raw is not None else None
+
+            self.append_event(
+                f"RACE_CONTROL: {command} accepted={accepted} racer={racer_id_i} {detail}"
+            )
+
             if accepted and command == "reset_race":
                 self._apply_race_reset(source="redis")
+            elif accepted and command == "add_penalty" and racer_id_i is not None:
+                penalty_seconds = int(msg.get("penalty_seconds", 0) or 0)
+                if penalty_seconds > 0:
+                    self.racer_penalties_seconds[racer_id_i] = (
+                        self.racer_penalties_seconds.get(racer_id_i, 0)
+                        + penalty_seconds
+                    )
+                    self.refresh_views()
+            elif accepted and command == "disqualify_racer" and racer_id_i is not None:
+                self.disqualified_racers.add(racer_id_i)
+                self.refresh_views()
+            elif accepted and command == "remove_lap" and racer_id_i is not None:
+                lap_no_raw = msg.get("lap_number")
+                lap_no = int(lap_no_raw) if lap_no_raw is not None else None
+                self._apply_remove_lap_from_redis(racer_id_i, lap_no)
             return
 
         if msg_type != "lap":
@@ -1716,6 +1839,11 @@ class FranklinGuiApp(Gtk.Application):
             return
 
         racer_id_i = int(racer_id)
+        if racer_id_i in self.disqualified_racers:
+            name = self.global_contestants.get_contestant_name(racer_id_i)
+            self.append_event(f"Ignored lap: {name} (ID {racer_id_i}) is disqualified")
+            return
+
         self._ensure_racer_color_assignments({racer_id_i}, persist=True)
 
         sensor_id_raw = msg.get("sensor_id", racer_id_i)

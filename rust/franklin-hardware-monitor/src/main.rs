@@ -48,9 +48,19 @@ enum OutMessage {
     },
     RaceControl {
         command: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        command_id: Option<String>,
         accepted: bool,
         #[serde(skip_serializing_if = "Option::is_none")]
         message: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        racer_id: Option<u32>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        penalty_seconds: Option<u32>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        reason: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        lap_number: Option<u32>,
     },
     Raw {
         line: String,
@@ -63,11 +73,19 @@ enum InMessage {
     Command {
         command: String,
         #[serde(skip_serializing_if = "Option::is_none")]
+        command_id: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
         racer_id: Option<u32>,
         #[serde(skip_serializing_if = "Option::is_none")]
         sensor_id: Option<u32>,
         #[serde(skip_serializing_if = "Option::is_none")]
         race_time: Option<f64>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        penalty_seconds: Option<u32>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        reason: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        lap_number: Option<u32>,
     },
 }
 
@@ -126,13 +144,44 @@ impl App {
             OutMessage::Debug { message } => format!("[DEBUG] {}", message),
             OutMessage::RaceControl {
                 command,
+                command_id,
                 accepted,
                 message,
+                racer_id,
+                penalty_seconds,
+                reason,
+                lap_number,
             } => {
                 let status = if *accepted { "accepted" } else { "rejected" };
-                match message {
-                    Some(detail) => format!("[RACE_CONTROL] {} {} ({})", command, status, detail),
-                    None => format!("[RACE_CONTROL] {} {}", command, status),
+                let mut details: Vec<String> = Vec::new();
+                if let Some(cid) = command_id {
+                    details.push(format!("command_id={}", cid));
+                }
+                if let Some(detail) = message {
+                    details.push(detail.clone());
+                }
+                if let Some(rid) = racer_id {
+                    details.push(format!("racer_id={}", rid));
+                }
+                if let Some(penalty) = penalty_seconds {
+                    details.push(format!("penalty_seconds={}", penalty));
+                }
+                if let Some(why) = reason {
+                    details.push(format!("reason={}", why));
+                }
+                if let Some(lap_no) = lap_number {
+                    details.push(format!("lap_number={}", lap_no));
+                }
+
+                if details.is_empty() {
+                    format!("[RACE_CONTROL] {} {}", command, status)
+                } else {
+                    format!(
+                        "[RACE_CONTROL] {} {} ({})",
+                        command,
+                        status,
+                        details.join(", ")
+                    )
                 }
             }
             OutMessage::Raw { line } => format!("[RAW] {}", line),
@@ -726,9 +775,13 @@ async fn command_handler_task(hw: Arc<HardwareComm>, app: Arc<Mutex<App>>) -> Re
                 match in_msg {
                     InMessage::Command {
                         command,
+                        command_id,
                         racer_id,
                         sensor_id,
                         race_time,
+                        penalty_seconds,
+                        reason,
+                        lap_number,
                     } => match command.as_str() {
                         "start_race" => {
                             // Get simulation mode from app state
@@ -759,8 +812,13 @@ async fn command_handler_task(hw: Arc<HardwareComm>, app: Arc<Mutex<App>>) -> Re
 
                             let _ = hw.send_message(&OutMessage::RaceControl {
                                 command: "start_race".to_string(),
+                                command_id: command_id.clone(),
                                 accepted: true,
                                 message: Some(status_message.clone()),
+                                racer_id: None,
+                                penalty_seconds: None,
+                                reason: None,
+                                lap_number: None,
                             });
 
                             info!("{}", status_message);
@@ -787,8 +845,13 @@ async fn command_handler_task(hw: Arc<HardwareComm>, app: Arc<Mutex<App>>) -> Re
 
                             let _ = hw.send_message(&OutMessage::RaceControl {
                                 command: "end_race".to_string(),
+                                command_id: command_id.clone(),
                                 accepted: true,
                                 message: Some(status_message.clone()),
+                                racer_id: None,
+                                penalty_seconds: None,
+                                reason: None,
+                                lap_number: None,
                             });
 
                             info!("{}", status_message);
@@ -807,8 +870,13 @@ async fn command_handler_task(hw: Arc<HardwareComm>, app: Arc<Mutex<App>>) -> Re
                             });
                             let _ = hw.send_message(&OutMessage::RaceControl {
                                 command: "reset_race".to_string(),
+                                command_id: command_id.clone(),
                                 accepted: true,
                                 message: Some(status_message.clone()),
+                                racer_id: None,
+                                penalty_seconds: None,
+                                reason: None,
+                                lap_number: None,
                             });
                             info!("{}", status_message);
                         }
@@ -821,6 +889,132 @@ async fn command_handler_task(hw: Arc<HardwareComm>, app: Arc<Mutex<App>>) -> Re
                                 error!("Failed to send lap message: {}", e);
                             }
                             info!("Simulated lap for racer {}", racer_id.unwrap_or(1));
+                        }
+                        "add_penalty" => {
+                            let rid = match racer_id {
+                                Some(id) => id,
+                                None => {
+                                    let _ = hw.send_message(&OutMessage::RaceControl {
+                                        command: "add_penalty".to_string(),
+                                        command_id: command_id.clone(),
+                                        accepted: false,
+                                        message: Some("Missing racer_id".to_string()),
+                                        racer_id: None,
+                                        penalty_seconds: None,
+                                        reason: reason.clone(),
+                                        lap_number: None,
+                                    });
+                                    continue;
+                                }
+                            };
+
+                            let penalty = penalty_seconds.unwrap_or(5);
+                            if penalty == 0 || penalty % 5 != 0 {
+                                let _ = hw.send_message(&OutMessage::RaceControl {
+                                    command: "add_penalty".to_string(),
+                                    command_id: command_id.clone(),
+                                    accepted: false,
+                                    message: Some(
+                                        "Penalty must be a positive 5-second increment".to_string(),
+                                    ),
+                                    racer_id: Some(rid),
+                                    penalty_seconds: Some(penalty),
+                                    reason: reason.clone(),
+                                    lap_number: None,
+                                });
+                                continue;
+                            }
+
+                            let _ = hw.send_message(&OutMessage::RaceControl {
+                                command: "add_penalty".to_string(),
+                                command_id: command_id.clone(),
+                                accepted: true,
+                                message: Some("Penalty accepted".to_string()),
+                                racer_id: Some(rid),
+                                penalty_seconds: Some(penalty),
+                                reason: reason.clone(),
+                                lap_number: None,
+                            });
+                            info!("Penalty accepted for racer {}: {}s", rid, penalty);
+                        }
+                        "remove_lap" => {
+                            let rid = match racer_id {
+                                Some(id) => id,
+                                None => {
+                                    let _ = hw.send_message(&OutMessage::RaceControl {
+                                        command: "remove_lap".to_string(),
+                                        command_id: command_id.clone(),
+                                        accepted: false,
+                                        message: Some("Missing racer_id".to_string()),
+                                        racer_id: None,
+                                        penalty_seconds: None,
+                                        reason: reason.clone(),
+                                        lap_number,
+                                    });
+                                    continue;
+                                }
+                            };
+
+                            if let Some(lap_no) = lap_number {
+                                if lap_no == 0 {
+                                    let _ = hw.send_message(&OutMessage::RaceControl {
+                                        command: "remove_lap".to_string(),
+                                        command_id: command_id.clone(),
+                                        accepted: false,
+                                        message: Some("lap_number must be > 0".to_string()),
+                                        racer_id: Some(rid),
+                                        penalty_seconds: None,
+                                        reason: reason.clone(),
+                                        lap_number: Some(lap_no),
+                                    });
+                                    continue;
+                                }
+                            }
+
+                            let _ = hw.send_message(&OutMessage::RaceControl {
+                                command: "remove_lap".to_string(),
+                                command_id: command_id.clone(),
+                                accepted: true,
+                                message: Some("Lap removal accepted".to_string()),
+                                racer_id: Some(rid),
+                                penalty_seconds: None,
+                                reason: reason.clone(),
+                                lap_number,
+                            });
+                            info!(
+                                "Lap removal accepted for racer {} lap {:?}",
+                                rid, lap_number
+                            );
+                        }
+                        "disqualify_racer" => {
+                            let rid = match racer_id {
+                                Some(id) => id,
+                                None => {
+                                    let _ = hw.send_message(&OutMessage::RaceControl {
+                                        command: "disqualify_racer".to_string(),
+                                        command_id: command_id.clone(),
+                                        accepted: false,
+                                        message: Some("Missing racer_id".to_string()),
+                                        racer_id: None,
+                                        penalty_seconds: None,
+                                        reason: reason.clone(),
+                                        lap_number: None,
+                                    });
+                                    continue;
+                                }
+                            };
+
+                            let _ = hw.send_message(&OutMessage::RaceControl {
+                                command: "disqualify_racer".to_string(),
+                                command_id: command_id.clone(),
+                                accepted: true,
+                                message: Some("Racer disqualified".to_string()),
+                                racer_id: Some(rid),
+                                penalty_seconds: None,
+                                reason: reason.clone(),
+                                lap_number: None,
+                            });
+                            info!("Racer disqualified: {}", rid);
                         }
                         _ => {
                             error!("Unknown command: {}", command);

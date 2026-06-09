@@ -1,6 +1,14 @@
 # Referee Web App: Architecture and Message Contract (Draft)
 
-Status: draft for implementation planning.
+Status: active plan; baseline implementation in progress.
+
+Implemented baseline:
+
+- `reset_race`, `remove_lap`, `add_penalty`, and `disqualify_racer` command handling in the owner process (`rust/franklin-hardware-monitor/src/main.rs`)
+- race-control events emitted on `franklin:events`
+- GUI/TUI consumers subscribe to `franklin:events` and apply reset/penalty/DQ state locally for display
+- initial referee web app at `referee_web_app.py` (`/` served from `static/referee.html`)
+- race-control audit log persisted in SQLite table `race_control_actions`
 
 ## Goal
 
@@ -271,6 +279,8 @@ On rejection:
 Current SQLite schema (`database.py`) stores races/laps only.
 
 Add tables (or equivalent) for officiating actions:
+
+> Implemented now: `race_control_actions` (append-only audit of accepted/rejected control outcomes)
 
 - `race_penalties`
   - `id`, `race_id`, `racer_id`, `penalty_seconds`, `reason`, `command_id`, `created_at`

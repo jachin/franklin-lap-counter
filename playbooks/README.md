@@ -1,6 +1,6 @@
 # Ansible Playbooks for Raspberry Pi Setup
 
-These playbooks replace the behavior from `scripts/setup-pi.sh` in a modular, idempotent way.
+These playbooks provide modular, idempotent infrastructure/setup and deployment for Franklin.
 
 ## Playbook layout
 
@@ -17,9 +17,11 @@ These playbooks replace the behavior from `scripts/setup-pi.sh` in a modular, id
 - `57-hdmi-hotplug.yml` - ensure `hdmi_force_hotplug=1` in firmware config for monitor detection reliability
 - `58-wayvnc.yml` - install/configure WayVNC for SSH-tunneled remote GUI access
 - `60-system-info.yml` - print OS/Python/glibc/Redis info
-- `61-health-check.yml` - runtime health check for tmux/redis/heartbeat/gui errors
+- `61-health-check.yml` - verifies Caddy + health-check app and fetches the health report JSON
+- `62-bounce-web-apps.yml` - respawn/create tmux web windows (`web`, `referee`, `healthcheck`)
+- `63-reboot.yml` - reboot target host and wait for reconnect
 - `site.yml` - runs setup playbooks in order
-- `deploy-franklin.yml` - deploy app artifacts to Pi (replacement for `scripts/deploy-to-pi.sh`), including `franklin-tui.py` and `franklin-gui.py`
+- `deploy-franklin.yml` - deploy app artifacts (`franklin-hardware-monitor`, Python apps, static/, tmuxinator/, etc.)
 
 ## Files
 

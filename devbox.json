@@ -48,7 +48,6 @@
       "referee-web": ["python referee_web_app.py"],
       "healthcheck-web": ["python healthcheck_web_app.py"],
       "rust-build": ["cargo build --manifest-path rust/Cargo.toml"],
-      "rust-build-pi-image": ["./scripts/build-rust-image.sh"],
       "rust-pi-build": ["./scripts/rust-pi-build.sh"],
       "rust-build-release": [
         "cargo build --release --manifest-path rust/Cargo.toml"
@@ -56,8 +55,6 @@
       "ansible:setup": [
         "ansible-playbook -i playbooks/inventory.ini playbooks/site.yml"
       ],
-
-      "pi-vnc-restart": ["./scripts/restart-wayvnc-pi.sh"],
 
       "ansible:web-bounce": [
         "ansible-playbook -i playbooks/inventory.ini playbooks/62-bounce-web-apps.yml"

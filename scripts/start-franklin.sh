@@ -62,8 +62,8 @@ check_files() {
         missing_files+=("franklin-tui.py")
     fi
 
-    if [ ! -f "web_server.py" ]; then
-        missing_files+=("web_server.py")
+    if [ ! -f "scoreboard_web_app.py" ]; then
+        missing_files+=("scoreboard_web_app.py")
     fi
 
     if [ ! -d ".venv" ]; then
@@ -162,7 +162,7 @@ status_franklin() {
         log "  ❌ Franklin TUI not running"
     fi
 
-    if pgrep -f "web_server.py" >/dev/null 2>&1; then
+    if pgrep -f "scoreboard_web_app.py" >/dev/null 2>&1; then
         log "  ✓ Web server running"
     else
         log "  ❌ Web server not running"

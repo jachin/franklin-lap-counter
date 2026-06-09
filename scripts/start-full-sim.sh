@@ -30,7 +30,7 @@ cargo run --manifest-path rust/Cargo.toml --bin franklin-hardware-monitor -- --s
 HW_PID=$!
 
 echo "Starting web server..."
-python web_server.py &
+python scoreboard_web_app.py &
 WEB_PID=$!
 
 echo "Starting Franklin in sim mode (race UI)..."

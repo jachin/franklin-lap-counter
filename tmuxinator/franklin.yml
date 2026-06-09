@@ -78,7 +78,7 @@ windows:
             - echo "Waiting for services to be ready..."
             - sleep 4
             - echo "Starting Web Server..."
-            - python web_server.py
+            - python scoreboard_web_app.py
   - logs:
       layout: main-horizontal
       panes:

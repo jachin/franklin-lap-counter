@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-WebSocket server that bridges Redis pub/sub to WebSocket clients.
-Subscribes to hardware:out Redis channel and broadcasts events to all connected WebSocket clients.
+Scoreboard web app server that bridges Redis pub/sub to connected clients.
+Subscribes to the `hardware:out` Redis channel and broadcasts race events over WebSocket.
 """
 
 import asyncio
@@ -32,7 +32,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-class WebSocketServer:
+class ScoreboardWebAppServer:
     def __init__(
         self,
         redis_socket: str = REDIS_SOCKET_PATH,
@@ -295,12 +295,12 @@ class WebSocketServer:
         await app["redis_listener_task"]
 
     def run(self) -> None:
-        """Start the web server"""
+        """Start the scoreboard web app server"""
         # Setup startup/cleanup
         self.app.on_startup.append(self.start_background_tasks)
         self.app.on_cleanup.append(self.cleanup_background_tasks)
 
-        logger.info(f"Starting WebSocket server on http://{self.host}:{self.port}")
+        logger.info(f"Starting scoreboard web app on http://{self.host}:{self.port}")
         logger.info(f"Serving static files from: {STATIC_DIR}")
 
         web.run_app(self.app, host=self.host, port=self.port)
@@ -308,7 +308,7 @@ class WebSocketServer:
 
 def main() -> None:
     """Main entry point"""
-    server = WebSocketServer()
+    server = ScoreboardWebAppServer()
     server.run()
 
 

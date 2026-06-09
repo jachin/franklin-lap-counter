@@ -30,7 +30,7 @@ windows:
       panes:
         - server:
             - echo "Starting web server..."
-            - python web_server.py
+            - python scoreboard_web_app.py
   - logs:
       layout: main-horizontal
       panes:

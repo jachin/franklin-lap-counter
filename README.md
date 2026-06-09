@@ -8,7 +8,7 @@ The name is a nod to [Benjamin Franklin Miessner](https://en.wikipedia.org/wiki/
 
 ## Architecture
 
-The system uses Redis for communication between components, allowing you to run the hardware interface and race UI in separate terminals.
+The system uses Redis for communication between components, allowing you to run the hardware interface, race UI, and scoreboard web app in separate terminals.
 
 ```
 ┌─────────────────────┐         ┌─────────────┐         ┌──────────────────────┐
@@ -83,6 +83,22 @@ Or with GTK GUI:
 devbox shell
 python franklin-gui.py --fake
 ```
+
+## Scoreboard Web App
+
+Run the scoreboard web app:
+
+```bash
+devbox shell
+devbox run web
+```
+
+This starts `scoreboard_web_app.py` on `0.0.0.0:8080`.
+
+- On the Pi itself: `http://127.0.0.1:8080`
+- From a device on the same network or AP: `http://<pi-ip>:8080`
+
+The app serves the live scoreboard UI and exposes WebSocket/REST endpoints used for race data.
 
 ## Controls
 

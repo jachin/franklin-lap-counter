@@ -30,23 +30,25 @@
       "redis-server --daemonize yes --unixsocket ./redis.sock --unixsocketperm 700"
     ],
     "scripts": {
-      "franklin": ["python franklin-tui.py"],
-      "franklin-sim": ["python franklin-tui.py --fake"],
-      "franklin-gui": ["python franklin-gui.py"],
       "full-sim": ["tmuxinator start -p tmuxinator/full-sim.yml"],
       "full-sim-attach": ["tmux attach-session -t franklin-full-sim"],
       "full-sim-stop": ["tmux kill-session -t franklin-full-sim"],
-      "lint-franklin": [
+      "lint": [
+        "devbox run lint:python",
+        "devbox run lint:web",
+        "devbox run lint:rust"
+      ],
+      "lint:python": [
         "ruff check franklin-tui.py franklin-gui.py scoreboard_web_app.py referee_web_app.py healthcheck_web_app.py database.py race",
         "basedpyright franklin-tui.py franklin-gui.py scoreboard_web_app.py referee_web_app.py healthcheck_web_app.py database.py race"
       ],
-      "lint-web": ["biome check --files-ignore-unknown=true static"],
-      "test-franklin": [
+      "lint:web": ["biome check --files-ignore-unknown=true static"],
+      "lint:rust": ["cargo check --manifest-path rust/Cargo.toml"],
+      "test": ["devbox run test:python", "devbox run test:rust"],
+      "test:python": [
         "python -m unittest discover -s race -t . -p '*_test.py'"
       ],
-      "web": ["python scoreboard_web_app.py"],
-      "referee-web": ["python referee_web_app.py"],
-      "healthcheck-web": ["python healthcheck_web_app.py"],
+      "test:rust": ["cargo test --manifest-path rust/Cargo.toml"],
       "rust-build": ["cargo build --manifest-path rust/Cargo.toml"],
       "rust-pi-build": ["./scripts/rust-pi-build.sh"],
       "rust-build-release": [
@@ -62,10 +64,6 @@
       "ansible:reboot": [
         "ansible-playbook -i playbooks/inventory.ini playbooks/63-reboot.yml"
       ],
-      "pi-vnc-help": [
-        "echo '1) Run: devbox run pi-vnc-tunnel'",
-        "echo '2) Then run: devbox run pi-vnc-open'"
-      ],
       "pi-vnc-tunnel": [
         "echo 'Opening SSH tunnel localhost:5901 -> 127.0.0.1:5900 on Pi (Ctrl+C to stop)'",
         "ssh -N -L 5901:127.0.0.1:5900 jachin@10.27.1.64"
@@ -77,21 +75,7 @@
 
       "ansible:health-check": [
         "ansible-playbook -i playbooks/inventory.ini playbooks/61-health-check.yml"
-      ],
-      "rust-hw-sim": [
-        "cargo run --manifest-path rust/Cargo.toml --bin franklin-hardware-monitor -- --sim"
-      ],
-      "rust-hw-sim-verbose": [
-        "cargo run --manifest-path rust/Cargo.toml --bin franklin-hardware-monitor -- --sim --verbose"
-      ],
-      "rust-hw": [
-        "cargo run --manifest-path rust/Cargo.toml --bin franklin-hardware-monitor"
-      ],
-      "rust-hw-verbose": [
-        "cargo run --manifest-path rust/Cargo.toml --bin franklin-hardware-monitor -- --verbose"
-      ],
-      "rust-check": ["cargo check --manifest-path rust/Cargo.toml"],
-      "rust-test": ["cargo test --manifest-path rust/Cargo.toml"]
+      ]
     }
   }
 }

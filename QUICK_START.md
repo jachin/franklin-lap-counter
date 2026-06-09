@@ -13,70 +13,36 @@ The Rust `franklin-hardware-monitor` is now fully functional with:
 
 ## Running the System
 
-### Option 1: Interactive TUI (Recommended for Testing)
+### Deploy + run on target host (recommended workflow)
 
-**Python Version:**
 ```bash
-# Start devbox shell (auto-starts Redis)
-devbox shell
-
-# Run in simulation mode
-devbox run hw-sim
+devbox run ansible:setup
+devbox run ansible:deploy
+devbox run ansible:web-bounce
+devbox run ansible:health-check
 ```
 
-**Rust Version (Recommended):**
+### Local full simulation
+
 ```bash
-# Run in simulation mode
-devbox run rust-hw-sim
-
-# Run in hardware mode (connects to real device)
-devbox run rust-hw
-
-# Run with verbose mode (shows RAW and HEARTBEAT messages)
-devbox run rust-hw-verbose
-devbox run rust-hw-sim-verbose
+devbox run full-sim
+# Optional: attach to the tmux session
+devbox run full-sim-attach
 ```
 
-**TUI Controls:**
-- **S** - Start race (simulation mode only)
-- **P** - Stop race (simulation mode only)
-- **1, 2, 3, 4** - Simulate lap for racer 1-4 (simulation mode only)
-- **Q** - Quit
-
-**Command-line Flags:**
-- `--sim` or `-s` - Run in simulation mode
-- `--verbose` or `-v` - Show RAW and HEARTBEAT messages
-- `--serial-port <path>` or `-p <path>` - Specify serial port path
-- `--baudrate <rate>` or `-b <rate>` - Set baudrate (default: 9600)
-- `--redis-socket <path>` - Specify Redis socket path
-
-### Option 2: Automated Test
+### Manual Redis testing
 
 ```bash
-devbox run hw-test
-```
-
-This runs automated tests and shows you all the messages flowing through Redis.
-
-**Note:** If you see duplicate lap events (6 instead of 3), you have another instance running. Kill it with:
-```bash
-pkill -f 'franklin-hardware-monitor'
-```
-Then run the test again.
-
-### Option 3: Manual Redis Testing
-
-```bash
-# Terminal 1: Subscribe to messages
+# Terminal 1: subscribe to messages
 devbox shell
 redis-cli -s ./redis.sock
 > SUBSCRIBE hardware:out
 
-# Terminal 2: Run hardware comm
-devbox shell  
-devbox run rust-hw-sim
+# Terminal 2: run hardware monitor in sim mode
+devbox shell
+cargo run --manifest-path rust/Cargo.toml --bin franklin-hardware-monitor -- --sim
 
-# Terminal 3: Send commands
+# Terminal 3: send commands
 devbox shell
 redis-cli -s ./redis.sock
 > PUBLISH hardware:in '{"type":"command","command":"start_race"}'
@@ -160,23 +126,24 @@ All activity is logged to: `hardware_redis.log`
 
 ## Available Devbox Scripts
 
-**Rust Hardware Communication:**
-- `rust-hw` - Run hardware mode (connects to real device)
-- `rust-hw-verbose` - Run hardware mode with verbose output
-- `rust-hw-sim` - Run simulation mode
-- `rust-hw-sim-verbose` - Run simulation mode with verbose output
-- `rust-build` - Build the Rust project
-- `rust-build-release` - Build optimized release version
-- `rust-check` - Check Rust code for errors
-- `rust-test` - Run Rust tests
+**Core Ansible workflow:**
+- `ansible:setup` - Full machine setup (packages/services/network/caddy/etc.)
+- `ansible:deploy` - Deploy app artifacts to target host
+- `ansible:web-bounce` - Ensure tmux web windows are created/running (`web`, `referee`, `healthcheck`)
+- `ansible:health-check` - Run runtime health check through the health-check web app
+- `ansible:reboot` - Reboot target host via Ansible
 
-**Python Hardware Communication:**
-- `hardware-monitor` - Run Python hardware mode
-- `hw-sim` - Run Python simulation mode
+**Build / simulation:**
+- `rust-build` - Build Rust project (debug)
+- `rust-build-release` - Build Rust project (release)
+- `rust-pi-build` - Build release binary for Pi target (`aarch64-unknown-linux-gnu` by default)
+- `full-sim` / `full-sim-attach` / `full-sim-stop` - Manage full simulation tmux session
 
-**Other Services:**
-- `franklin` - Run the Franklin TUI for race management
-- `web` - Run the web server
+**Quality checks:**
+- `lint` - Run all lint checks
+- `lint:python` / `lint:web` / `lint:rust` - Run targeted lint checks
+- `test` - Run all tests
+- `test:python` / `test:rust` - Run targeted test suites
 
 ## Next Steps for Your Refactor
 
@@ -187,4 +154,4 @@ All activity is logged to: `hardware_redis.log`
 
 ---
 
-**Note:** Use the Rust version (`rust-hw`) as it's more performant and has better error handling. The `--verbose` flag is useful for debugging but can clutter the display with HEARTBEAT and RAW messages during normal operation.
+**Note:** Use the Rust hardware monitor (`franklin-hardware-monitor`) for best performance and reliability.

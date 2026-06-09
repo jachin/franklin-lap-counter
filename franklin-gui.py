@@ -862,6 +862,9 @@ class FranklinGuiApp(Gtk.Application):
         swatch = Gtk.DrawingArea()
         swatch.set_content_width(24)
         swatch.set_content_height(14)
+        swatch.set_size_request(24, 14)
+        swatch.set_hexpand(False)
+        swatch.set_vexpand(False)
         swatch.set_halign(Gtk.Align.CENTER)
         swatch.set_valign(Gtk.Align.CENTER)
 

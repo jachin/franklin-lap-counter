@@ -853,6 +853,84 @@ class FranklinGuiApp(Gtk.Application):
         except ValueError:
             return (0.5, 0.5, 0.5)
 
+    def _hex_to_rgba(self, color_hex: str) -> Gdk.RGBA:
+        rgba = Gdk.RGBA()
+        if not rgba.parse(color_hex):
+            rgba.parse("#777777")
+        return rgba
+
+    def _rgba_to_hex(self, rgba: Gdk.RGBA) -> str:
+        r = max(0, min(255, int(round(rgba.red * 255))))
+        g = max(0, min(255, int(round(rgba.green * 255))))
+        b = max(0, min(255, int(round(rgba.blue * 255))))
+        return f"#{r:02x}{g:02x}{b:02x}"
+
+    def _new_color_picker_button(
+        self, initial_hex: str, on_hex_changed: Any
+    ) -> Gtk.Widget:
+        rgba = self._hex_to_rgba(initial_hex)
+
+        # Prefer GTK4 ColorDialogButton when available.
+        color_dialog_cls = getattr(Gtk, "ColorDialog", None)
+        color_dialog_button_cls = getattr(Gtk, "ColorDialogButton", None)
+        if color_dialog_cls is not None and color_dialog_button_cls is not None:
+            try:
+                color_dialog = color_dialog_cls()
+                button = color_dialog_button_cls.new(color_dialog)
+                button.set_rgba(rgba)
+                button.connect(
+                    "notify::rgba",
+                    lambda b, _pspec: on_hex_changed(self._rgba_to_hex(b.get_rgba())),
+                )
+                return button
+            except Exception:
+                pass
+
+        # Fallback for environments exposing ColorButton API.
+        color_button_cls = getattr(Gtk, "ColorButton", None)
+        if color_button_cls is not None:
+            try:
+                button = color_button_cls.new()
+                button.set_rgba(rgba)
+                button.connect(
+                    "color-set",
+                    lambda b: on_hex_changed(self._rgba_to_hex(b.get_rgba())),
+                )
+                return button
+            except Exception:
+                pass
+
+        # Generic fallback: open a color chooser dialog from a button.
+        chooser_dialog_cls = getattr(Gtk, "ColorChooserDialog", None)
+        if chooser_dialog_cls is not None and self.window is not None:
+            button = Gtk.Button(label="Pick")
+
+            def on_pick_clicked(_btn: Gtk.Button) -> None:
+                dialog = chooser_dialog_cls(
+                    title="Pick color",
+                    transient_for=self.window,
+                    modal=True,
+                )
+                if hasattr(dialog, "set_rgba"):
+                    dialog.set_rgba(rgba)
+
+                def on_response(d: Gtk.Dialog, response: int) -> None:
+                    if response == Gtk.ResponseType.OK and hasattr(d, "get_rgba"):
+                        new_rgba = d.get_rgba()
+                        on_hex_changed(self._rgba_to_hex(new_rgba))
+                    d.destroy()
+
+                dialog.connect("response", on_response)
+                dialog.present()
+
+            button.connect("clicked", on_pick_clicked)
+            return button
+
+        # Last-resort fallback: keep a compact text indicator button.
+        button = Gtk.Button(label=initial_hex.upper())
+        button.set_sensitive(False)
+        return button
+
     def _apply_widget_background(self, widget: Gtk.Widget, color_hex: str) -> None:
         css_provider = Gtk.CssProvider()
         css_provider.load_from_data(f"* {{ background-color: {color_hex}; }}".encode())
@@ -865,18 +943,18 @@ class FranklinGuiApp(Gtk.Application):
         self, primary_hex: str, secondary_hex: str
     ) -> Gtk.Widget:
         swatch = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
-        swatch.set_size_request(24, 14)
+        swatch.set_size_request(34, 20)
         swatch.set_hexpand(False)
         swatch.set_vexpand(False)
         swatch.set_halign(Gtk.Align.CENTER)
         swatch.set_valign(Gtk.Align.CENTER)
 
         top = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
-        top.set_size_request(24, 5)
+        top.set_size_request(34, 7)
         middle = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
-        middle.set_size_request(24, 4)
+        middle.set_size_request(34, 6)
         bottom = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
-        bottom.set_size_request(24, 5)
+        bottom.set_size_request(34, 7)
 
         self._apply_widget_background(top, primary_hex)
         self._apply_widget_background(middle, secondary_hex)
@@ -888,7 +966,7 @@ class FranklinGuiApp(Gtk.Application):
 
         frame = Gtk.Frame()
         frame.set_child(swatch)
-        frame.set_size_request(26, 16)
+        frame.set_size_request(36, 22)
         frame.set_hexpand(False)
         frame.set_vexpand(False)
         frame.set_halign(Gtk.Align.CENTER)
@@ -921,8 +999,8 @@ class FranklinGuiApp(Gtk.Application):
         if not self.leaderboard_grid:
             return
 
-        status_col_width_px = 50
-        swatch_col_width_px = 40
+        status_col_width_px = 48
+        swatch_col_width_px = 56
 
         child = self.leaderboard_grid.get_first_child()
         while child is not None:
@@ -1235,7 +1313,7 @@ class FranklinGuiApp(Gtk.Application):
         root.set_margin_end(8)
 
         help_text = Gtk.Label(
-            label="Edit names/colors, add or delete drivers. Colors use #RRGGBB. Enter=Add, Ctrl+Enter=Save, Ctrl+D=Delete focused driver, Esc=Cancel."
+            label="Edit names/colors, add or delete drivers. Use the color pickers for primary/secondary colors. Enter=Add, Ctrl+Enter=Save, Ctrl+D=Delete focused driver, Esc=Cancel."
         )
         help_text.set_xalign(0)
         root.append(help_text)
@@ -1275,16 +1353,6 @@ class FranklinGuiApp(Gtk.Application):
             if tid in self.racer_color_assignments
         }
         focused_driver_id: int | None = None
-        color_entry_refs: dict[int, tuple[Gtk.Entry, Gtk.Entry]] = {}
-
-        def normalize_hex_color(raw: str) -> str | None:
-            value = raw.strip().lower()
-            if len(value) != 7 or not value.startswith("#"):
-                return None
-            hex_part = value[1:]
-            if not all(c in "0123456789abcdef" for c in hex_part):
-                return None
-            return value
 
         def set_status(msg: str) -> None:
             status_label.set_text(msg)
@@ -1298,7 +1366,6 @@ class FranklinGuiApp(Gtk.Application):
                 return False
             staged.pop(tid, None)
             staged_colors.pop(tid, None)
-            color_entry_refs.pop(tid, None)
             refresh_driver_rows()
             set_status(f"Deleted driver {tid}")
             return True
@@ -1311,7 +1378,6 @@ class FranklinGuiApp(Gtk.Application):
                 child = next_child
 
             nonlocal focused_driver_id
-            color_entry_refs.clear()
 
             for transmitter_id in sorted(staged.keys()):
                 row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
@@ -1338,35 +1404,32 @@ class FranklinGuiApp(Gtk.Application):
                     primary_color, secondary_color
                 )
 
-                primary_entry = Gtk.Entry()
-                primary_entry.set_width_chars(8)
-                primary_entry.set_text(primary_color)
-                primary_entry.set_placeholder_text("#RRGGBB")
-
-                secondary_entry = Gtk.Entry()
-                secondary_entry.set_width_chars(8)
-                secondary_entry.set_text(secondary_color)
-                secondary_entry.set_placeholder_text("#RRGGBB")
-
-                def on_color_changed(
-                    _entry: Gtk.Entry,
-                    tid: int = transmitter_id,
-                    p_entry: Gtk.Entry = primary_entry,
-                    s_entry: Gtk.Entry = secondary_entry,
-                ) -> None:
-                    primary_norm = normalize_hex_color(p_entry.get_text())
-                    secondary_norm = normalize_hex_color(s_entry.get_text())
-                    if primary_norm is None or secondary_norm is None:
-                        return
-                    staged_colors[tid] = (primary_norm, secondary_norm)
-                    # Rebuild row widgets to refresh swatch with new colors.
+                def on_primary_changed(new_hex: str, tid: int = transmitter_id) -> None:
+                    current_primary, current_secondary = staged_colors.get(
+                        tid, ("#777777", "#bbbbbb")
+                    )
+                    staged_colors[tid] = (new_hex, current_secondary)
                     refresh_driver_rows()
                     set_focused_driver(tid)
 
-                primary_entry.connect("changed", on_color_changed)
-                secondary_entry.connect("changed", on_color_changed)
+                def on_secondary_changed(
+                    new_hex: str, tid: int = transmitter_id
+                ) -> None:
+                    current_primary, current_secondary = staged_colors.get(
+                        tid, ("#777777", "#bbbbbb")
+                    )
+                    staged_colors[tid] = (current_primary, new_hex)
+                    refresh_driver_rows()
+                    set_focused_driver(tid)
 
-                color_entry_refs[transmitter_id] = (primary_entry, secondary_entry)
+                primary_picker = self._new_color_picker_button(
+                    primary_color,
+                    on_primary_changed,
+                )
+                secondary_picker = self._new_color_picker_button(
+                    secondary_color,
+                    on_secondary_changed,
+                )
 
                 name_focus = Gtk.EventControllerFocus()
                 name_focus.connect(
@@ -1393,8 +1456,8 @@ class FranklinGuiApp(Gtk.Application):
                 row.append(id_label)
                 row.append(name_entry)
                 row.append(swatch)
-                row.append(primary_entry)
-                row.append(secondary_entry)
+                row.append(primary_picker)
+                row.append(secondary_picker)
                 row.append(delete_btn)
                 list_box.append(row)
 
@@ -1477,24 +1540,10 @@ class FranklinGuiApp(Gtk.Application):
                     tid: name.strip() for tid, name in staged.items() if name.strip()
                 }
 
-                validated_colors: dict[int, RacerColorScheme] = {}
-                for tid in sorted(cleaned.keys()):
-                    color_entries = color_entry_refs.get(tid)
-                    if color_entries is None:
-                        validated_colors[tid] = staged_colors.get(
-                            tid, ("#777777", "#bbbbbb")
-                        )
-                        continue
-
-                    p_entry, s_entry = color_entries
-
-                    primary_norm = normalize_hex_color(p_entry.get_text())
-                    secondary_norm = normalize_hex_color(s_entry.get_text())
-                    if primary_norm is None or secondary_norm is None:
-                        set_status(f"Driver {tid}: colors must be valid #RRGGBB values")
-                        return
-
-                    validated_colors[tid] = (primary_norm, secondary_norm)
+                validated_colors: dict[int, RacerColorScheme] = {
+                    tid: staged_colors.get(tid, ("#777777", "#bbbbbb"))
+                    for tid in sorted(cleaned.keys())
+                }
 
                 self.global_contestants.contestants = [
                     Contestant(transmitter_id=tid, name=cleaned[tid])

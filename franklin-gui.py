@@ -1901,7 +1901,16 @@ class FranklinGuiApp(Gtk.Application):
             return
 
         racer_id = msg.get("racer_id")
+        lap_at = msg.get("lap_at")
+        race_start_at = msg.get("race_start_at")
         hardware_race_time = msg.get("race_time")
+
+        if (
+            hardware_race_time is None
+            and isinstance(lap_at, (int, float))
+            and isinstance(race_start_at, (int, float))
+        ):
+            hardware_race_time = float(lap_at) - float(race_start_at)
 
         if racer_id is None or hardware_race_time is None:
             self.append_event("Invalid lap data received")

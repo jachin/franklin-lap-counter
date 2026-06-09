@@ -480,7 +480,18 @@ class Franklin(App[Any]):  # type: ignore[type-arg]
                             )
                             if self.race.state == self.race.state.RUNNING:
                                 racer_id = msg.get("racer_id")
+                                lap_at = msg.get("lap_at")
+                                race_start_at = msg.get("race_start_at")
                                 hardware_race_time = msg.get("race_time")
+                                if (
+                                    hardware_race_time is None
+                                    and isinstance(lap_at, (int, float))
+                                    and isinstance(race_start_at, (int, float))
+                                ):
+                                    hardware_race_time = float(lap_at) - float(
+                                        race_start_at
+                                    )
+
                                 if (
                                     racer_id is not None
                                     and hardware_race_time is not None
@@ -497,7 +508,7 @@ class Franklin(App[Any]):  # type: ignore[type-arg]
 
                                     lap = make_lap_from_sensor_data_and_race(
                                         racer_id,
-                                        hardware_race_time,
+                                        float(hardware_race_time),
                                         internal_time,
                                         self.race,
                                     )

@@ -78,7 +78,16 @@ Channel policy:
 ### `lap`
 
 ```json
-{"type":"lap","racer_id":1,"sensor_id":1,"race_time":12.345,"simulated":false}
+{
+  "type":"lap",
+  "racer_id":1,
+  "sensor_id":1,
+  "race_time":12.345,
+  "lap_number":3,
+  "race_start_at":1736200000.250,
+  "lap_at":1736200012.595,
+  "simulated":false
+}
 ```
 
 ### `error`
@@ -107,6 +116,12 @@ Schema exists in Rust `OutMessage`, but `Raw` is intentionally **not published**
 
 - `true`: event came from simulator path (or `simulate_lap` command path)
 - `false`: event came from real hardware path
+
+Lap time semantics:
+
+- `lap_at` and `race_start_at` are Unix epoch seconds (authoritative absolute timeline)
+- `lap_number` is per-racer sequence count from lap stream (does not include penalties)
+- `race_time` is kept for compatibility and equals `lap_at - race_start_at`
 
 ## 3) Control timeline events on `franklin:events`
 

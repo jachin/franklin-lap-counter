@@ -15,6 +15,7 @@ use ratatui::{
 use redis::Commands;
 use serde::{Deserialize, Serialize};
 use serialport::SerialPort;
+use std::collections::HashMap;
 use std::io::{self, BufRead, BufReader};
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -36,6 +37,9 @@ enum OutMessage {
         racer_id: u32,
         sensor_id: u32,
         race_time: f64,
+        lap_number: u32,
+        race_start_at: f64,
+        lap_at: f64,
         #[serde(default)]
         simulated: bool,
     },
@@ -138,6 +142,8 @@ struct App {
     verbose: bool,
     race_active: bool,
     race_start_time: Option<Instant>,
+    race_start_epoch: Option<f64>,
+    lap_counts: HashMap<u32, u32>,
     last_heartbeat: Option<Instant>,
     reset_requested: bool,
     should_quit: bool,
@@ -152,6 +158,8 @@ impl App {
             verbose,
             race_active: false,
             race_start_time: None,
+            race_start_epoch: None,
+            lap_counts: HashMap::new(),
             last_heartbeat: None,
             reset_requested: false,
             should_quit: false,
@@ -175,13 +183,19 @@ impl App {
                 racer_id,
                 sensor_id,
                 race_time,
+                lap_number,
+                race_start_at,
+                lap_at,
                 simulated,
             } => format!(
-                "[LAP{}] Racer {} - Sensor {} - Time: {:.3}s",
+                "[LAP{}] Racer {} - Sensor {} - lap={} rel={:.3}s start_at={:.3} lap_at={:.3}",
                 if *simulated { " (SIM)" } else { "" },
                 racer_id,
                 sensor_id,
-                race_time
+                lap_number,
+                race_time,
+                race_start_at,
+                lap_at
             ),
             OutMessage::Heartbeat { simulated } => {
                 if *simulated {
@@ -409,6 +423,9 @@ impl HardwareComm {
                                 racer_id,
                                 sensor_id,
                                 race_time,
+                                lap_number: 0,
+                                race_start_at: 0.0,
+                                lap_at: 0.0,
                                 simulated: false,
                             });
                         } else {
@@ -734,10 +751,30 @@ async fn hardware_task(hw: Arc<HardwareComm>, app: Arc<Mutex<App>>) -> Result<()
                     info!("SERIAL RX: Trimmed line: {:?}", line);
 
                     // Parse and send message
-                    if let Some(msg) = hw.parse_hardware_line(line) {
+                    if let Some(mut msg) = hw.parse_hardware_line(line) {
                         // Update heartbeat time if we got a heartbeat
                         if matches!(msg, OutMessage::Heartbeat { .. }) {
                             last_heartbeat = Instant::now();
+                        }
+
+                        if let OutMessage::Lap {
+                            racer_id,
+                            race_time,
+                            lap_number,
+                            race_start_at,
+                            lap_at,
+                            ..
+                        } = &mut msg
+                        {
+                            let rt = tokio::runtime::Handle::current();
+                            let (computed_lap_number, computed_start_at, computed_lap_at) = rt
+                                .block_on(async {
+                                    let mut app = app.lock().await;
+                                    next_lap_metadata(&mut app, *racer_id, *race_time)
+                                });
+                            *lap_number = computed_lap_number;
+                            *race_start_at = computed_start_at;
+                            *lap_at = computed_lap_at;
                         }
 
                         if let Err(e) = hw.send_message(&msg) {
@@ -785,13 +822,15 @@ fn handle_input(app: &mut App, hw: &HardwareComm, key: KeyCode) -> Result<()> {
         KeyCode::Char('s') | KeyCode::Char('S') if app.simulation_mode => {
             app.race_active = true;
             app.race_start_time = Some(Instant::now());
-            // In simulation mode, send message directly without going through Redis command channel
+            app.race_start_epoch = Some(now_epoch_seconds());
+            app.lap_counts.clear();
             info!("Simulation race started");
         }
         KeyCode::Char('p') | KeyCode::Char('P') if app.simulation_mode => {
             app.race_active = false;
             app.race_start_time = None;
-            // In simulation mode, send message directly without going through Redis command channel
+            app.race_start_epoch = None;
+            app.lap_counts.clear();
             info!("Simulation race stopped");
         }
         KeyCode::Char(c @ '1'..='4') if app.simulation_mode => {
@@ -801,15 +840,19 @@ fn handle_input(app: &mut App, hw: &HardwareComm, key: KeyCode) -> Result<()> {
             } else {
                 0.0
             };
+            let (lap_number, race_start_at, lap_at) = next_lap_metadata(app, racer_id, race_time);
 
             // In simulation mode, send lap message directly without going through Redis command channel
             hw.send_message(&OutMessage::Lap {
                 racer_id,
                 sensor_id: 1,
                 race_time,
+                lap_number,
+                race_start_at,
+                lap_at,
                 simulated: true,
             })?;
-            info!("Simulated lap for racer {}", racer_id);
+            info!("Simulated lap for racer {} (lap #{})", racer_id, lap_number);
         }
         _ => {}
     }
@@ -822,6 +865,22 @@ fn now_epoch_seconds() -> f64 {
         Ok(d) => d.as_secs_f64(),
         Err(_) => 0.0,
     }
+}
+
+fn next_lap_metadata(app: &mut App, racer_id: u32, race_time: f64) -> (u32, f64, f64) {
+    let now = now_epoch_seconds();
+    let start_epoch = app.race_start_epoch.unwrap_or(now - race_time);
+    if app.race_start_epoch.is_none() {
+        app.race_start_epoch = Some(start_epoch);
+    }
+
+    let lap_counter = app.lap_counts.entry(racer_id).or_insert(0);
+    *lap_counter += 1;
+
+    let lap_number = *lap_counter;
+    let lap_at = start_epoch + race_time;
+
+    (lap_number, start_epoch, lap_at)
 }
 
 // Background task to handle Redis commands (simulation mode)
@@ -905,7 +964,9 @@ async fn command_handler_task(hw: Arc<HardwareComm>, app: Arc<Mutex<App>>) -> Re
                         lap_number,
                     } => match command.as_str() {
                         "start_race" => {
-                            // Get simulation mode from app state
+                            // Get simulation mode from app state and initialize race epoch.
+                            let now = now_epoch_seconds();
+                            let start_epoch = start_at.or(go_at).unwrap_or(now);
                             let rt = tokio::runtime::Handle::current();
                             let is_simulation = rt.block_on(async {
                                 let mut app = app.lock().await;
@@ -916,11 +977,13 @@ async fn command_handler_task(hw: Arc<HardwareComm>, app: Arc<Mutex<App>>) -> Re
                                     app.reset_requested = true;
                                 }
 
+                                app.race_active = true;
+                                app.race_start_time = Some(Instant::now());
+                                app.race_start_epoch = Some(start_epoch);
+                                app.lap_counts.clear();
+
                                 sim_mode
                             });
-
-                            let now = now_epoch_seconds();
-                            let start_epoch = start_at.or(go_at).unwrap_or(now);
                             let ready_epoch = ready_at.unwrap_or(start_epoch - 2.0);
                             let set_epoch = set_at.unwrap_or(start_epoch - 1.0);
                             let go_epoch = go_at.unwrap_or(start_epoch);
@@ -974,7 +1037,11 @@ async fn command_handler_task(hw: Arc<HardwareComm>, app: Arc<Mutex<App>>) -> Re
                             // Get simulation mode from app state
                             let rt = tokio::runtime::Handle::current();
                             let is_simulation = rt.block_on(async {
-                                let app = app.lock().await;
+                                let mut app = app.lock().await;
+                                app.race_active = false;
+                                app.race_start_time = None;
+                                app.race_start_epoch = None;
+                                app.lap_counts.clear();
                                 app.simulation_mode
                             });
 
@@ -1003,6 +1070,10 @@ async fn command_handler_task(hw: Arc<HardwareComm>, app: Arc<Mutex<App>>) -> Re
                             rt.block_on(async {
                                 let mut app = app.lock().await;
                                 app.reset_requested = true;
+                                app.race_active = false;
+                                app.race_start_time = None;
+                                app.race_start_epoch = None;
+                                app.lap_counts.clear();
                             });
 
                             let status_message = "Race reset requested".to_string();
@@ -1019,15 +1090,27 @@ async fn command_handler_task(hw: Arc<HardwareComm>, app: Arc<Mutex<App>>) -> Re
                             info!("{}", status_message);
                         }
                         "simulate_lap" => {
+                            let rid = racer_id.unwrap_or(1);
+                            let rel_race_time = race_time.unwrap_or(0.0);
+
+                            let rt = tokio::runtime::Handle::current();
+                            let (lap_number, race_start_at, lap_at) = rt.block_on(async {
+                                let mut app = app.lock().await;
+                                next_lap_metadata(&mut app, rid, rel_race_time)
+                            });
+
                             if let Err(e) = hw.send_message(&OutMessage::Lap {
-                                racer_id: racer_id.unwrap_or(1),
+                                racer_id: rid,
                                 sensor_id: sensor_id.unwrap_or(1),
-                                race_time: race_time.unwrap_or(0.0),
+                                race_time: rel_race_time,
+                                lap_number,
+                                race_start_at,
+                                lap_at,
                                 simulated: true,
                             }) {
                                 error!("Failed to send lap message: {}", e);
                             }
-                            info!("Simulated lap for racer {}", racer_id.unwrap_or(1));
+                            info!("Simulated lap for racer {} (lap #{})", rid, lap_number);
                         }
                         "add_penalty" => {
                             let rid = match racer_id {

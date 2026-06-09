@@ -868,7 +868,13 @@ class FranklinGuiApp(Gtk.Application):
         swatch.set_halign(Gtk.Align.CENTER)
         swatch.set_valign(Gtk.Align.CENTER)
 
-        def draw(_area: Gtk.DrawingArea, cr: Any, width: int, height: int) -> None:
+        def draw(
+            _area: Gtk.DrawingArea,
+            cr: Any,
+            width: int,
+            height: int,
+            _data: Any = None,
+        ) -> None:
             cr.set_source_rgb(*primary_rgb)
             cr.rectangle(0, 0, width, height)
             cr.fill()
@@ -912,6 +918,9 @@ class FranklinGuiApp(Gtk.Application):
         if not self.leaderboard_grid:
             return
 
+        status_col_width_px = 42
+        swatch_col_width_px = 40
+
         child = self.leaderboard_grid.get_first_child()
         while child is not None:
             next_child = child.get_next_sibling()
@@ -948,6 +957,10 @@ class FranklinGuiApp(Gtk.Application):
                 hexpand=hexpand,
                 extra_css_classes=header_extra_classes,
             )
+            if col == 1:
+                header_label.set_size_request(status_col_width_px, -1)
+            elif col == 2:
+                header_label.set_size_request(swatch_col_width_px, -1)
             self.leaderboard_grid.attach(header_label, col, 0, 1, 1)
 
         for row_index, (pos, racer_id, lap_count, best, last, total) in enumerate(
@@ -973,7 +986,12 @@ class FranklinGuiApp(Gtk.Application):
             for col, (text, xalign, hexpand, extra_classes) in enumerate(row_values):
                 if col == 2:
                     swatch = self._new_color_swatch(racer_id)
-                    self.leaderboard_grid.attach(swatch, col, row_index, 1, 1)
+                    swatch_cell = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
+                    swatch_cell.set_halign(Gtk.Align.FILL)
+                    swatch_cell.set_hexpand(False)
+                    swatch_cell.set_size_request(swatch_col_width_px, -1)
+                    swatch_cell.append(swatch)
+                    self.leaderboard_grid.attach(swatch_cell, col, row_index, 1, 1)
                     continue
 
                 cell_label = self._new_leaderboard_label(
@@ -983,6 +1001,8 @@ class FranklinGuiApp(Gtk.Application):
                     hexpand=hexpand,
                     extra_css_classes=extra_classes,
                 )
+                if col == 1:
+                    cell_label.set_size_request(status_col_width_px, -1)
                 self.leaderboard_grid.attach(cell_label, col, row_index, 1, 1)
 
         self._update_leaderboard_font_size(len(leaderboard_data))

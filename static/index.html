@@ -714,12 +714,25 @@
                 let dataStr = "";
                 if (eventType === "lap") {
                     const driverName = getDriverName(eventData.racer_id);
-                    dataStr = `${driverName} completed a lap (Sensor ${eventData.sensor_id}) - Time: ${formatTime(eventData.race_time)}`;
+                    dataStr = `${driverName} completed a lap (Sensor ${eventData.sensor_id}) - Time: ${formatTime(eventData.race_time)}${eventData.simulated ? " [SIM]" : ""}`;
                 } else if (eventType === "status") {
                     dataStr =
                         eventData.message ||
                         eventData.status ||
                         JSON.stringify(eventData);
+                } else if (eventType === "countdown_phase") {
+                    const phase = (eventData.phase || "?")
+                        .toString()
+                        .toUpperCase();
+                    const at = Number(eventData.at);
+                    dataStr = Number.isFinite(at)
+                        ? `Countdown ${phase} at ${new Date(at * 1000).toLocaleTimeString()}`
+                        : `Countdown ${phase}`;
+                } else if (eventType === "start_race") {
+                    const at = Number(eventData.at);
+                    dataStr = Number.isFinite(at)
+                        ? `Race start scheduled at ${new Date(at * 1000).toLocaleTimeString()}${eventData.simulated ? " [SIM]" : ""}`
+                        : "Race start scheduled";
                 } else if (eventType === "error") {
                     dataStr = `Error: ${eventData.message || JSON.stringify(eventData)}`;
                 } else if (eventType === "connected") {
@@ -751,6 +764,7 @@
                 // Always trigger a refresh for these important events
                 if (
                     eventType === "lap" ||
+                    eventType === "start_race" ||
                     (eventType === "status" &&
                         (dataStr.toLowerCase().includes("race") ||
                             dataStr.toLowerCase().includes("start") ||

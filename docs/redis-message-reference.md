@@ -10,7 +10,7 @@ If another document or code comment conflicts with this one, treat this file as 
 |---|---|---|---|
 | `hardware:in` | Commands to the race-control owner (hardware monitor) | `franklin-tui.py`, `franklin-gui.py`, `referee_web_app.py` | `rust/franklin-hardware-monitor` (`command_handler_task`) |
 | `hardware:out` | **Hardware-only** telemetry/events (or simulation of those same hardware events) | `rust/franklin-hardware-monitor` | `franklin-tui.py`, `franklin-gui.py`, `scoreboard_web_app.py`, `referee_web_app.py`, `healthcheck_web_app.py` (heartbeat sampling), rust local monitor TUI |
-| `franklin:events` | Race-control outcome events (`race_control`) | `rust/franklin-hardware-monitor` | `franklin-tui.py`, `franklin-gui.py`, `scoreboard_web_app.py`, `referee_web_app.py`, rust local monitor TUI |
+| `franklin:events` | Race-control + countdown timeline events (`race_control`, `countdown_phase`) | `rust/franklin-hardware-monitor` | `franklin-tui.py`, `franklin-gui.py`, `scoreboard_web_app.py`, `referee_web_app.py`, rust local monitor TUI |
 | `franklin:race_state` | Periodic race-state snapshots for observers | `franklin-tui.py`, `franklin-gui.py` | (No in-repo subscriber currently) |
 
 ---
@@ -37,6 +37,8 @@ Optional metadata fields currently accepted by the Rust owner and forwarded when
 Supported commands:
 
 - `start_race`
+  - supports synchronized schedule fields: `ready_at`, `set_at`, `go_at`, `start_at` (epoch seconds, float)
+  - if omitted, owner falls back to immediate start timing
 - `end_race`
 - `reset_race`
 - `simulate_lap` *(simulation/harness use)*
@@ -91,6 +93,12 @@ Channel policy:
 {"type":"debug","message":"...","simulated":false}
 ```
 
+### `start_race`
+
+```json
+{"type":"start_race","at":1736200000.250,"command_id":"optional-id","source":"franklin_tui","simulated":false}
+```
+
 ### `raw`
 
 Schema exists in Rust `OutMessage`, but `Raw` is intentionally **not published** to Redis in current code path.
@@ -100,9 +108,19 @@ Schema exists in Rust `OutMessage`, but `Raw` is intentionally **not published**
 - `true`: event came from simulator path (or `simulate_lap` command path)
 - `false`: event came from real hardware path
 
-## 3) Race-control outcomes on `franklin:events`
+## 3) Control timeline events on `franklin:events`
 
-Produced by Rust `OutMessage::RaceControl`:
+Produced by Rust owner (`OutMessage::RaceControl` and `OutMessage::CountdownPhase`).
+
+### `countdown_phase`
+
+```json
+{"type":"countdown_phase","phase":"ready","at":1736200000.250,"command_id":"optional-id","source":"franklin_tui"}
+```
+
+Phases emitted for scheduled starts: `ready`, `set`, `go`.
+
+### `race_control`
 
 ```json
 {
@@ -154,27 +172,27 @@ Additional fields from TUI (non-training mode):
 - **Subscribes:** `hardware:in`
 - **Also listens (local monitor UI path):** `hardware:out`, `franklin:events`
 - **Publishes:**
-  - `hardware:out` (`heartbeat`, `status`, `lap`, `error`, `debug`)
-  - `franklin:events` (`race_control`)
+  - `hardware:out` (`heartbeat`, `status`, `lap`, `error`, `debug`, `start_race`)
+  - `franklin:events` (`race_control`, `countdown_phase`)
 
 ## `franklin-tui.py`
 
 - **Subscribes:** `hardware:out`, `franklin:events`
 - **Publishes:**
-  - `hardware:in` (`start_race`, `end_race`)
+  - `hardware:in` (`start_race` with schedule fields, `end_race`)
   - `franklin:race_state`
 
 ## `franklin-gui.py`
 
 - **Subscribes:** `hardware:out`, `franklin:events`
 - **Publishes:**
-  - `hardware:in` (`start_race`, `end_race`, `reset_race`, `countdown_phase`)
+  - `hardware:in` (`start_race` with schedule fields, `end_race`, `reset_race`)
   - `franklin:race_state`
 
 ## `referee_web_app.py`
 
 - **Subscribes:** `hardware:out`, `franklin:events`
-- **Publishes:** `hardware:in` (`start_race`, `end_race`, `reset_race`, `add_penalty`, `remove_lap`, `disqualify_racer`)
+- **Publishes:** `hardware:in` (`start_race` with schedule fields, `end_race`, `reset_race`, `add_penalty`, `remove_lap`, `disqualify_racer`)
 - Adds metadata by default to command payloads: `command_id`, `source`, `timestamp`
 
 ## `scoreboard_web_app.py`
@@ -192,30 +210,26 @@ Additional fields from TUI (non-training mode):
 
 ## Inconsistencies observed (as of 2026-06-09)
 
-1. **`countdown_phase` command is published by GUI but not handled by Rust owner.**
-   - Source: `franklin-gui.py` uses `publish_command("countdown_phase", ...)`.
-   - Rust command handler has no `countdown_phase` match arm.
+1. **Command envelope metadata is not uniform across producers.**
+   - `referee_web_app.py` sends `command_id` / `source` / `timestamp` on all commands.
+   - TUI/GUI now send `source` / `timestamp` on scheduled `start_race`, but not consistently on every other command.
 
-2. **Command envelope metadata is not uniform across producers.**
-   - `referee_web_app.py` sends `command_id` / `source` / `timestamp`.
-   - TUI/GUI do not include these fields for start/end/reset.
-
-3. **Race-control event shape differs from older design docs.**
+2. **Race-control event shape differs from older design docs.**
    - Current event uses `message` for error/acceptance details.
    - Some older docs mention an `error` field and event `timestamp`; current Rust `RaceControl` schema does not include those.
 
-4. **`franklin:race_state` has no in-repo subscriber today.**
+3. **`franklin:race_state` has no in-repo subscriber today.**
    - Produced by TUI/GUI, currently unused by other in-repo services.
 
-5. **`race_mode` value format differs between TUI and GUI snapshots.**
+4. **`race_mode` value format differs between TUI and GUI snapshots.**
    - TUI publishes `self.race_mode.name` (likely uppercase enum names).
    - GUI publishes `self.race_mode.value` (value string).
 
-6. **`timestamp` semantics vary by publisher.**
+5. **`timestamp` semantics vary by publisher.**
    - `referee_web_app.py` command timestamps are ISO-8601 UTC strings.
    - TUI/GUI race-state timestamps use monotonic float seconds.
 
-7. **Stale/incorrect protocol details existed in docs before this file.**
+6. **Stale/incorrect protocol details existed in docs before this file.**
    - Example: some docs said scoreboard only subscribes to `hardware:out`; code subscribes to `hardware:out` and `franklin:events`.
 
 ---

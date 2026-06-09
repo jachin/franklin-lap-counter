@@ -3,6 +3,8 @@ import asyncio
 import json
 import logging
 import pprint
+import time
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -250,6 +252,7 @@ class Franklin(App[Any]):  # type: ignore[type-arg]
         self.lap_counter_detected = reactive(False)
         self._last_lap_counter_signal_time = None
         self._playback_task = None
+        self._pending_start_task: asyncio.Task[None] | None = None
 
         # Setup logging
         logging.basicConfig(
@@ -429,6 +432,44 @@ class Franklin(App[Any]):  # type: ignore[type-arg]
                             self.lap_counter_detected = True
                             self._last_lap_counter_signal_time = (
                                 asyncio.get_event_loop().time()
+                            )
+
+                        elif msg_type == "countdown_phase":
+                            phase = str(msg.get("phase", "")).lower()
+                            at_epoch_raw = msg.get("at")
+                            at_epoch = (
+                                float(at_epoch_raw)
+                                if isinstance(at_epoch_raw, (int, float))
+                                else time.time()
+                            )
+                            logging.info(
+                                "Countdown phase received: phase=%s at=%.3f",
+                                phase,
+                                at_epoch,
+                            )
+                            self.notify(
+                                f"Countdown: {phase.title()}",
+                                severity="information",
+                            )
+
+                        elif msg_type == "start_race":
+                            at_raw = msg.get("at")
+                            start_at_epoch = (
+                                float(at_raw)
+                                if isinstance(at_raw, (int, float))
+                                else time.time()
+                            )
+                            if (
+                                self._pending_start_task is not None
+                                and not self._pending_start_task.done()
+                            ):
+                                self._pending_start_task.cancel()
+                            self._pending_start_task = asyncio.create_task(
+                                self._start_race_at_epoch(start_at_epoch)
+                            )
+                            logging.info(
+                                "Scheduled local race start at epoch %.3f",
+                                start_at_epoch,
                             )
 
                         elif msg_type == "lap":
@@ -691,78 +732,97 @@ class Franklin(App[Any]):  # type: ignore[type-arg]
         start_btn.disabled = False
         stop_btn.disabled = True
 
+    def _start_race_locally(self) -> None:
+        if self.race.state == RaceState.RUNNING:
+            return
+
+        status_display = self.query_one(RaceStatusDisplay)
+        start_btn = self.query_one("#start_btn", Button)
+        stop_btn = self.query_one("#stop_btn", Button)
+
+        self.racer_penalties_seconds.clear()
+        self.disqualified_racers.clear()
+        self.race = Race(previous_race=self.previous_race)
+        self.race.total_laps = self.total_laps
+
+        current_time = asyncio.get_event_loop().time()
+        self.race.start(start_time=current_time)
+
+        self.current_race_id = self.db.create_race(
+            notes=f"Mode: {self.race_mode}, Total Laps: {self.total_laps}"
+        )
+        logging.info("Created database race record: %s", self.current_race_id)
+
+        status_display.race_state = self.race.state
+        start_btn.disabled = True
+        stop_btn.disabled = False
+
+    async def _start_race_at_epoch(self, start_at_epoch: float) -> None:
+        delay_seconds = max(0.0, start_at_epoch - time.time())
+        if delay_seconds > 0:
+            await asyncio.sleep(delay_seconds)
+
+        if self.race.state != RaceState.RUNNING:
+            self._start_race_locally()
+            logging.info("Started race at scheduled epoch %.3f", start_at_epoch)
+
     def action_start_race(self) -> None:
-        async def start_race_and_send_command():
-            status_display = self.query_one(RaceStatusDisplay)
-            start_btn = self.query_one("#start_btn", Button)
-            stop_btn = self.query_one("#stop_btn", Button)
+        status_display = self.query_one(RaceStatusDisplay)
+        start_btn = self.query_one("#start_btn", Button)
+        stop_btn = self.query_one("#stop_btn", Button)
 
-            # Create a new race instance with current app settings
-            self.racer_penalties_seconds.clear()
-            self.disqualified_racers.clear()
-            self.race = Race(previous_race=self.previous_race)
-            self.race.total_laps = self.total_laps
+        if self.race_mode == RaceMode.FAKE:
+            self._start_race_locally()
 
-            if self.race.state != RaceState.RUNNING:
-                current_time = asyncio.get_event_loop().time()
+            if self._playback_task is not None and not self._playback_task.done():
+                self._playback_task.cancel()
 
-                # This call updates the state of the race
-                self.race.start(start_time=current_time)
+            fake_race = generate_fake_race()
+            logging.info("Starting fake race")
+            self._playback_task = asyncio.create_task(self.play_fake_race(fake_race))
+            return
 
-                # Create database record for this race
-                self.current_race_id = self.db.create_race(
-                    notes=f"Mode: {self.race_mode}, Total Laps: {self.total_laps}"
-                )
-                logging.info(f"Created database race record: {self.current_race_id}")
+        if not self._redis_client:
+            self.notify("Redis not connected", severity="error")
+            return
 
-                status_display.race_state = self.race.state
-                start_btn.disabled = True
-                stop_btn.disabled = False
+        base = time.time() + 0.25
+        ready_at = base
+        set_at = base + 1.0
+        go_at = base + 2.0
 
-                if (
-                    hasattr(self, "_playback_task")
-                    and self._playback_task is not None
-                    and not self._playback_task.done()
-                ):
-                    self._playback_task.cancel()
+        cmd: dict[str, Any] = {
+            "type": "command",
+            "command": "start_race",
+            "source": "franklin_tui",
+            "timestamp": datetime.now(UTC).isoformat(),
+            "ready_at": ready_at,
+            "set_at": set_at,
+            "go_at": go_at,
+            "start_at": go_at,
+        }
 
-                if self.race_mode == RaceMode.FAKE:
-                    # Generate a fake race
-                    fake_race = generate_fake_race()
-                    logging.info("Starting fake race")
-                    logging.info("fake_race %s", fake_race)
-                    logging.info("self.race %s", self.race)
-
-                    self.race.state = RaceState.RUNNING
-
-                    # Start playback task
-                    self._playback_task = asyncio.create_task(
-                        self.play_fake_race(fake_race)
-                    )
-                else:
-                    # Real race mode - send start command via Redis
-                    logging.info("Starting real race")
-                    try:
-                        if self._redis_client:
-                            cmd = {"type": "command", "command": "start_race"}
-                            self._redis_client.publish(
-                                self.redis_in_channel, json.dumps(cmd)
-                            )
-                            logging.info("Sent start_race command to Redis")
-                        else:
-                            logging.error("Redis client not initialized")
-                            self.notify("Redis not connected", severity="error")
-                    except Exception as e:
-                        logging.error(f"Failed to send start command to Redis: {e}")
-                        self.notify(f"Failed to start race: {e}", severity="error")
-
-        asyncio.create_task(start_race_and_send_command())
+        try:
+            self._redis_client.publish(self.redis_in_channel, json.dumps(cmd))
+            logging.info("Sent scheduled start_race command: %s", cmd)
+            status_display.race_state = RaceState.NOT_STARTED
+            start_btn.disabled = True
+            stop_btn.disabled = True
+            self.notify("Start countdown scheduled", severity="information")
+        except Exception as e:
+            logging.error("Failed to send start command to Redis: %s", e)
+            self.notify(f"Failed to start race: {e}", severity="error")
 
     def action_end_race(self) -> None:
         status_display = self.query_one(RaceStatusDisplay)
         start_btn = self.query_one("#start_btn", Button)
         stop_btn = self.query_one("#stop_btn", Button)
         if is_race_going(self.race):
+            if (
+                self._pending_start_task is not None
+                and not self._pending_start_task.done()
+            ):
+                self._pending_start_task.cancel()
             # Stop playback and reset race state
             if (
                 hasattr(self, "_playback_task")

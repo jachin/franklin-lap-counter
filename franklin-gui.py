@@ -22,6 +22,7 @@ import socket
 import subprocess
 import threading
 import time
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -540,15 +541,6 @@ class FranklinGuiApp(Gtk.Application):
         for area in self._start_light_left_areas + self._start_light_right_areas:
             area.set_size_request(diameter, diameter)
 
-    def _publish_countdown_phase(self, phase: str) -> None:
-        # Countdown cues are intended for real hardware races.
-        if self.race_mode == RaceMode.FAKE:
-            return
-        if not self._redis_client:
-            return
-
-        self.publish_command("countdown_phase", phase=phase, message=phase.upper())
-
     def _start_race_countdown(self) -> None:
         if self._start_sequence_running:
             return
@@ -565,47 +557,73 @@ class FranklinGuiApp(Gtk.Application):
         if self.reset_btn:
             self.reset_btn.set_sensitive(False)
 
-        def set_yellow() -> bool:
-            if not self._start_sequence_running:
-                return False
-            self._set_start_sequence_phase("Ready")
-            self._set_start_light_pattern(
-                [
-                    "start-light-yellow",
-                    "start-light-red",
-                    "start-light-red",
-                    "start-light-yellow",
-                ]
-            )
-            self.append_event("Ready")
-            self._publish_countdown_phase("ready")
-            return False
+        if self.race_mode == RaceMode.FAKE:
 
-        def set_all_yellow() -> bool:
-            if not self._start_sequence_running:
+            def set_yellow() -> bool:
+                if not self._start_sequence_running:
+                    return False
+                self._set_start_sequence_phase("Ready")
+                self._set_start_light_pattern(
+                    [
+                        "start-light-yellow",
+                        "start-light-red",
+                        "start-light-red",
+                        "start-light-yellow",
+                    ]
+                )
+                self.append_event("Ready")
                 return False
-            self._set_start_sequence_phase("Set")
-            self._set_start_lights("#f9a825")
-            self.append_event("Set")
-            self._publish_countdown_phase("set")
-            return False
 
-        def set_green_and_start() -> bool:
-            if not self._start_sequence_running:
+            def set_all_yellow() -> bool:
+                if not self._start_sequence_running:
+                    return False
+                self._set_start_sequence_phase("Set")
+                self._set_start_lights("#f9a825")
+                self.append_event("Set")
                 return False
-            self._set_start_sequence_phase("Go")
-            self._set_start_lights("#2e7d32")
-            self.append_event("Go")
-            self._publish_countdown_phase("go")
+
+            def set_green_and_start() -> bool:
+                if not self._start_sequence_running:
+                    return False
+                self._set_start_sequence_phase("Go")
+                self._set_start_lights("#2e7d32")
+                self.append_event("Go")
+                self._start_sequence_running = False
+                self._start_race_now()
+                return False
+
+            GLib.timeout_add(1000, set_yellow)
+            GLib.timeout_add(2000, set_all_yellow)
+            GLib.timeout_add(3000, set_green_and_start)
+            return
+
+        if not self._redis_client:
+            self.append_event("Redis not connected; cannot schedule race start")
             self._start_sequence_running = False
-            self._start_race_now()
-            return False
+            if self.start_btn:
+                self.start_btn.set_sensitive(True)
+            return
 
-        GLib.timeout_add(1000, set_yellow)
-        GLib.timeout_add(2000, set_all_yellow)
-        GLib.timeout_add(3000, set_green_and_start)
+        base = time.time() + 0.25
+        ready_at = base
+        set_at = base + 1.0
+        go_at = base + 2.0
+
+        self.publish_command(
+            "start_race",
+            source="franklin_gui",
+            timestamp=datetime.now(UTC).isoformat(),
+            ready_at=ready_at,
+            set_at=set_at,
+            go_at=go_at,
+            start_at=go_at,
+        )
+        self.append_event(f"Scheduled countdown (go at {go_at:.3f})")
 
     def _start_race_now(self) -> None:
+        if is_race_going(self.race):
+            return
+
         self.racer_penalties_seconds.clear()
         self.disqualified_racers.clear()
 
@@ -627,8 +645,6 @@ class FranklinGuiApp(Gtk.Application):
         self.append_event("Race started")
         if self.race_mode == RaceMode.FAKE:
             self.start_fake_playback()
-        else:
-            self.publish_command("start_race")
 
         self.refresh_views()
 
@@ -1793,6 +1809,57 @@ class FranklinGuiApp(Gtk.Application):
         if msg_type == "status":
             source = "SIM" if simulated else "HW"
             self.append_event(f"STATUS [{source}]: {msg.get('message', '')}")
+            return
+
+        if msg_type == "countdown_phase":
+            phase = str(msg.get("phase", "")).lower()
+            at_raw = msg.get("at")
+            at_epoch = (
+                float(at_raw) if isinstance(at_raw, (int, float)) else time.time()
+            )
+            delay_ms = max(0, int((at_epoch - time.time()) * 1000))
+
+            def apply_phase() -> bool:
+                if phase == "ready":
+                    self._start_sequence_running = True
+                    self._set_start_sequence_phase("Ready")
+                    self._set_start_light_pattern(
+                        [
+                            "start-light-yellow",
+                            "start-light-red",
+                            "start-light-red",
+                            "start-light-yellow",
+                        ]
+                    )
+                    self.append_event("Ready")
+                elif phase == "set":
+                    self._start_sequence_running = True
+                    self._set_start_sequence_phase("Set")
+                    self._set_start_lights("#f9a825")
+                    self.append_event("Set")
+                elif phase == "go":
+                    self._set_start_sequence_phase("Go")
+                    self._set_start_lights("#2e7d32")
+                    self.append_event("Go")
+                self.refresh_views()
+                return False
+
+            GLib.timeout_add(delay_ms, apply_phase)
+            return
+
+        if msg_type == "start_race":
+            at_raw = msg.get("at")
+            at_epoch = (
+                float(at_raw) if isinstance(at_raw, (int, float)) else time.time()
+            )
+            delay_ms = max(0, int((at_epoch - time.time()) * 1000))
+
+            def apply_start() -> bool:
+                self._start_sequence_running = False
+                self._start_race_now()
+                return False
+
+            GLib.timeout_add(delay_ms, apply_start)
             return
 
         if msg_type == "race_control":

@@ -410,7 +410,25 @@
             ws.onmessage = (evt) => {
                 try {
                     const msg = JSON.parse(evt.data);
-                    log(JSON.stringify(msg));
+                    if (msg.type === "countdown_phase") {
+                        const at = Number(msg.at);
+                        const when = Number.isFinite(at)
+                            ? new Date(at * 1000).toLocaleTimeString()
+                            : "n/a";
+                        log(
+                            `COUNTDOWN ${String(msg.phase || "").toUpperCase()} at ${when}`,
+                        );
+                    } else if (msg.type === "start_race") {
+                        const at = Number(msg.at);
+                        const when = Number.isFinite(at)
+                            ? new Date(at * 1000).toLocaleTimeString()
+                            : "n/a";
+                        log(
+                            `START_RACE scheduled at ${when}${msg.simulated ? " [SIM]" : ""}`,
+                        );
+                    } else {
+                        log(JSON.stringify(msg));
+                    }
                 } catch (_) {
                     log(evt.data);
                 }

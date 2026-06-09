@@ -17,7 +17,7 @@ use serde::{Deserialize, Serialize};
 use serialport::SerialPort;
 use std::io::{self, BufRead, BufReader};
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tokio::sync::Mutex;
 use tracing::{error, info, warn};
 
@@ -74,6 +74,23 @@ enum OutMessage {
         #[serde(skip_serializing_if = "Option::is_none")]
         lap_number: Option<u32>,
     },
+    CountdownPhase {
+        phase: String,
+        at: f64,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        command_id: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        source: Option<String>,
+    },
+    StartRace {
+        at: f64,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        command_id: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        source: Option<String>,
+        #[serde(default)]
+        simulated: bool,
+    },
     Raw {
         line: String,
     },
@@ -87,11 +104,23 @@ enum InMessage {
         #[serde(skip_serializing_if = "Option::is_none")]
         command_id: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none")]
+        source: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        timestamp: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
         racer_id: Option<u32>,
         #[serde(skip_serializing_if = "Option::is_none")]
         sensor_id: Option<u32>,
         #[serde(skip_serializing_if = "Option::is_none")]
         race_time: Option<f64>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        start_at: Option<f64>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        ready_at: Option<f64>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        set_at: Option<f64>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        go_at: Option<f64>,
         #[serde(skip_serializing_if = "Option::is_none")]
         penalty_seconds: Option<u32>,
         #[serde(skip_serializing_if = "Option::is_none")]
@@ -217,6 +246,37 @@ impl App {
                         details.join(", ")
                     )
                 }
+            }
+            OutMessage::CountdownPhase {
+                phase,
+                at,
+                command_id,
+                source,
+            } => {
+                let mut details: Vec<String> = vec![format!("at={:.3}", at)];
+                if let Some(cid) = command_id {
+                    details.push(format!("command_id={}", cid));
+                }
+                if let Some(src) = source {
+                    details.push(format!("source={}", src));
+                }
+                format!("[COUNTDOWN] {} ({})", phase, details.join(", "))
+            }
+            OutMessage::StartRace {
+                at,
+                command_id,
+                source,
+                simulated,
+            } => {
+                let mut details: Vec<String> = vec![format!("at={:.3}", at)];
+                if let Some(cid) = command_id {
+                    details.push(format!("command_id={}", cid));
+                }
+                if let Some(src) = source {
+                    details.push(format!("source={}", src));
+                }
+                details.push(format!("simulated={}", simulated));
+                format!("[START_RACE] {}", details.join(", "))
             }
             OutMessage::Raw { line } => format!("[RAW] {}", line),
         }
@@ -418,7 +478,9 @@ impl HardwareComm {
         // Route messages to the appropriate Redis channel.
         let target_channel = match msg {
             OutMessage::Raw { .. } => None, // Don't publish raw messages to Redis
-            OutMessage::RaceControl { .. } => Some(REDIS_EVENTS_CHANNEL),
+            OutMessage::RaceControl { .. } | OutMessage::CountdownPhase { .. } => {
+                Some(REDIS_EVENTS_CHANNEL)
+            }
             _ => Some(REDIS_OUT_CHANNEL),
         };
 
@@ -755,6 +817,13 @@ fn handle_input(app: &mut App, hw: &HardwareComm, key: KeyCode) -> Result<()> {
     Ok(())
 }
 
+fn now_epoch_seconds() -> f64 {
+    match SystemTime::now().duration_since(UNIX_EPOCH) {
+        Ok(d) => d.as_secs_f64(),
+        Err(_) => 0.0,
+    }
+}
+
 // Background task to handle Redis commands (simulation mode)
 async fn command_handler_task(hw: Arc<HardwareComm>, app: Arc<Mutex<App>>) -> Result<()> {
     // Run blocking Redis operations in a separate thread
@@ -822,9 +891,15 @@ async fn command_handler_task(hw: Arc<HardwareComm>, app: Arc<Mutex<App>>) -> Re
                     InMessage::Command {
                         command,
                         command_id,
+                        source,
+                        timestamp: _timestamp,
                         racer_id,
                         sensor_id,
                         race_time,
+                        start_at,
+                        ready_at,
+                        set_at,
+                        go_at,
                         penalty_seconds,
                         reason,
                         lap_number,
@@ -844,10 +919,42 @@ async fn command_handler_task(hw: Arc<HardwareComm>, app: Arc<Mutex<App>>) -> Re
                                 sim_mode
                             });
 
+                            let now = now_epoch_seconds();
+                            let start_epoch = start_at.or(go_at).unwrap_or(now);
+                            let ready_epoch = ready_at.unwrap_or(start_epoch - 2.0);
+                            let set_epoch = set_at.unwrap_or(start_epoch - 1.0);
+                            let go_epoch = go_at.unwrap_or(start_epoch);
+
+                            let _ = hw.send_message(&OutMessage::CountdownPhase {
+                                phase: "ready".to_string(),
+                                at: ready_epoch,
+                                command_id: command_id.clone(),
+                                source: source.clone(),
+                            });
+                            let _ = hw.send_message(&OutMessage::CountdownPhase {
+                                phase: "set".to_string(),
+                                at: set_epoch,
+                                command_id: command_id.clone(),
+                                source: source.clone(),
+                            });
+                            let _ = hw.send_message(&OutMessage::CountdownPhase {
+                                phase: "go".to_string(),
+                                at: go_epoch,
+                                command_id: command_id.clone(),
+                                source: source.clone(),
+                            });
+
+                            let _ = hw.send_message(&OutMessage::StartRace {
+                                at: start_epoch,
+                                command_id: command_id.clone(),
+                                source: source.clone(),
+                                simulated: is_simulation,
+                            });
+
                             let status_message = if is_simulation {
-                                "Simulation race started".to_string()
+                                format!("Simulation race scheduled at {:.3}", start_epoch)
                             } else {
-                                "Race started".to_string()
+                                format!("Race scheduled at {:.3}", start_epoch)
                             };
 
                             let _ = hw.send_message(&OutMessage::RaceControl {

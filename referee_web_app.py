@@ -14,6 +14,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import time
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -107,7 +108,19 @@ class RefereeWebAppServer:
         await self.redis_client.publish(REDIS_IN_CHANNEL, json.dumps(payload))
 
     async def start_race_handler(self, request: web.Request) -> web.Response:
-        payload = {"command": "start_race"}
+        base = time.time() + 0.25
+        ready_at = base
+        set_at = base + 1.0
+        go_at = base + 2.0
+        payload = {
+            "command": "start_race",
+            "source": "referee_web_app",
+            "timestamp": datetime.now(UTC).isoformat(),
+            "ready_at": ready_at,
+            "set_at": set_at,
+            "go_at": go_at,
+            "start_at": go_at,
+        }
         await self._publish_command(payload)
         return web.json_response({"ok": True, "published": payload})
 

@@ -1,0 +1,51 @@
+---
+- name: Bounce tmux-hosted web apps on Raspberry Pi
+  hosts: all
+  gather_facts: false
+  become: true
+
+  vars:
+    franklin_tmux_sessions:
+      - franklin
+      - franklin-services
+
+  tasks:
+    - name: Respawn scoreboard/referee panes in active tmux sessions
+      ansible.builtin.shell: |
+        set -euo pipefail
+        cd "{{ pi_dest_dir }}"
+
+        bounced=0
+
+        for session in {{ franklin_tmux_sessions | join(' ') }}; do
+          if ! tmux has-session -t "$session" 2>/dev/null; then
+            continue
+          fi
+
+          windows=$(tmux list-windows -t "$session" -F '#W')
+
+          if echo "$windows" | grep -qx "web"; then
+            tmux respawn-pane -k -t "$session:web.0" "source .venv/bin/activate && export FRANKLIN_SESSION=tmux && echo 'Starting Web Server...' && python scoreboard_web_app.py"
+            echo "Respawned ${session}:web"
+            bounced=1
+          fi
+
+          if echo "$windows" | grep -qx "referee"; then
+            tmux respawn-pane -k -t "$session:referee.0" "source .venv/bin/activate && export FRANKLIN_SESSION=tmux && echo 'Starting Referee Web Server...' && python referee_web_app.py"
+            echo "Respawned ${session}:referee"
+            bounced=1
+          fi
+        done
+
+        if [ "$bounced" -eq 0 ]; then
+          echo "No active tmux web panes found (sessions checked: {{ franklin_tmux_sessions | join(', ') }})"
+        fi
+      args:
+        executable: /bin/bash
+      become_user: "{{ franklin_user }}"
+      register: bounce_web_result
+      changed_when: "'Respawned' in bounce_web_result.stdout"
+
+    - name: Bounce summary
+      ansible.builtin.debug:
+        msg: "{{ bounce_web_result.stdout_lines }}"

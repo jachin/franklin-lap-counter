@@ -71,6 +71,9 @@
       "pi-gui-restart": [
         "ansible-playbook -i playbooks/inventory.ini playbooks/59-restart-franklin-gui.yml"
       ],
+      "pi-web-bounce": [
+        "ansible-playbook -i playbooks/inventory.ini playbooks/62-bounce-web-apps.yml"
+      ],
       "pi-reboot": ["ssh -o ConnectTimeout=8 jachin@10.27.1.64 sudo reboot"],
       "pi-vnc-help": [
         "echo '1) Run: devbox run pi-vnc-tunnel'",

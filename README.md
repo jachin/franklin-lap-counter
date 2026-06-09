@@ -137,7 +137,7 @@ Edit `franklin.config.json` to configure your race:
 
 The system uses Redis pub/sub channels for inter-process communication:
 
-### `race:control` - Race control commands
+### `hardware:in` - Commands TO hardware/race-control owner
 ```json
 {"type": "command", "command": "start_race"}
 {"type": "command", "command": "end_race"}
@@ -145,18 +145,18 @@ The system uses Redis pub/sub channels for inter-process communication:
 {"type": "command", "command": "simulate_lap", "racer_id": 1, "sensor_id": 1, "race_time": 12.5}
 ```
 
-### `hardware:in` - Legacy command input (compatibility)
-
-`hardware:in` is still consumed for backward compatibility during migration to `race:control`.
-
-### `hardware:out` - Events FROM hardware and race control processing
+### `hardware:out` - Hardware telemetry/events
 ```json
 {"type": "heartbeat"}
 {"type": "status", "message": "Hardware connected"}
 {"type": "lap", "racer_id": 1, "sensor_id": 1, "race_time": 12.345}
-{"type": "race_control", "command": "reset_race", "accepted": true, "message": "Race reset requested"}
 {"type": "debug", "message": "..."}
 {"type": "raw", "line": "..."}
+```
+
+### `franklin:events` - Race-control events
+```json
+{"type": "race_control", "command": "reset_race", "accepted": true, "message": "Race reset requested"}
 ```
 
 ## Testing
@@ -177,7 +177,7 @@ redis-cli -s ./redis.sock
 
 # Send test command
 redis-cli -s ./redis.sock
-> PUBLISH race:control '{"type":"command","command":"start_race"}'
+> PUBLISH hardware:in '{"type":"command","command":"start_race"}'
 ```
 
 ## Troubleshooting

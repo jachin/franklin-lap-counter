@@ -7,7 +7,7 @@ This is the first pass of the GUI app that mirrors the core Franklin TUI flow:
 - race mode selection (Real/Fake/Training)
 - start/end race controls
 - Redis hardware subscription (hardware:out)
-- Redis race-control publish (race:control)
+- Redis race-control publish (hardware:in)
 - lap/event log and leaderboard rendering
 - race persistence via SQLite
 - basic driver management (add/rename/delete) via dialog
@@ -103,8 +103,9 @@ class FranklinGuiApp(Gtk.Application):
         self._ensure_racer_color_assignments(known_racer_ids, persist=False)
 
         self.redis_socket = redis_socket
-        self.redis_control_channel = "race:control"
+        self.redis_in_channel = "hardware:in"
         self.redis_out_channel = "hardware:out"
+        self.redis_events_channel = "franklin:events"
         self._redis_client: redis.Redis | None = None
         self._redis_pubsub = None
 
@@ -1633,11 +1634,19 @@ class FranklinGuiApp(Gtk.Application):
             )
             self._redis_client.ping()
             self._redis_pubsub = self._redis_client.pubsub()
-            self._redis_pubsub.subscribe(self.redis_out_channel)
+            self._redis_pubsub.subscribe(
+                self.redis_out_channel, self.redis_events_channel
+            )
             self.append_event("Connected to Redis")
-            self.append_event(f"Subscribed to Redis channel: {self.redis_out_channel}")
+            self.append_event(
+                f"Subscribed to Redis channels: {self.redis_out_channel}, {self.redis_events_channel}"
+            )
             logging.info("Connected to Redis")
-            logging.info("Subscribed to Redis channel: %s", self.redis_out_channel)
+            logging.info(
+                "Subscribed to Redis channels: %s, %s",
+                self.redis_out_channel,
+                self.redis_events_channel,
+            )
         except Exception as exc:
             self.append_event(f"Redis connect failed: {exc}")
             logging.error("Failed to connect to Redis: %s", exc)
@@ -1758,7 +1767,7 @@ class FranklinGuiApp(Gtk.Application):
             return
         payload: dict[str, Any] = {"type": "command", "command": command}
         payload.update(kwargs)
-        self._redis_client.publish(self.redis_control_channel, json.dumps(payload))
+        self._redis_client.publish(self.redis_in_channel, json.dumps(payload))
 
     def publish_race_state(self) -> None:
         if not self._redis_client:

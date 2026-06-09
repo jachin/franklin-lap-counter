@@ -270,8 +270,9 @@ class Franklin(App[Any]):  # type: ignore[type-arg]
 
         # Redis communication setup
         self.redis_socket = redis_socket
-        self.redis_control_channel = "race:control"
+        self.redis_in_channel = "hardware:in"
         self.redis_out_channel = "hardware:out"
+        self.redis_events_channel = "franklin:events"
         self._redis_client = None
         self._redis_pubsub = None
         self.config_path = Path("franklin.config.json")
@@ -355,8 +356,10 @@ class Franklin(App[Any]):  # type: ignore[type-arg]
 
         # Create pub/sub instance
         self._redis_pubsub = self._redis_client.pubsub()
-        self._redis_pubsub.subscribe(self.redis_out_channel)
-        logging.info(f"Subscribed to Redis channel: {self.redis_out_channel}")
+        self._redis_pubsub.subscribe(self.redis_out_channel, self.redis_events_channel)
+        logging.info(
+            f"Subscribed to Redis channels: {self.redis_out_channel}, {self.redis_events_channel}"
+        )
 
         self.lap_counter_detected = False
         self._last_lap_counter_signal_time = None
@@ -608,7 +611,7 @@ class Franklin(App[Any]):  # type: ignore[type-arg]
                         if self._redis_client:
                             cmd = {"type": "command", "command": "start_race"}
                             self._redis_client.publish(
-                                self.redis_control_channel, json.dumps(cmd)
+                                self.redis_in_channel, json.dumps(cmd)
                             )
                             logging.info("Sent start_race command to Redis")
                         else:
@@ -642,7 +645,7 @@ class Franklin(App[Any]):  # type: ignore[type-arg]
             # Publish end_race command to Redis
             if self._redis_client:
                 cmd = {"type": "command", "command": "end_race"}
-                self._redis_client.publish(self.redis_control_channel, json.dumps(cmd))
+                self._redis_client.publish(self.redis_in_channel, json.dumps(cmd))
                 logging.info("Sent end_race command to Redis")
 
             # Mark race as completed in database

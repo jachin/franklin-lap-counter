@@ -21,14 +21,15 @@ All actions are coordinated through Redis so every consumer can react consistent
 
 - `rust/franklin-hardware-monitor/src/main.rs`
   - Publishes hardware telemetry/events to Redis channel `hardware:out`
-  - Subscribes to command channels `race:control` (primary) and `hardware:in` (legacy)
+  - Subscribes to command channel `hardware:in`
+  - Publishes race-control outcome events to `franklin:events`
 - `franklin-tui.py`
-  - Subscribes to `hardware:out`
-  - Publishes race start/end commands to `race:control`
+  - Subscribes to `hardware:out` and `franklin:events`
+  - Publishes race start/end commands to `hardware:in`
   - Publishes race state snapshots to `franklin:race_state`
 - `franklin-gui.py`
-  - Subscribes to `hardware:out`
-  - Publishes race start/end/reset (and countdown phase) commands to `race:control`
+  - Subscribes to `hardware:out` and `franklin:events`
+  - Publishes race start/end/reset (and countdown phase) commands to `hardware:in`
   - Publishes race state snapshots to `franklin:race_state`
 - `scoreboard_web_app.py`
   - Subscribes to `hardware:out`
@@ -36,7 +37,7 @@ All actions are coordinated through Redis so every consumer can react consistent
 
 ### Existing command contract
 
-Current command payload shape (published to `race:control`; `hardware:in` still accepted for compatibility):
+Current command payload shape (published to `hardware:in`):
 
 ```json
 {
@@ -79,7 +80,7 @@ It also lacks persistence structures for race officiating decisions (invalidated
 
 ## Proposed Redis contract (v1 for referee feature)
 
-Use dedicated command ingress on `race:control`, and keep legacy `hardware:in` as a compatibility input during transition. Emit explicit race-control events on `hardware:out` so all subscribers can apply the same decision stream.
+Keep `hardware:in` and `hardware:out` as the hardware command/telemetry channels. Publish race-control outcome events on `franklin:events` so subscribers can apply officiating actions cleanly without mixing them into hardware telemetry.
 
 ### Common envelope
 
@@ -201,7 +202,7 @@ Penalty is additive; enforce 5-second increments at API/UI layer.
 }
 ```
 
-### Resulting events on `hardware:out`
+### Resulting events on `franklin:events`
 
 To keep consumers synchronized, command handlers should emit authoritative events:
 
@@ -238,11 +239,11 @@ On rejection:
 
 ### `franklin-hardware-monitor` (Rust)
 
-- Parse/validate new commands from `race:control` (and legacy `hardware:in` during transition)
+- Parse/validate new commands from `hardware:in`
 - Continue hardware responsibilities (`start_race`, reset signaling)
 - Publish `race_control` accepted/rejected events
 - Backward compatibility:
-  - continue accepting legacy `hardware:in` while migrating producers to `race:control`
+  - continue parsing legacy command payload shapes while extending schema fields over time
 
 ### `franklin-tui.py` and `franklin-gui.py`
 
@@ -262,7 +263,7 @@ On rejection:
 
 - Authenticate/authorize referee actions (if needed)
 - Validate command input
-- Publish command envelopes to `race:control`
+- Publish command envelopes to `hardware:in`
 - Show command result stream (`race_control` accepted/rejected)
 
 ## Data model changes required
@@ -297,13 +298,15 @@ This enables replay/audit and deterministic rebuild of leaderboard state.
    - Idempotency checks via `command_id`
    - Test suite for race-control scenarios
 
-## Open decisions
+## Decisions (confirmed)
 
-- Should authoritative race-control processing live in one owner process (recommended), or be shared among UIs?
-- Should `hardware:out` continue as mixed telemetry + control events, or split with a new `franklin:events` channel?
-- What are final ranking rules when penalties and DQ both exist?
-- Can penalties be removed/edited, and by whom?
+- **Authoritative race control owner:** one owner process (not shared among UIs).
+- **Redis channels:** keep `hardware:in` and `hardware:out` as-is; publish race-control outcomes on `franklin:events`.
+- **Race end command:** canonical command is `end_race`.
+- **Ranking rules:** DQ overrides all penalties/results for that racer (racer is out).
+- **Penalty edit policy (v1):** penalties are immutable (no remove/edit yet).
+- **Access control (v1):** anyone with referee-app access can perform actions; security hardening is deferred.
 
 ---
 
-If this design direction looks right, the next step is to implement **Phase 1** with minimal breakage (publish to `race:control`, keep legacy `hardware:in` input support, and emit `race_control` events).
+Next step: implement and test race-control ownership flow end-to-end with `reset_race`/penalty/DQ events emitted on `franklin:events` and consumed by UI clients.

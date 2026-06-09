@@ -24,8 +24,8 @@ use tracing::{error, info, warn};
 // Redis configuration
 const DEFAULT_REDIS_SOCKET_PATH: &str = "./redis.sock";
 const REDIS_IN_CHANNEL: &str = "hardware:in";
-const REDIS_RACE_CONTROL_CHANNEL: &str = "race:control";
 const REDIS_OUT_CHANNEL: &str = "hardware:out";
+const REDIS_EVENTS_CHANNEL: &str = "franklin:events";
 
 // Message types
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -325,13 +325,14 @@ impl HardwareComm {
     }
 
     fn send_message(&self, msg: &OutMessage) -> Result<()> {
-        // Check if we should publish this message based on its type
-        let should_publish = match msg {
-            OutMessage::Raw { .. } => false, // Don't publish raw messages to Redis
-            _ => true,
+        // Route messages to the appropriate Redis channel.
+        let target_channel = match msg {
+            OutMessage::Raw { .. } => None, // Don't publish raw messages to Redis
+            OutMessage::RaceControl { .. } => Some(REDIS_EVENTS_CHANNEL),
+            _ => Some(REDIS_OUT_CHANNEL),
         };
 
-        if should_publish {
+        if let Some(channel) = target_channel {
             let mut conn = self
                 .redis_client
                 .get_connection()
@@ -339,7 +340,7 @@ impl HardwareComm {
 
             let json = serde_json::to_string(msg).context("Failed to serialize message")?;
 
-            conn.publish::<_, _, ()>(REDIS_OUT_CHANNEL, json)
+            conn.publish::<_, _, ()>(channel, json)
                 .context("Failed to publish to Redis")?;
         }
 
@@ -680,15 +681,7 @@ async fn command_handler_task(hw: Arc<HardwareComm>, app: Arc<Mutex<App>>) -> Re
 
         if let Err(e) = pubsub.subscribe(REDIS_IN_CHANNEL) {
             error!(
-                "Failed to subscribe to legacy command channel (hardware:in): {}",
-                e
-            );
-            return;
-        }
-
-        if let Err(e) = pubsub.subscribe(REDIS_RACE_CONTROL_CHANNEL) {
-            error!(
-                "Failed to subscribe to race control channel (race:control): {}",
+                "Failed to subscribe to command channel (hardware:in): {}",
                 e
             );
             return;

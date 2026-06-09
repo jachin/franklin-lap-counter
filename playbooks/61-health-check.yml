@@ -16,22 +16,27 @@
         msg: "caddy.service is not active (state={{ caddy_status.status.ActiveState | default('unknown') }})"
       when: caddy_status.status.ActiveState | default('') != 'active'
 
-    - name: Check health-check web app process
-      ansible.builtin.shell: |
-        pgrep -af healthcheck_web_app.py | grep -v "bash -lc"
-      args:
-        executable: /bin/bash
-      become_user: "{{ franklin_user }}"
-      register: healthcheck_process
-      changed_when: false
-      failed_when: healthcheck_process.rc != 0
-
-    - name: Fetch health report through Caddy
+    - name: Check health-check web app API directly on Pi loopback
       ansible.builtin.uri:
-        url: http://127.0.0.1/api/report
+        url: http://127.0.0.1:8082/api/health
         method: GET
-        headers:
-          Host: "{{ franklin_healthcheck_domain }}"
+        return_content: true
+        status_code: 200
+      register: healthcheck_liveness
+      changed_when: false
+
+    - name: Fail when health-check web app API is not healthy
+      ansible.builtin.fail:
+        msg: >-
+          healthcheck web app is not healthy on 127.0.0.1:8082.
+          Response: {{ healthcheck_liveness.json | default(healthcheck_liveness.content | default('n/a')) }}
+          Try: devbox run pi-web-bounce
+      when: not (healthcheck_liveness.json.ok | default(false))
+
+    - name: Fetch health report directly from health-check web app
+      ansible.builtin.uri:
+        url: http://127.0.0.1:8082/api/report
+        method: GET
         return_content: true
         status_code: [200, 503]
       register: health_report
@@ -41,8 +46,8 @@
       ansible.builtin.debug:
         msg:
           - "caddy.service: {{ caddy_status.status.ActiveState | default('unknown') }}"
-          - "healthcheck process: {{ healthcheck_process.stdout_lines | default([]) }}"
-          - "healthcheck.frank report ok={{ health_report.json.ok | default(false) }} generated_at={{ health_report.json.generated_at | default('n/a') }}"
+          - "healthcheck api: ok={{ healthcheck_liveness.json.ok | default(false) }}"
+          - "health report ok={{ health_report.json.ok | default(false) }} generated_at={{ health_report.json.generated_at | default('n/a') }}"
 
     - name: Print full health report JSON
       ansible.builtin.debug:

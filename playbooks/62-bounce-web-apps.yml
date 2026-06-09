@@ -10,47 +10,47 @@
       - franklin-services
 
   tasks:
-    - name: Respawn scoreboard/referee panes in active tmux sessions
+    - name: Ensure scoreboard/referee/healthcheck panes are running in active tmux sessions
       ansible.builtin.shell: |
         set -euo pipefail
         cd "{{ pi_dest_dir }}"
 
-        bounced=0
+        changed=0
+
+        ensure_window() {
+          session="$1"
+          window="$2"
+          command="$3"
+
+          if tmux list-windows -t "$session" -F '#W' | grep -qx "$window"; then
+            tmux respawn-pane -k -t "$session:$window.0" "$command"
+            echo "Respawned ${session}:${window}"
+          else
+            tmux new-window -d -t "$session" -n "$window" "$command"
+            echo "Created ${session}:${window}"
+          fi
+
+          changed=1
+        }
 
         for session in {{ franklin_tmux_sessions | join(' ') }}; do
           if ! tmux has-session -t "$session" 2>/dev/null; then
             continue
           fi
 
-          windows=$(tmux list-windows -t "$session" -F '#W')
-
-          if echo "$windows" | grep -qx "web"; then
-            tmux respawn-pane -k -t "$session:web.0" "source .venv/bin/activate && export FRANKLIN_SESSION=tmux && echo 'Starting Web Server...' && python scoreboard_web_app.py"
-            echo "Respawned ${session}:web"
-            bounced=1
-          fi
-
-          if echo "$windows" | grep -qx "referee"; then
-            tmux respawn-pane -k -t "$session:referee.0" "source .venv/bin/activate && export FRANKLIN_SESSION=tmux && echo 'Starting Referee Web Server...' && python referee_web_app.py"
-            echo "Respawned ${session}:referee"
-            bounced=1
-          fi
-
-          if echo "$windows" | grep -qx "healthcheck"; then
-            tmux respawn-pane -k -t "$session:healthcheck.0" "source .venv/bin/activate && export FRANKLIN_SESSION=tmux && echo 'Starting Health Check Web Server...' && python healthcheck_web_app.py"
-            echo "Respawned ${session}:healthcheck"
-            bounced=1
-          fi
+          ensure_window "$session" "web" "source .venv/bin/activate && export FRANKLIN_SESSION=tmux && echo 'Starting Web Server...' && python scoreboard_web_app.py"
+          ensure_window "$session" "referee" "source .venv/bin/activate && export FRANKLIN_SESSION=tmux && echo 'Starting Referee Web Server...' && python referee_web_app.py"
+          ensure_window "$session" "healthcheck" "source .venv/bin/activate && export FRANKLIN_SESSION=tmux && echo 'Starting Health Check Web Server...' && python healthcheck_web_app.py"
         done
 
-        if [ "$bounced" -eq 0 ]; then
-          echo "No active tmux web panes found (sessions checked: {{ franklin_tmux_sessions | join(', ') }})"
+        if [ "$changed" -eq 0 ]; then
+          echo "No active tmux sessions found (sessions checked: {{ franklin_tmux_sessions | join(', ') }})"
         fi
       args:
         executable: /bin/bash
       become_user: "{{ franklin_user }}"
       register: bounce_web_result
-      changed_when: "'Respawned' in bounce_web_result.stdout"
+      changed_when: "'Respawned' in bounce_web_result.stdout or 'Created' in bounce_web_result.stdout"
 
     - name: Bounce summary
       ansible.builtin.debug:

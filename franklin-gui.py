@@ -8,8 +8,7 @@ Franklin GTK GUI (Wayland-friendly) implementation.
 This is the first pass of the GUI app that mirrors the core Franklin TUI flow:
 - race mode selection (Real/Fake/Training)
 - start/end race controls
-- Redis hardware subscription (hardware:out)
-- Redis race-control publish (hardware:in)
+- Redis pub/sub integration (channels/messages documented in docs/redis-message-reference.md)
 - lap/event log and leaderboard rendering
 - race persistence via SQLite
 - basic driver management (add/rename/delete) via dialog
@@ -108,6 +107,7 @@ class FranklinGuiApp(Gtk.Application):
         }.union(last_race_contestant_ids)
         self._ensure_racer_color_assignments(known_racer_ids, persist=False)
 
+        # Redis contract reference: docs/redis-message-reference.md
         self.redis_socket = redis_socket
         self.redis_in_channel = "hardware:in"
         self.redis_out_channel = "hardware:out"

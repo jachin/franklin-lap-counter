@@ -135,29 +135,16 @@ Edit `franklin.config.json` to configure your race:
 
 ## Redis Communication
 
-The system uses Redis pub/sub channels for inter-process communication:
+The canonical Redis protocol reference lives in:
 
-### `hardware:in` - Commands TO hardware/race-control owner
-```json
-{"type": "command", "command": "start_race"}
-{"type": "command", "command": "end_race"}
-{"type": "command", "command": "reset_race"}
-{"type": "command", "command": "simulate_lap", "racer_id": 1, "sensor_id": 1, "race_time": 12.5}
-```
+- `docs/redis-message-reference.md`
 
-### `hardware:out` - Hardware telemetry/events
-```json
-{"type": "heartbeat"}
-{"type": "status", "message": "Hardware connected"}
-{"type": "lap", "racer_id": 1, "sensor_id": 1, "race_time": 12.345}
-{"type": "debug", "message": "..."}
-{"type": "raw", "line": "..."}
-```
+Use that document for:
 
-### `franklin:events` - Race-control events
-```json
-{"type": "race_control", "command": "reset_race", "accepted": true, "message": "Race reset requested"}
-```
+- all channel definitions
+- all message schemas
+- publisher/subscriber ownership
+- known contract inconsistencies
 
 ## Testing
 
@@ -256,6 +243,7 @@ Current supported referee actions:
 Design notes and architecture:
 
 - `docs/referee-web-app-design.md`
+- `docs/redis-message-reference.md` (authoritative Redis contract)
 
 Audit logging:
 

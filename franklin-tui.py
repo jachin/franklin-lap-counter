@@ -274,7 +274,7 @@ class Franklin(App[Any]):  # type: ignore[type-arg]
             # Load laps from database and restore race state
             self._restore_race_from_db(in_progress["id"])
 
-        # Redis communication setup
+        # Redis communication setup (see docs/redis-message-reference.md)
         self.redis_socket = redis_socket
         self.redis_in_channel = "hardware:in"
         self.redis_out_channel = "hardware:out"
@@ -373,7 +373,9 @@ class Franklin(App[Any]):  # type: ignore[type-arg]
 
     async def hardware_monitor_task(self):
         """
-        Subscribe to Redis pub/sub to receive hardware messages.
+        Subscribe to Redis pub/sub to receive hardware and race-control messages.
+
+        Contract reference: docs/redis-message-reference.md
         """
         logging.info("Hardware monitor task starting up")
 

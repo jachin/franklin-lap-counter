@@ -22,6 +22,7 @@ use tokio::sync::Mutex;
 use tracing::{error, info, warn};
 
 // Redis configuration
+// Authoritative channel/message reference: docs/redis-message-reference.md
 const DEFAULT_REDIS_SOCKET_PATH: &str = "./redis.sock";
 const REDIS_IN_CHANNEL: &str = "hardware:in";
 const REDIS_OUT_CHANNEL: &str = "hardware:out";

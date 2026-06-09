@@ -4,6 +4,9 @@ Referee web app server.
 
 Provides race-control REST endpoints and a WebSocket feed of race-control/hardware
 messages to referee clients.
+
+Authoritative channel/message reference:
+- docs/redis-message-reference.md
 """
 
 from __future__ import annotations
@@ -21,6 +24,7 @@ from aiohttp import web  # type: ignore[import-untyped]
 
 from database import LapDatabase
 
+# Redis contract reference: docs/redis-message-reference.md
 REDIS_SOCKET_PATH = "./redis.sock"
 REDIS_IN_CHANNEL = "hardware:in"
 REDIS_OUT_CHANNEL = "hardware:out"

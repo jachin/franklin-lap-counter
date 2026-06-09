@@ -1,322 +1,52 @@
-# Referee Web App: Architecture and Message Contract (Draft)
+# Referee Web App: Architecture Notes
 
-Status: active plan; baseline implementation in progress.
+Status: baseline implemented; this document focuses on referee feature intent and rollout notes.
 
-Implemented baseline:
+> Redis channels/message schemas are canonical in `docs/redis-message-reference.md`.
+> Do not duplicate protocol payload details here.
 
-- `reset_race`, `remove_lap`, `add_penalty`, and `disqualify_racer` command handling in the owner process (`rust/franklin-hardware-monitor/src/main.rs`)
-- race-control events emitted on `franklin:events`
-- GUI/TUI consumers subscribe to `franklin:events` and apply reset/penalty/DQ state locally for display
-- initial referee web app at `referee_web_app.py` (`/` served from `static/referee.html`)
-- race-control audit log persisted in SQLite table `race_control_actions`
+## Implemented baseline
+
+- `referee_web_app.py` provides:
+  - REST control endpoints (`start_race`, `end_race`, `reset_race`, `add_penalty`, `remove_lap`, `disqualify_racer`)
+  - WebSocket stream for live events
+  - audit read endpoint (`/api/control/audit`)
+- `rust/franklin-hardware-monitor/src/main.rs` owns command handling and emits race-control outcomes.
+- `franklin-tui.py` and `franklin-gui.py` consume race-control outcomes and apply local display-state adjustments.
+- SQLite audit table `race_control_actions` is populated from race-control events.
 
 ## Goal
 
-Add a second web app for race officials (referees) that can:
+Provide race officials a dedicated UI to issue race-control decisions while keeping one authoritative command owner in the system.
 
-- Start race
-- Stop race
-- Reset race
-- Remove invalid lap(s) during a race
-- Add penalty time in 5-second increments during a race
-- Disqualify racers
+## System responsibilities (high level)
 
-All actions are coordinated through Redis so every consumer can react consistently.
+- **Authoritative owner:** `rust/franklin-hardware-monitor`
+- **Operational race UIs:** `franklin-tui.py`, `franklin-gui.py`
+- **Referee operator UI:** `referee_web_app.py`
+- **Spectator UI bridge:** `scoreboard_web_app.py`
+- **Operational diagnostics:** `healthcheck_web_app.py`
 
-## Current system (as implemented today)
+For exact publish/subscribe mappings and message fields, see:
 
-### Components
+- `docs/redis-message-reference.md`
 
-- `rust/franklin-hardware-monitor/src/main.rs`
-  - Publishes hardware telemetry/events to Redis channel `hardware:out`
-  - Subscribes to command channel `hardware:in`
-  - Publishes race-control outcome events to `franklin:events`
-- `franklin-tui.py`
-  - Subscribes to `hardware:out` and `franklin:events`
-  - Publishes race start/end commands to `hardware:in`
-  - Publishes race state snapshots to `franklin:race_state`
-- `franklin-gui.py`
-  - Subscribes to `hardware:out` and `franklin:events`
-  - Publishes race start/end/reset (and countdown phase) commands to `hardware:in`
-  - Publishes race state snapshots to `franklin:race_state`
-- `scoreboard_web_app.py`
-  - Subscribes to `hardware:out`
-  - Broadcasts those events to web clients via WebSocket
+## Remaining gaps / follow-up ideas
 
-### Existing command contract
+- Enforce a consistent command metadata envelope across all producers.
+- Decide whether to support/implement `countdown_phase` in the command owner.
+- Decide whether `franklin:race_state` should have a first-class subscriber or be retired.
+- Consider explicit rejection events for unknown commands (currently logged only by owner).
+- Add stronger authz for referee actions if needed outside trusted networks.
 
-Current command payload shape (published to `hardware:in`):
+## Data model notes
 
-```json
-{
-  "type": "command",
-  "command": "start_race"
-}
-```
+Current persistent audit is `race_control_actions`.
 
-Handled by hardware monitor today:
+Potential future extensions (if needed):
 
-- `start_race`
-- `end_race`
-- `simulate_lap`
+- explicit penalty ledger table
+- explicit disqualification table
+- explicit lap-adjustment table
 
-Important note:
-
-- Canonical race-end command is `end_race`.
-- GUI reset now publishes `reset_race` and all consumers can react via `race_control` events on `hardware:out`.
-
-### Existing event contract
-
-Current event types on `hardware:out`:
-
-- `heartbeat`
-- `status`
-- `lap` (`racer_id`, `sensor_id`, `race_time`)
-- `error`
-- `debug`
-
-## Gaps vs referee requirements
-
-The current model does not provide authoritative race-control events for:
-
-- `reset_race`
-- `remove_lap`
-- `add_penalty`
-- `disqualify_racer`
-
-It also lacks persistence structures for race officiating decisions (invalidated laps, penalties, DQ reason/source).
-
-## Proposed Redis contract (v1 for referee feature)
-
-Keep `hardware:in` and `hardware:out` as the hardware command/telemetry channels. Publish race-control outcome events on `franklin:events` so subscribers can apply officiating actions cleanly without mixing them into hardware telemetry.
-
-### Common envelope
-
-```json
-{
-  "type": "command",
-  "command": "...",
-  "command_id": "uuid",
-  "source": "referee_web_app",
-  "timestamp": "2026-06-09T12:34:56Z"
-}
-```
-
-Fields:
-
-- `command_id`: idempotency + audit correlation
-- `source`: producer identity (`franklin_tui`, `franklin_gui`, `referee_web_app`, etc.)
-- `timestamp`: producer time (ISO-8601)
-
-### Commands
-
-#### 1) Start race
-
-```json
-{
-  "type": "command",
-  "command": "start_race",
-  "command_id": "...",
-  "source": "referee_web_app",
-  "timestamp": "..."
-}
-```
-
-#### 2) End race
-
-Use canonical `end_race` everywhere.
-
-```json
-{
-  "type": "command",
-  "command": "end_race",
-  "command_id": "...",
-  "source": "referee_web_app",
-  "timestamp": "..."
-}
-```
-
-#### 3) Reset race
-
-```json
-{
-  "type": "command",
-  "command": "reset_race",
-  "command_id": "...",
-  "source": "referee_web_app",
-  "timestamp": "..."
-}
-```
-
-#### 4) Remove lap (invalidate lap)
-
-Prefer targeting by `lap_id` (stable), fallback `(racer_id, lap_number)`.
-
-```json
-{
-  "type": "command",
-  "command": "remove_lap",
-  "command_id": "...",
-  "source": "referee_web_app",
-  "timestamp": "...",
-  "lap_id": 123,
-  "reason": "cut track"
-}
-```
-
-Fallback form:
-
-```json
-{
-  "type": "command",
-  "command": "remove_lap",
-  "command_id": "...",
-  "source": "referee_web_app",
-  "timestamp": "...",
-  "racer_id": 2,
-  "lap_number": 5,
-  "reason": "cut track"
-}
-```
-
-#### 5) Add penalty time
-
-Penalty is additive; enforce 5-second increments at API/UI layer.
-
-```json
-{
-  "type": "command",
-  "command": "add_penalty",
-  "command_id": "...",
-  "source": "referee_web_app",
-  "timestamp": "...",
-  "racer_id": 2,
-  "penalty_seconds": 5,
-  "reason": "unsafe pit exit"
-}
-```
-
-#### 6) Disqualify racer
-
-```json
-{
-  "type": "command",
-  "command": "disqualify_racer",
-  "command_id": "...",
-  "source": "referee_web_app",
-  "timestamp": "...",
-  "racer_id": 3,
-  "reason": "technical violation"
-}
-```
-
-### Resulting events on `franklin:events`
-
-To keep consumers synchronized, command handlers should emit authoritative events:
-
-- `race_control`
-
-Example:
-
-```json
-{
-  "type": "race_control",
-  "command": "add_penalty",
-  "command_id": "...",
-  "accepted": true,
-  "racer_id": 2,
-  "penalty_seconds": 5,
-  "timestamp": "..."
-}
-```
-
-On rejection:
-
-```json
-{
-  "type": "race_control",
-  "command": "remove_lap",
-  "command_id": "...",
-  "accepted": false,
-  "error": "lap not found",
-  "timestamp": "..."
-}
-```
-
-## Consumer responsibilities (planned)
-
-### `franklin-hardware-monitor` (Rust)
-
-- Parse/validate new commands from `hardware:in`
-- Continue hardware responsibilities (`start_race`, reset signaling)
-- Publish `race_control` accepted/rejected events
-- Backward compatibility:
-  - continue parsing legacy command payload shapes while extending schema fields over time
-
-### `franklin-tui.py` and `franklin-gui.py`
-
-- Handle new `race_control` events from `hardware:out`
-- Update local race state deterministically for:
-  - lap removal
-  - penalty accumulation
-  - DQ
-- Prefer emitting canonical `end_race`
-
-### `scoreboard_web_app.py`
-
-- Forward new `race_control` events to clients
-- Render penalty/DQ/invalidated-lap state in leaderboard and event feed
-
-### New `referee_web_app.py`
-
-- Authenticate/authorize referee actions (if needed)
-- Validate command input
-- Publish command envelopes to `hardware:in`
-- Show command result stream (`race_control` accepted/rejected)
-
-## Data model changes required
-
-Current SQLite schema (`database.py`) stores races/laps only.
-
-Add tables (or equivalent) for officiating actions:
-
-> Implemented now: `race_control_actions` (append-only audit of accepted/rejected control outcomes)
-
-- `race_penalties`
-  - `id`, `race_id`, `racer_id`, `penalty_seconds`, `reason`, `command_id`, `created_at`
-- `race_disqualifications`
-  - `id`, `race_id`, `racer_id`, `reason`, `command_id`, `created_at`
-- `lap_adjustments`
-  - `id`, `race_id`, `lap_id` (nullable), `racer_id`, `lap_number` (nullable), `action` (`invalidate`), `reason`, `command_id`, `created_at`
-
-This enables replay/audit and deterministic rebuild of leaderboard state.
-
-## Suggested implementation phases
-
-1. **Protocol + compatibility**
-   - Introduce command envelope and `race_control` events
-   - Use canonical `end_race` in all producers
-2. **State model**
-   - Extend race model for penalties, lap invalidation, and DQ
-   - Add DB schema + persistence methods
-3. **Consumer updates**
-   - Apply `race_control` events in GUI/TUI/scoreboard
-4. **Referee web app**
-   - Basic UI + API for action dispatch
-   - Action log + error handling
-5. **Hardening**
-   - Idempotency checks via `command_id`
-   - Test suite for race-control scenarios
-
-## Decisions (confirmed)
-
-- **Authoritative race control owner:** one owner process (not shared among UIs).
-- **Redis channels:** keep `hardware:in` and `hardware:out` as-is; publish race-control outcomes on `franklin:events`.
-- **Race end command:** canonical command is `end_race`.
-- **Ranking rules:** DQ overrides all penalties/results for that racer (racer is out).
-- **Penalty edit policy (v1):** penalties are immutable (no remove/edit yet).
-- **Access control (v1):** anyone with referee-app access can perform actions; security hardening is deferred.
-
----
-
-Next step: implement and test race-control ownership flow end-to-end with `reset_race`/penalty/DQ events emitted on `franklin:events` and consumed by UI clients.
+These may remain derived from the append-only audit stream unless query/perf needs justify materialized tables.

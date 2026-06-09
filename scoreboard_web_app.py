@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
 """
 Scoreboard web app server that bridges Redis pub/sub to connected clients.
-Subscribes to the `hardware:out` Redis channel and broadcasts race events over WebSocket.
+Subscribes to `hardware:out` and `franklin:events`, then broadcasts messages over WebSocket.
+
+Authoritative channel/message reference:
+- docs/redis-message-reference.md
 """
 
 import asyncio
@@ -16,6 +19,7 @@ from aiohttp import web  # type: ignore[import-untyped]
 
 from database import LapDatabase
 
+# Redis contract reference: docs/redis-message-reference.md
 # Configuration
 REDIS_SOCKET_PATH = "./redis.sock"
 REDIS_OUT_CHANNEL = "hardware:out"

@@ -3,6 +3,9 @@
 
 Serves a dashboard and health endpoints intended to be proxied by Caddy at
 healthcheck.frank.
+
+Authoritative channel/message reference:
+- docs/redis-message-reference.md
 """
 
 from __future__ import annotations
@@ -20,6 +23,7 @@ from typing import Any, Awaitable, Callable
 import redis.asyncio as redis
 from aiohttp import web  # type: ignore[import-untyped]
 
+# Redis contract reference: docs/redis-message-reference.md
 REDIS_SOCKET_PATH = "./redis.sock"
 REDIS_OUT_CHANNEL = "hardware:out"
 WEB_PORT = 8082

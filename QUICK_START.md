@@ -77,50 +77,11 @@ Now that Redis is in the middle, you can:
 
 ## Message Reference
 
-### Commands (Publish to `hardware:in`)
+Redis channel/message contracts are maintained in one canonical location:
 
-Start race:
-```json
-{"type": "command", "command": "start_race"}
-```
+- `docs/redis-message-reference.md`
 
-Stop race:
-```json
-{"type": "command", "command": "end_race"}
-```
-
-Simulate lap (simulation mode only):
-```json
-{
-  "type": "command",
-  "command": "simulate_lap",
-  "racer_id": 1,
-  "sensor_id": 1,
-  "race_time": 12.345
-}
-```
-
-### Events (Subscribe to `hardware:out` and `franklin:events`)
-
-Heartbeat (every 2 seconds):
-```json
-{"type": "heartbeat"}
-```
-
-Status message:
-```json
-{"type": "status", "message": "Redis connected"}
-```
-
-Lap detected:
-```json
-{
-  "type": "lap",
-  "racer_id": 1,
-  "sensor_id": 1,
-  "race_time": 12.345
-}
-```
+Use that document for all payload examples and publisher/subscriber mappings.
 
 ## Logs
 

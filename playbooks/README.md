@@ -18,7 +18,7 @@ These playbooks provide modular, idempotent infrastructure/setup and deployment 
 - `58-wayvnc.yml` - install/configure WayVNC for SSH-tunneled remote GUI access
 - `60-system-info.yml` - print OS/Python/glibc/Redis info
 - `61-health-check.yml` - verifies Caddy + health-check app and fetches the health report JSON
-- `62-bounce-web-apps.yml` - respawn/create tmux web windows (`web`, `referee`, `healthcheck`)
+- `62-bounce-web-apps.yml` - respawn/create tmux web windows (`web_scoreboard`, `web_referee`, `web_healthcheck`)
 - `63-reboot.yml` - reboot target host and wait for reconnect
 - `site.yml` - runs setup playbooks in order
 - `deploy-franklin.yml` - deploy app artifacts (`franklin-hardware-monitor`, Python apps, static/, tmuxinator/, etc.)

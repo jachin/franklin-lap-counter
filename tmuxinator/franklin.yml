@@ -71,7 +71,7 @@ windows:
             - sleep 3
             - echo "Starting Franklin TUI..."
             - python franklin-tui.py
-  - web:
+  - web_scoreboard:
       layout: main-horizontal
       panes:
         - server:
@@ -79,7 +79,7 @@ windows:
             - sleep 4
             - echo "Starting Web Server..."
             - python scoreboard_web_app.py
-  - referee:
+  - web_referee:
       layout: main-horizontal
       panes:
         - server:
@@ -87,7 +87,7 @@ windows:
             - sleep 4
             - echo "Starting Referee Web Server..."
             - python referee_web_app.py
-  - healthcheck:
+  - web_healthcheck:
       layout: main-horizontal
       panes:
         - server:

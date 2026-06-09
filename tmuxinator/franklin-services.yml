@@ -2,7 +2,7 @@
 name: franklin-services
 root: .
 
-startup_window: web
+startup_window: web_scoreboard
 
 pre_window: |
   source .venv/bin/activate
@@ -23,7 +23,7 @@ windows:
             - sleep 2
             - echo "Starting Hardware Monitor..."
             - ./franklin-hardware-monitor
-  - web:
+  - web_scoreboard:
       layout: main-horizontal
       panes:
         - server:
@@ -31,7 +31,7 @@ windows:
             - sleep 3
             - echo "Starting Web Server..."
             - python scoreboard_web_app.py
-  - referee:
+  - web_referee:
       layout: main-horizontal
       panes:
         - server:
@@ -39,7 +39,7 @@ windows:
             - sleep 3
             - echo "Starting Referee Web Server..."
             - python referee_web_app.py
-  - healthcheck:
+  - web_healthcheck:
       layout: main-horizontal
       panes:
         - server:

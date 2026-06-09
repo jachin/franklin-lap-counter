@@ -75,16 +75,10 @@ The above setup is reproduced by:
 devbox run -- ansible-playbook -i playbooks/inventory.ini playbooks/45-network-hotspot.yml
 ```
 
-### Apply Caddy reverse proxy setup only
-
-```bash
-devbox run setup-pi-caddy-proxy
-```
-
 ### Apply full Pi setup (includes hotspot/router + Caddy proxy)
 
 ```bash
-devbox run setup-pi
+devbox run ansible:setup
 ```
 
 ## DHCP + portability behavior

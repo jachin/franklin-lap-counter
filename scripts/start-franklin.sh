@@ -80,7 +80,7 @@ check_files() {
 
     if [ ${#missing_files[@]} -gt 0 ]; then
         log "❌ Missing files: ${missing_files[*]}"
-        log "   Run deployment first: devbox run deploy-pi"
+        log "   Run deployment first: devbox run ansible:deploy"
         return 1
     fi
 

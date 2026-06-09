@@ -30,7 +30,7 @@
         msg: >-
           healthcheck web app is not healthy on 127.0.0.1:8082.
           Response: {{ healthcheck_liveness.json | default(healthcheck_liveness.content | default('n/a')) }}
-          Try: devbox run pi-web-bounce
+          Try: devbox run ansible:web-bounce
       when: not (healthcheck_liveness.json.ok | default(false))
 
     - name: Fetch health report directly from health-check web app

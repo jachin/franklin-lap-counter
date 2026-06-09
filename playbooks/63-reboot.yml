@@ -1,0 +1,13 @@
+---
+- name: Reboot Raspberry Pi
+  hosts: all
+  gather_facts: false
+  become: true
+
+  tasks:
+    - name: Reboot remote host and wait for it to come back
+      ansible.builtin.reboot:
+        msg: "Reboot requested by devbox task ansible:reboot"
+        connect_timeout: 5
+        reboot_timeout: 600
+        post_reboot_delay: 5

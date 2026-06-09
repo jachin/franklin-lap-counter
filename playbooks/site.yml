@@ -5,6 +5,7 @@
 - import_playbook: 20-python-venv.yml
 - import_playbook: 30-tmuxinator.yml
 - import_playbook: 40-redis.yml
+- import_playbook: 45-network-hotspot.yml
 - import_playbook: 50-startup-script.yml
 - import_playbook: 55-autologin-startup.yml
 - import_playbook: 56-wayland-sway.yml

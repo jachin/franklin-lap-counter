@@ -1,0 +1,198 @@
+---
+- name: Configure Raspberry Pi as Wi-Fi access point/router
+  hosts: all
+  become: true
+  vars:
+    resolved_uplink_interface: "{{ (franklin_uplink_interface == 'auto') | ternary(ansible_facts.default_ipv4.interface | default(''), franklin_uplink_interface) }}"
+  tasks:
+    - name: Validate uplink interface resolution
+      ansible.builtin.assert:
+        that:
+          - resolved_uplink_interface | length > 0
+          - resolved_uplink_interface != franklin_ap_interface
+        fail_msg: >-
+          Unable to resolve uplink interface. Set franklin_uplink_interface explicitly
+          (for example eth0), or ensure the Pi has a default IPv4 route.
+    - name: Ensure AP/router packages are installed
+      ansible.builtin.apt:
+        name:
+          - hostapd
+          - dnsmasq
+          - nftables
+          - wpasupplicant
+        state: present
+
+    - name: Ensure hostapd uses /etc/hostapd/hostapd.conf
+      ansible.builtin.lineinfile:
+        path: /etc/default/hostapd
+        regexp: "^DAEMON_CONF="
+        line: 'DAEMON_CONF="/etc/hostapd/hostapd.conf"'
+      notify: Restart hostapd
+
+    - name: Configure hostapd access-point settings
+      ansible.builtin.copy:
+        dest: /etc/hostapd/hostapd.conf
+        mode: "0644"
+        content: |
+          interface={{ franklin_ap_interface }}
+          driver=nl80211
+          ssid={{ franklin_ap_ssid }}
+          hw_mode=g
+          channel={{ franklin_ap_channel }}
+          wmm_enabled=0
+          macaddr_acl=0
+          auth_algs=1
+          ignore_broadcast_ssid=0
+          wpa=2
+          wpa_passphrase={{ franklin_ap_passphrase }}
+          wpa_key_mgmt=WPA-PSK
+          wpa_pairwise=TKIP
+          rsn_pairwise=CCMP
+      notify: Restart hostapd
+
+    - name: Configure dnsmasq for AP DHCP/DNS
+      ansible.builtin.copy:
+        dest: /etc/dnsmasq.conf
+        mode: "0644"
+        content: |
+          interface={{ franklin_ap_interface }}
+          dhcp-range={{ franklin_ap_dhcp_range_start }},{{ franklin_ap_dhcp_range_end }},{{ franklin_ap_netmask }},{{ franklin_ap_dhcp_lease_time }}
+          domain={{ franklin_ap_domain }}
+          address=/{{ franklin_ap_dns_name }}/{{ franklin_ap_gateway_ip }}
+      notify: Restart dnsmasq
+
+    - name: Ensure wpa_supplicant base config exists (country + control socket)
+      ansible.builtin.copy:
+        dest: /etc/wpa_supplicant/wpa_supplicant.conf
+        mode: "0600"
+        content: |
+          ctrl_interface=DIR=/var/run/wpa_supplicant GROUP=netdev
+          update_config=1
+          country={{ franklin_ap_country }}
+      notify: Restart wpa_supplicant
+
+    - name: Ensure wpa_supplicant systemd drop-in directory exists
+      ansible.builtin.file:
+        path: /etc/systemd/system/wpa_supplicant.service.d
+        state: directory
+        mode: "0755"
+
+    - name: Force wpa_supplicant service to use wlan interface args from current setup
+      ansible.builtin.copy:
+        dest: /etc/systemd/system/wpa_supplicant.service.d/override.conf
+        mode: "0644"
+        content: |
+          [Service]
+          ExecStart=
+          ExecStart=/sbin/wpa_supplicant -u -s -O "DIR=/run/wpa_supplicant GROUP=netdev" -c /etc/wpa_supplicant/wpa_supplicant.conf -i {{ franklin_ap_interface }} -D nl80211,wext
+      notify:
+        - Reload systemd daemon
+        - Restart wpa_supplicant
+
+    - name: Configure wlan static-IP oneshot service
+      ansible.builtin.copy:
+        dest: /etc/systemd/system/wlan0-static-ip.service
+        mode: "0644"
+        content: |
+          [Unit]
+          Description=Assign static IP to {{ franklin_ap_interface }}
+          After=network.target wpa_supplicant.service
+          Before=hostapd.service dnsmasq.service
+
+          [Service]
+          Type=oneshot
+          ExecStartPre=/bin/sleep 2
+          ExecStart=/sbin/ip addr replace {{ franklin_ap_address }} dev {{ franklin_ap_interface }}
+          RemainAfterExit=yes
+
+          [Install]
+          WantedBy=multi-user.target
+      notify:
+        - Reload systemd daemon
+        - Restart wlan static IP
+
+    - name: Ensure IPv4 forwarding is enabled persistently
+      ansible.posix.sysctl:
+        name: net.ipv4.ip_forward
+        value: "1"
+        state: present
+        reload: true
+
+    - name: Configure nftables NAT + forward/input policy for AP routing
+      ansible.builtin.copy:
+        dest: /etc/nftables.conf
+        mode: "0644"
+        content: |
+          #!/usr/sbin/nft -f
+
+          flush ruleset
+
+          table ip nat {
+              chain postrouting {
+                  type nat hook postrouting priority 100;
+                  ip saddr {{ franklin_ap_subnet_cidr }} oifname "{{ resolved_uplink_interface }}" counter masquerade
+              }
+          }
+
+          table inet filter {
+              chain input {
+                  type filter hook input priority 0;
+                  ct state established,related accept
+                  iifname "lo" accept
+                  iifname "{{ franklin_ap_interface }}" accept
+                  iifname "{{ resolved_uplink_interface }}" tcp dport 22 accept
+                  counter drop
+              }
+              chain forward {
+                  type filter hook forward priority 0;
+                  ct state established,related accept
+                  iifname "{{ franklin_ap_interface }}" oifname "{{ resolved_uplink_interface }}" counter accept
+                  counter drop
+              }
+              chain output {
+                  type filter hook output priority 0;
+              }
+          }
+      notify: Restart nftables
+
+    - name: Ensure AP/routing services are enabled and started
+      ansible.builtin.systemd:
+        name: "{{ item }}"
+        enabled: true
+        state: started
+      loop:
+        - wpa_supplicant.service
+        - wlan0-static-ip.service
+        - hostapd.service
+        - dnsmasq.service
+        - nftables.service
+
+  handlers:
+    - name: Reload systemd daemon
+      ansible.builtin.systemd:
+        daemon_reload: true
+
+    - name: Restart wpa_supplicant
+      ansible.builtin.systemd:
+        name: wpa_supplicant.service
+        state: restarted
+
+    - name: Restart wlan static IP
+      ansible.builtin.systemd:
+        name: wlan0-static-ip.service
+        state: restarted
+
+    - name: Restart hostapd
+      ansible.builtin.systemd:
+        name: hostapd.service
+        state: restarted
+
+    - name: Restart dnsmasq
+      ansible.builtin.systemd:
+        name: dnsmasq.service
+        state: restarted
+
+    - name: Restart nftables
+      ansible.builtin.systemd:
+        name: nftables.service
+        state: restarted

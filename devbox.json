@@ -60,6 +60,9 @@
       "setup-pi-vnc": [
         "ansible-playbook -i playbooks/inventory.ini playbooks/58-wayvnc.yml"
       ],
+      "setup-pi-network-ap": [
+        "ansible-playbook -i playbooks/inventory.ini playbooks/45-network-hotspot.yml"
+      ],
       "pi-vnc-restart": ["./scripts/restart-wayvnc-pi.sh"],
       "pi-gui-restart": [
         "ansible-playbook -i playbooks/inventory.ini playbooks/59-restart-franklin-gui.yml"

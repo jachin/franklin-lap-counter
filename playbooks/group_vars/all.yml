@@ -58,3 +58,22 @@ python_packages:
   - aiohttp
   - pygments
   - rich
+
+# Raspberry Pi AP/router (hotspot) settings
+franklin_ap_interface: wlan0
+# Uplink can be set explicitly (e.g. eth0), or left as auto to resolve from
+# the Pi's current default IPv4 route (portable across different networks).
+franklin_uplink_interface: auto
+franklin_ap_ssid: FranklinLapCounter
+franklin_ap_passphrase: lapcounter
+franklin_ap_channel: 7
+franklin_ap_country: US
+franklin_ap_address: 10.210.1.1/24
+franklin_ap_gateway_ip: 10.210.1.1
+franklin_ap_subnet_cidr: 10.210.1.0/24
+franklin_ap_netmask: 255.255.255.0
+franklin_ap_dhcp_range_start: 10.210.1.50
+franklin_ap_dhcp_range_end: 10.210.1.150
+franklin_ap_dhcp_lease_time: 24h
+franklin_ap_domain: wlan
+franklin_ap_dns_name: burke.local

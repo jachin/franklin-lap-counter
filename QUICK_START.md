@@ -79,8 +79,8 @@ devbox run rust-hw-sim
 # Terminal 3: Send commands
 devbox shell
 redis-cli -s ./redis.sock
-> PUBLISH hardware:in '{"type":"command","command":"start_race"}'
-> PUBLISH hardware:in '{"type":"command","command":"simulate_lap","racer_id":1,"sensor_id":1,"race_time":5.5}'
+> PUBLISH race:control '{"type":"command","command":"start_race"}'
+> PUBLISH race:control '{"type":"command","command":"simulate_lap","racer_id":1,"sensor_id":1,"race_time":5.5}'
 ```
 
 ## What You Can Build Next
@@ -104,12 +104,12 @@ Now that Redis is in the middle, you can:
                              │
                        ┌─────┴─────┐
                        ▼           ▼
-                 hardware:in  hardware:out
+                race:control  hardware:out
 ```
 
 ## Message Reference
 
-### Commands (Publish to `hardware:in`)
+### Commands (Publish to `race:control`)
 
 Start race:
 ```json
@@ -118,7 +118,7 @@ Start race:
 
 Stop race:
 ```json
-{"type": "command", "command": "stop_race"}
+{"type": "command", "command": "end_race"}
 ```
 
 Simulate lap (simulation mode only):

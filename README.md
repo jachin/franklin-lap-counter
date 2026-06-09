@@ -135,20 +135,26 @@ Edit `franklin.config.json` to configure your race:
 
 ## Redis Communication
 
-The system uses two Redis pub/sub channels for inter-process communication:
+The system uses Redis pub/sub channels for inter-process communication:
 
-### `hardware:in` - Commands TO Hardware
+### `race:control` - Race control commands
 ```json
 {"type": "command", "command": "start_race"}
-{"type": "command", "command": "stop_race"}
+{"type": "command", "command": "end_race"}
+{"type": "command", "command": "reset_race"}
 {"type": "command", "command": "simulate_lap", "racer_id": 1, "sensor_id": 1, "race_time": 12.5}
 ```
 
-### `hardware:out` - Events FROM Hardware
+### `hardware:in` - Legacy command input (compatibility)
+
+`hardware:in` is still consumed for backward compatibility during migration to `race:control`.
+
+### `hardware:out` - Events FROM hardware and race control processing
 ```json
 {"type": "heartbeat"}
 {"type": "status", "message": "Hardware connected"}
 {"type": "lap", "racer_id": 1, "sensor_id": 1, "race_time": 12.345}
+{"type": "race_control", "command": "reset_race", "accepted": true, "message": "Race reset requested"}
 {"type": "debug", "message": "..."}
 {"type": "raw", "line": "..."}
 ```
@@ -171,7 +177,7 @@ redis-cli -s ./redis.sock
 
 # Send test command
 redis-cli -s ./redis.sock
-> PUBLISH hardware:in '{"type":"command","command":"start_race"}'
+> PUBLISH race:control '{"type":"command","command":"start_race"}'
 ```
 
 ## Troubleshooting
@@ -223,6 +229,19 @@ pytest
 devbox shell
 basedpyright
 ```
+
+## Referee Web App (Planned)
+
+A referee-focused web app is planned for race control operations:
+
+- Start / stop / reset race
+- Remove invalid laps
+- Add 5-second penalties
+- Disqualify racers
+
+Design and message-contract draft:
+
+- `docs/referee-web-app-design.md`
 
 ## Features
 

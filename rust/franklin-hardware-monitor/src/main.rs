@@ -24,6 +24,7 @@ use tracing::{error, info, warn};
 // Redis configuration
 const DEFAULT_REDIS_SOCKET_PATH: &str = "./redis.sock";
 const REDIS_IN_CHANNEL: &str = "hardware:in";
+const REDIS_RACE_CONTROL_CHANNEL: &str = "race:control";
 const REDIS_OUT_CHANNEL: &str = "hardware:out";
 
 // Message types
@@ -44,6 +45,12 @@ enum OutMessage {
     },
     Debug {
         message: String,
+    },
+    RaceControl {
+        command: String,
+        accepted: bool,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        message: Option<String>,
     },
     Raw {
         line: String,
@@ -117,6 +124,17 @@ impl App {
             OutMessage::Status { message } => format!("[STATUS] {}", message),
             OutMessage::Error { message } => format!("[ERROR] {}", message),
             OutMessage::Debug { message } => format!("[DEBUG] {}", message),
+            OutMessage::RaceControl {
+                command,
+                accepted,
+                message,
+            } => {
+                let status = if *accepted { "accepted" } else { "rejected" };
+                match message {
+                    Some(detail) => format!("[RACE_CONTROL] {} {} ({})", command, status, detail),
+                    None => format!("[RACE_CONTROL] {} {}", command, status),
+                }
+            }
             OutMessage::Raw { line } => format!("[RAW] {}", line),
         }
     }
@@ -661,7 +679,18 @@ async fn command_handler_task(hw: Arc<HardwareComm>, app: Arc<Mutex<App>>) -> Re
             .ok();
 
         if let Err(e) = pubsub.subscribe(REDIS_IN_CHANNEL) {
-            error!("Failed to subscribe to command channel: {}", e);
+            error!(
+                "Failed to subscribe to legacy command channel (hardware:in): {}",
+                e
+            );
+            return;
+        }
+
+        if let Err(e) = pubsub.subscribe(REDIS_RACE_CONTROL_CHANNEL) {
+            error!(
+                "Failed to subscribe to race control channel (race:control): {}",
+                e
+            );
             return;
         }
 
@@ -734,6 +763,13 @@ async fn command_handler_task(hw: Arc<HardwareComm>, app: Arc<Mutex<App>>) -> Re
                             }) {
                                 error!("Failed to send status: {}", e);
                             }
+
+                            let _ = hw.send_message(&OutMessage::RaceControl {
+                                command: "start_race".to_string(),
+                                accepted: true,
+                                message: Some(status_message.clone()),
+                            });
+
                             info!("{}", status_message);
                         }
                         "end_race" => {
@@ -755,6 +791,32 @@ async fn command_handler_task(hw: Arc<HardwareComm>, app: Arc<Mutex<App>>) -> Re
                             }) {
                                 error!("Failed to send status: {}", e);
                             }
+
+                            let _ = hw.send_message(&OutMessage::RaceControl {
+                                command: "end_race".to_string(),
+                                accepted: true,
+                                message: Some(status_message.clone()),
+                            });
+
+                            info!("{}", status_message);
+                        }
+                        "reset_race" => {
+                            // Request hardware reset commands in hardware mode.
+                            let rt = tokio::runtime::Handle::current();
+                            rt.block_on(async {
+                                let mut app = app.lock().await;
+                                app.reset_requested = true;
+                            });
+
+                            let status_message = "Race reset requested".to_string();
+                            let _ = hw.send_message(&OutMessage::Status {
+                                message: status_message.clone(),
+                            });
+                            let _ = hw.send_message(&OutMessage::RaceControl {
+                                command: "reset_race".to_string(),
+                                accepted: true,
+                                message: Some(status_message.clone()),
+                            });
                             info!("{}", status_message);
                         }
                         "simulate_lap" => {

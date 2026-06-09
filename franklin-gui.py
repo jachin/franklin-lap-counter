@@ -7,7 +7,7 @@ This is the first pass of the GUI app that mirrors the core Franklin TUI flow:
 - race mode selection (Real/Fake/Training)
 - start/end race controls
 - Redis hardware subscription (hardware:out)
-- Redis command publish (hardware:in)
+- Redis race-control publish (race:control)
 - lap/event log and leaderboard rendering
 - race persistence via SQLite
 - basic driver management (add/rename/delete) via dialog
@@ -46,7 +46,12 @@ from racer_colors import RacerColorScheme, assign_random_scheme
 
 gi.require_version("Gdk", "4.0")
 gi.require_version("Gtk", "4.0")
-from gi.repository import Gdk, Gio, GLib, Gtk  # pyright: ignore[reportAttributeAccessIssue]  # noqa: E402
+from gi.repository import (  # pyright: ignore[reportAttributeAccessIssue]  # noqa: E402
+    Gdk,
+    Gio,
+    GLib,
+    Gtk,
+)
 
 
 class FranklinGuiApp(Gtk.Application):
@@ -98,7 +103,7 @@ class FranklinGuiApp(Gtk.Application):
         self._ensure_racer_color_assignments(known_racer_ids, persist=False)
 
         self.redis_socket = redis_socket
-        self.redis_in_channel = "hardware:in"
+        self.redis_control_channel = "race:control"
         self.redis_out_channel = "hardware:out"
         self._redis_client: redis.Redis | None = None
         self._redis_pubsub = None
@@ -1195,14 +1200,18 @@ class FranklinGuiApp(Gtk.Application):
             publish_end_command=True,
         )
 
-    def on_reset_clicked(self, _button: Gtk.Button | None) -> None:
-        if self._start_sequence_running or self.race.state != RaceState.FINISHED:
-            return
-
+    def _apply_race_reset(self, source: str = "local") -> None:
         # Keep prior racers visible for the next race with reset stats.
         self.race = Race(previous_race=self.previous_race)
         self.race.total_laps = self.total_laps
         self.race.race_end_mode = self.race_end_mode
+
+        if self.current_race_id:
+            try:
+                self.db.end_race(self.current_race_id)
+            except Exception as exc:
+                logging.error("Failed to end race during reset: %s", exc)
+            self.current_race_id = None
 
         if self.start_btn:
             self.start_btn.set_sensitive(True)
@@ -1216,8 +1225,19 @@ class FranklinGuiApp(Gtk.Application):
                 f'<span size="48000" weight="bold">{self._format_time_cs(self.race.elapsed_time)}</span>'
             )
 
-        self.append_event("Race reset")
+        self.append_event(f"Race reset ({source})")
         self.refresh_views()
+
+    def on_reset_clicked(self, _button: Gtk.Button | None) -> None:
+        if self._start_sequence_running or self.race.state != RaceState.FINISHED:
+            return
+
+        if self.race_mode == RaceMode.FAKE:
+            self._apply_race_reset(source="local")
+            return
+
+        self.publish_command("reset_race")
+        self.append_event("Requested race reset")
 
     def on_preferences_clicked(self, _button: Gtk.Button | None) -> None:
         if not self.window:
@@ -1662,6 +1682,15 @@ class FranklinGuiApp(Gtk.Application):
             self.append_event(f"STATUS: {msg.get('message', '')}")
             return
 
+        if msg_type == "race_control":
+            command = msg.get("command")
+            accepted = bool(msg.get("accepted", True))
+            detail = msg.get("message", "")
+            self.append_event(f"RACE_CONTROL: {command} accepted={accepted} {detail}")
+            if accepted and command == "reset_race":
+                self._apply_race_reset(source="redis")
+            return
+
         if msg_type != "lap":
             return
 
@@ -1729,7 +1758,7 @@ class FranklinGuiApp(Gtk.Application):
             return
         payload: dict[str, Any] = {"type": "command", "command": command}
         payload.update(kwargs)
-        self._redis_client.publish(self.redis_in_channel, json.dumps(payload))
+        self._redis_client.publish(self.redis_control_channel, json.dumps(payload))
 
     def publish_race_state(self) -> None:
         if not self._redis_client:

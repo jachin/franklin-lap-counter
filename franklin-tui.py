@@ -270,7 +270,7 @@ class Franklin(App[Any]):  # type: ignore[type-arg]
 
         # Redis communication setup
         self.redis_socket = redis_socket
-        self.redis_in_channel = "hardware:in"
+        self.redis_control_channel = "race:control"
         self.redis_out_channel = "hardware:out"
         self._redis_client = None
         self._redis_pubsub = None
@@ -419,6 +419,18 @@ class Franklin(App[Any]):  # type: ignore[type-arg]
                         elif msg_type == "status":
                             logging.info(f"Status message: {msg.get('message', '')}")
 
+                        elif msg_type == "race_control":
+                            command = msg.get("command")
+                            accepted = bool(msg.get("accepted", True))
+                            logging.info(
+                                "Race control event: command=%s accepted=%s message=%s",
+                                command,
+                                accepted,
+                                msg.get("message", ""),
+                            )
+                            if accepted and command == "reset_race":
+                                self._apply_race_reset_from_redis()
+
                         elif msg_type == "raw":
                             logging.debug(f"Raw message: {msg.get('line', '')}")
 
@@ -523,6 +535,26 @@ class Franklin(App[Any]):  # type: ignore[type-arg]
                     )
         yield Footer()
 
+    def _apply_race_reset_from_redis(self) -> None:
+        logging.info("Applying race reset from Redis")
+
+        if self.current_race_id:
+            try:
+                self.db.end_race(self.current_race_id)
+            except Exception as e:
+                logging.error(f"Failed to end race during reset: {e}")
+            self.current_race_id = None
+
+        self.race = Race(previous_race=self.previous_race)
+        self.race.total_laps = self.total_laps
+
+        status_display = self.query_one(RaceStatusDisplay)
+        start_btn = self.query_one("#start_btn", Button)
+        stop_btn = self.query_one("#stop_btn", Button)
+        status_display.race_state = self.race.state
+        start_btn.disabled = False
+        stop_btn.disabled = True
+
     def action_start_race(self) -> None:
         async def start_race_and_send_command():
             status_display = self.query_one(RaceStatusDisplay)
@@ -576,7 +608,7 @@ class Franklin(App[Any]):  # type: ignore[type-arg]
                         if self._redis_client:
                             cmd = {"type": "command", "command": "start_race"}
                             self._redis_client.publish(
-                                self.redis_in_channel, json.dumps(cmd)
+                                self.redis_control_channel, json.dumps(cmd)
                             )
                             logging.info("Sent start_race command to Redis")
                         else:
@@ -610,7 +642,7 @@ class Franklin(App[Any]):  # type: ignore[type-arg]
             # Publish end_race command to Redis
             if self._redis_client:
                 cmd = {"type": "command", "command": "end_race"}
-                self._redis_client.publish(self.redis_in_channel, json.dumps(cmd))
+                self._redis_client.publish(self.redis_control_channel, json.dumps(cmd))
                 logging.info("Sent end_race command to Redis")
 
             # Mark race as completed in database

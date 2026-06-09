@@ -21,20 +21,33 @@ def _parse_race_mode(raw_mode: Any, default: RaceMode) -> RaceMode:
 
 def load_initial_config(
     config_path: Path,
-) -> tuple[RaceMode, int, RaceEndMode, list[dict[str, Any]]]:
+) -> tuple[RaceMode, int, RaceEndMode, list[dict[str, Any]], list[int]]:
     race_mode = RaceMode.TRAINING
     total_laps = 10
     race_end_mode = RaceEndMode.LAST_CAR
     contestants_data: list[dict[str, Any]] = []
+    last_race_contestant_ids: list[int] = []
 
     if not config_path.exists():
-        return race_mode, total_laps, race_end_mode, contestants_data
+        return (
+            race_mode,
+            total_laps,
+            race_end_mode,
+            contestants_data,
+            last_race_contestant_ids,
+        )
 
     try:
         raw_data = json.loads(config_path.read_text())
     except Exception as exc:
         logging.error("Failed to load config: %s", exc)
-        return race_mode, total_laps, race_end_mode, contestants_data
+        return (
+            race_mode,
+            total_laps,
+            race_end_mode,
+            contestants_data,
+            last_race_contestant_ids,
+        )
 
     config_data = raw_data if isinstance(raw_data, dict) else {}
 
@@ -64,4 +77,30 @@ def load_initial_config(
             type(raw_contestants).__name__,
         )
 
-    return race_mode, total_laps, race_end_mode, contestants_data
+    raw_last_race_contestant_ids = config_data.get(
+        "last_race_contestant_ids", last_race_contestant_ids
+    )
+    if isinstance(raw_last_race_contestant_ids, list):
+        parsed_ids: list[int] = []
+        for raw_id in raw_last_race_contestant_ids:
+            try:
+                parsed_id = int(raw_id)
+                if parsed_id > 0:
+                    parsed_ids.append(parsed_id)
+            except (TypeError, ValueError):
+                continue
+        # Keep ordering stable while removing duplicates.
+        last_race_contestant_ids = list(dict.fromkeys(parsed_ids))
+    else:
+        logging.warning(
+            "Invalid last_race_contestant_ids in config: expected list, got %s",
+            type(raw_last_race_contestant_ids).__name__,
+        )
+
+    return (
+        race_mode,
+        total_laps,
+        race_end_mode,
+        contestants_data,
+        last_race_contestant_ids,
+    )

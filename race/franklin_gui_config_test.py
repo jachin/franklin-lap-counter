@@ -11,14 +11,15 @@ from race.race_state import RaceEndMode
 class TestLoadInitialConfig(unittest.TestCase):
     def test_missing_config_file_uses_defaults(self):
         missing_path = Path("/tmp/definitely_missing_franklin_config.json")
-        race_mode, total_laps, race_end_mode, contestants = load_initial_config(
-            missing_path
+        race_mode, total_laps, race_end_mode, contestants, last_race_ids = (
+            load_initial_config(missing_path)
         )
 
         self.assertEqual(race_mode, RaceMode.TRAINING)
         self.assertEqual(total_laps, 10)
         self.assertEqual(race_end_mode, RaceEndMode.LAST_CAR)
         self.assertEqual(contestants, [])
+        self.assertEqual(last_race_ids, [])
 
     def test_missing_race_end_mode_does_not_block_startup(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -33,14 +34,15 @@ class TestLoadInitialConfig(unittest.TestCase):
                 )
             )
 
-            race_mode, total_laps, race_end_mode, contestants = load_initial_config(
-                config_path
+            race_mode, total_laps, race_end_mode, contestants, last_race_ids = (
+                load_initial_config(config_path)
             )
 
             self.assertEqual(race_mode, RaceMode.TRAINING)
             self.assertEqual(total_laps, 7)
             self.assertEqual(race_end_mode, RaceEndMode.LAST_CAR)
             self.assertEqual(contestants, [{"transmitter_id": 3, "name": "Alice"}])
+            self.assertEqual(last_race_ids, [])
 
     def test_invalid_total_laps_preserves_other_preferences(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -55,14 +57,15 @@ class TestLoadInitialConfig(unittest.TestCase):
                 )
             )
 
-            race_mode, total_laps, race_end_mode, contestants = load_initial_config(
-                config_path
+            race_mode, total_laps, race_end_mode, contestants, last_race_ids = (
+                load_initial_config(config_path)
             )
 
             self.assertEqual(race_mode, RaceMode.TRAINING)
             self.assertEqual(total_laps, 10)
             self.assertEqual(race_end_mode, RaceEndMode.MANUAL)
             self.assertEqual(contestants, [{"transmitter_id": 8, "name": "Bob"}])
+            self.assertEqual(last_race_ids, [])
 
     def test_invalid_race_end_mode_falls_back_to_default(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -77,30 +80,47 @@ class TestLoadInitialConfig(unittest.TestCase):
                 )
             )
 
-            race_mode, total_laps, race_end_mode, contestants = load_initial_config(
-                config_path
+            race_mode, total_laps, race_end_mode, contestants, last_race_ids = (
+                load_initial_config(config_path)
             )
 
             self.assertEqual(race_mode, RaceMode.TRAINING)
             self.assertEqual(total_laps, 12)
             self.assertEqual(race_end_mode, RaceEndMode.LAST_CAR)
             self.assertEqual(contestants, [{"transmitter_id": 5, "name": "Cara"}])
+            self.assertEqual(last_race_ids, [])
 
     def test_race_mode_accepts_human_friendly_and_legacy_values(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             config_path = Path(tmpdir) / "franklin.config.json"
 
             config_path.write_text(json.dumps({"race_mode": "Fake Race Mode"}))
-            race_mode, _total_laps, _end_mode, _contestants = load_initial_config(
-                config_path
+            race_mode, _total_laps, _end_mode, _contestants, _last_race_ids = (
+                load_initial_config(config_path)
             )
             self.assertEqual(race_mode, RaceMode.FAKE)
 
             config_path.write_text(json.dumps({"race_mode": "REAL"}))
-            race_mode, _total_laps, _end_mode, _contestants = load_initial_config(
-                config_path
+            race_mode, _total_laps, _end_mode, _contestants, _last_race_ids = (
+                load_initial_config(config_path)
             )
             self.assertEqual(race_mode, RaceMode.REAL)
+
+    def test_last_race_contestant_ids_are_loaded_and_sanitized(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config_path = Path(tmpdir) / "franklin.config.json"
+            config_path.write_text(
+                json.dumps(
+                    {
+                        "last_race_contestant_ids": [5, "7", "oops", -1, 5, 0, 9],
+                    }
+                )
+            )
+
+            _mode, _laps, _end_mode, _contestants, last_race_ids = load_initial_config(
+                config_path
+            )
+            self.assertEqual(last_race_ids, [5, 7, 9])
 
 
 if __name__ == "__main__":

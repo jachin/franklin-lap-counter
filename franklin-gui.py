@@ -56,6 +56,7 @@ class FranklinGuiApp(Gtk.Application):
         total_laps: int,
         contestants_data: list[dict[str, Any]],
         race_end_mode: RaceEndMode,
+        last_race_contestant_ids: list[int],
         redis_socket: str = "./redis.sock",
         db_path: str = "lap_counter.db",
     ) -> None:
@@ -77,7 +78,14 @@ class FranklinGuiApp(Gtk.Application):
         self.race_end_mode = race_end_mode
         self.global_contestants = RaceContestants(contestants_data)
         self.previous_race: Race | None = None
-        self.race = Race(previous_race=None)
+        if last_race_contestant_ids:
+            seeded_previous_race = Race(previous_race=None)
+            seeded_previous_race.active_contestants = set(last_race_contestant_ids)
+            seeded_previous_race.total_laps = total_laps
+            seeded_previous_race.race_end_mode = race_end_mode
+            self.previous_race = seeded_previous_race
+
+        self.race = Race(previous_race=self.previous_race)
         self.race.total_laps = total_laps
         self.race.race_end_mode = race_end_mode
 
@@ -997,6 +1005,7 @@ class FranklinGuiApp(Gtk.Application):
         if publish_end_command and self.race_mode != RaceMode.FAKE:
             self.publish_command("end_race")
 
+        self.save_config()
         self.append_event(message)
         self.refresh_views()
 
@@ -1334,11 +1343,18 @@ class FranklinGuiApp(Gtk.Application):
             {"transmitter_id": c.transmitter_id, "name": c.name}
             for c in self.global_contestants.contestants
         ]
+
+        if self.previous_race is not None:
+            last_race_contestant_ids = sorted(self.previous_race.active_contestants)
+        else:
+            last_race_contestant_ids = sorted(self.race.active_contestants)
+
         data = {
             "race_mode": self.race_mode.value,
             "total_laps": self.total_laps,
             "race_end_mode": self.race_end_mode.value,
             "contestants": contestants,
+            "last_race_contestant_ids": last_race_contestant_ids,
         }
         self.config_path.write_text(json.dumps(data, indent=2))
 
@@ -1533,9 +1549,13 @@ def parse_mode_override() -> RaceMode | None:
 
 
 def main() -> None:
-    configured_mode, total_laps, race_end_mode, contestants_data = load_initial_config(
-        Path("franklin.config.json")
-    )
+    (
+        configured_mode,
+        total_laps,
+        race_end_mode,
+        contestants_data,
+        last_race_contestant_ids,
+    ) = load_initial_config(Path("franklin.config.json"))
     mode_override = parse_mode_override()
     initial_mode = mode_override or configured_mode
     app = FranklinGuiApp(
@@ -1543,6 +1563,7 @@ def main() -> None:
         total_laps=total_laps,
         contestants_data=contestants_data,
         race_end_mode=race_end_mode,
+        last_race_contestant_ids=last_race_contestant_ids,
     )
     app.run([])
 

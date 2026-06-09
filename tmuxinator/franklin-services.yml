@@ -39,3 +39,11 @@ windows:
             - sleep 3
             - echo "Starting Referee Web Server..."
             - python referee_web_app.py
+  - healthcheck:
+      layout: main-horizontal
+      panes:
+        - server:
+            - echo "Waiting for services to be ready..."
+            - sleep 3
+            - echo "Starting Health Check Web Server..."
+            - python healthcheck_web_app.py

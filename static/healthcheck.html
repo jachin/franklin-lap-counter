@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>Franklin Health Check</title>
+        <style>
+            body {
+                font-family:
+                    system-ui,
+                    -apple-system,
+                    Segoe UI,
+                    Roboto,
+                    sans-serif;
+                margin: 16px;
+                background: #111;
+                color: #eee;
+            }
+            h1 {
+                margin-top: 0;
+            }
+            .row {
+                display: flex;
+                gap: 8px;
+                flex-wrap: wrap;
+                margin-bottom: 12px;
+            }
+            button {
+                padding: 8px 12px;
+                border: 1px solid #444;
+                background: #222;
+                color: #eee;
+                border-radius: 6px;
+                cursor: pointer;
+            }
+            #summary {
+                margin: 10px 0;
+                font-weight: 600;
+            }
+            .ok {
+                color: #66d17a;
+            }
+            .bad {
+                color: #ff6b6b;
+            }
+            #report {
+                background: #000;
+                border: 1px solid #333;
+                padding: 10px;
+                min-height: 320px;
+                overflow: auto;
+                font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+                white-space: pre-wrap;
+                word-break: break-word;
+            }
+        </style>
+    </head>
+    <body>
+        <h1>Health Check</h1>
+        <div class="row">
+            <button type="button" id="refresh">Refresh Report</button>
+        </div>
+        <div id="summary">Loading...</div>
+        <div id="report"></div>
+
+        <script>
+            const summaryEl = document.getElementById("summary");
+            const reportEl = document.getElementById("report");
+
+            async function loadReport() {
+                summaryEl.textContent = "Loading...";
+                summaryEl.className = "";
+
+                try {
+                    const res = await fetch("/api/report");
+                    const data = await res.json();
+
+                    if (data.ok) {
+                        summaryEl.textContent = `OK (${data.generated_at})`;
+                        summaryEl.className = "ok";
+                    } else {
+                        summaryEl.textContent = `UNHEALTHY (${data.generated_at})`;
+                        summaryEl.className = "bad";
+                    }
+
+                    reportEl.textContent = JSON.stringify(data, null, 2);
+                } catch (err) {
+                    summaryEl.textContent = `ERROR: ${err.message}`;
+                    summaryEl.className = "bad";
+                    reportEl.textContent = "";
+                }
+            }
+
+            document.getElementById("refresh").onclick = loadReport;
+            void loadReport();
+        </script>
+    </body>
+</html>

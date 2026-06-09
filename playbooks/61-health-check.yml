@@ -5,18 +5,45 @@
   become: true
 
   tasks:
-    - name: Render runtime health-check script
-      ansible.builtin.template:
-        src: templates/health-check-report.sh.j2
-        dest: /tmp/franklin-health-check-report.sh
-        mode: "0755"
-
-    - name: Collect runtime health report as franklin user
-      ansible.builtin.command: /tmp/franklin-health-check-report.sh
-      become_user: "{{ franklin_user }}"
-      register: health_check
+    - name: Ensure caddy service is active
+      ansible.builtin.systemd:
+        name: caddy.service
+      register: caddy_status
       changed_when: false
 
-    - name: Print health report
+    - name: Fail when caddy is not active
+      ansible.builtin.fail:
+        msg: "caddy.service is not active (state={{ caddy_status.status.ActiveState | default('unknown') }})"
+      when: caddy_status.status.ActiveState | default('') != 'active'
+
+    - name: Check health-check web app process
+      ansible.builtin.shell: |
+        pgrep -af healthcheck_web_app.py | grep -v "bash -lc"
+      args:
+        executable: /bin/bash
+      become_user: "{{ franklin_user }}"
+      register: healthcheck_process
+      changed_when: false
+      failed_when: healthcheck_process.rc != 0
+
+    - name: Fetch health report through Caddy
+      ansible.builtin.uri:
+        url: http://127.0.0.1/api/report
+        method: GET
+        headers:
+          Host: "{{ franklin_healthcheck_domain }}"
+        return_content: true
+        status_code: [200, 503]
+      register: health_report
+      changed_when: false
+
+    - name: Print health report summary
       ansible.builtin.debug:
-        msg: "{{ health_check.stdout_lines }}"
+        msg:
+          - "caddy.service: {{ caddy_status.status.ActiveState | default('unknown') }}"
+          - "healthcheck process: {{ healthcheck_process.stdout_lines | default([]) }}"
+          - "healthcheck.frank report ok={{ health_report.json.ok | default(false) }} generated_at={{ health_report.json.generated_at | default('n/a') }}"
+
+    - name: Print full health report JSON
+      ansible.builtin.debug:
+        msg: "{{ health_report.json | to_nice_json }}"

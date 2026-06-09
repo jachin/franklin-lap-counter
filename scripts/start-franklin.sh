@@ -70,6 +70,10 @@ check_files() {
         missing_files+=("referee_web_app.py")
     fi
 
+    if [ ! -f "healthcheck_web_app.py" ]; then
+        missing_files+=("healthcheck_web_app.py")
+    fi
+
     if [ ! -d ".venv" ]; then
         missing_files+=(".venv (Python virtual environment)")
     fi
@@ -176,6 +180,12 @@ status_franklin() {
         log "  ✓ Referee web server running"
     else
         log "  ❌ Referee web server not running"
+    fi
+
+    if pgrep -f "healthcheck_web_app.py" >/dev/null 2>&1; then
+        log "  ✓ Health check web server running"
+    else
+        log "  ❌ Health check web server not running"
     fi
 }
 

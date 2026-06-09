@@ -94,7 +94,7 @@ devbox run setup-pi
 - Only the AP-side interface (`wlan0` by default) is pinned to a static subnet for clients.
 - AP clients are explicitly handed Pi-local router/DNS settings via DHCP (`option:router` and `option:dns-server`), so local web apps remain reachable without internet.
 - Additional local DNS aliases can be set with `franklin_ap_dns_aliases`.
-- Current local app aliases include `scoreboard.frank` and `referee.frank`.
+- Current local app aliases include `scoreboard.frank`, `referee.frank`, and `healthcheck.frank`.
 
 ## Notes
 

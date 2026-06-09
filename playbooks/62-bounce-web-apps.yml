@@ -35,6 +35,12 @@
             echo "Respawned ${session}:referee"
             bounced=1
           fi
+
+          if echo "$windows" | grep -qx "healthcheck"; then
+            tmux respawn-pane -k -t "$session:healthcheck.0" "source .venv/bin/activate && export FRANKLIN_SESSION=tmux && echo 'Starting Health Check Web Server...' && python healthcheck_web_app.py"
+            echo "Respawned ${session}:healthcheck"
+            bounced=1
+          fi
         done
 
         if [ "$bounced" -eq 0 ]; then

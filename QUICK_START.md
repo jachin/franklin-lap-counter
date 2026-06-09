@@ -22,12 +22,14 @@ devbox run ansible:web-bounce
 devbox run ansible:health-check
 ```
 
-### Local full simulation
+### Local/full startup
 
 ```bash
-devbox run full-sim
-# Optional: attach to the tmux session
-devbox run full-sim-attach
+# Hardware mode (assumes hardware is connected)
+devbox run start:franklin
+
+# Simulator mode (no hardware required)
+devbox run start:franklin-simulator
 ```
 
 ### Manual Redis testing
@@ -133,11 +135,12 @@ All activity is logged to: `hardware_redis.log`
 - `ansible:health-check` - Run runtime health check through the health-check web app
 - `ansible:reboot` - Reboot target host via Ansible
 
-**Build / simulation:**
-- `rust-build` - Build Rust project (debug)
-- `rust-build-release` - Build Rust project (release)
-- `rust-pi-build` - Build release binary for Pi target (`aarch64-unknown-linux-gnu` by default)
-- `full-sim` / `full-sim-attach` / `full-sim-stop` - Manage full simulation tmux session
+**Build / start:**
+- `build` - Run all build tasks
+- `build:pi` - Build release binary for Pi target (`aarch64-unknown-linux-gnu` by default)
+- `build:release` - Build Rust project (release)
+- `start:franklin` - Start full Franklin tmux stack (hardware mode)
+- `start:franklin-simulator` - Start full Franklin tmux stack (simulator mode)
 
 **Remote GUI (VNC over SSH tunnel):**
 - `vnc:open-tunnel` - Open local tunnel `127.0.0.1:5901 -> Pi:5900`

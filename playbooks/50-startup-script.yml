@@ -32,4 +32,4 @@
       loop:
         - franklin.yml
         - franklin-services.yml
-        - full-sim.yml
+        - franklin-simulator.yml

@@ -69,7 +69,7 @@
           Missing required file: {{ item.item.description }}
           ({{ item.item.path }}).
           {% if item.item.description == 'Rust hardware monitor binary' %}
-          Build it first with: devbox run rust-pi-build
+          Build it first with: devbox run build:pi
           {% endif %}
       when: not item.stat.exists
       loop: "{{ required_file_stats.results }}"

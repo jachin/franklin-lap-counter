@@ -30,9 +30,10 @@
       "redis-server --daemonize yes --unixsocket ./redis.sock --unixsocketperm 700"
     ],
     "scripts": {
-      "full-sim": ["tmuxinator start -p tmuxinator/full-sim.yml"],
-      "full-sim-attach": ["tmux attach-session -t franklin-full-sim"],
-      "full-sim-stop": ["tmux kill-session -t franklin-full-sim"],
+      "start:franklin": ["tmuxinator start -p tmuxinator/franklin.yml"],
+      "start:franklin-simulator": [
+        "tmuxinator start -p tmuxinator/franklin-simulator.yml"
+      ],
       "lint": [
         "devbox run lint:python",
         "devbox run lint:web",
@@ -49,9 +50,9 @@
         "python -m unittest discover -s race -t . -p '*_test.py'"
       ],
       "test:rust": ["cargo test --manifest-path rust/Cargo.toml"],
-      "rust-build": ["cargo build --manifest-path rust/Cargo.toml"],
-      "rust-pi-build": ["./scripts/rust-pi-build.sh"],
-      "rust-build-release": [
+      "build": ["devbox run build:pi", "devbox run build:release"],
+      "build:pi": ["./scripts/rust-pi-build.sh"],
+      "build:release": [
         "cargo build --release --manifest-path rust/Cargo.toml"
       ],
       "ansible:setup": [
@@ -70,6 +71,7 @@
       ],
       "vnc:connect": ["open vnc://127.0.0.1:5901"],
       "ansible:deploy": [
+        "devbox run build:pi",
         "ansible-playbook -i playbooks/inventory.ini playbooks/deploy-franklin.yml"
       ],
 

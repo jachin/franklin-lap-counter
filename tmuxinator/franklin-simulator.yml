@@ -1,0 +1,64 @@
+# Franklin simulator tmuxinator configuration
+name: franklin-simulator
+root: .
+
+startup_window: lap-counter
+
+pre_window: |
+  source .venv/bin/activate
+  export FRANKLIN_SESSION=tmux
+
+windows:
+  - redis:
+      layout: main-horizontal
+      panes:
+        - redis-server:
+            - echo "Starting Redis with Unix socket (logging to redis.log)..."
+            - redis-server --port 0 --unixsocket ./redis.sock --unixsocketperm 700 --loglevel notice --logfile ./redis.log
+  - hardware:
+      layout: main-horizontal
+      panes:
+        - monitor:
+            - echo "Waiting for Redis to be ready..."
+            - sleep 2
+            - echo "Starting Hardware Monitor (simulator mode)..."
+            - ./franklin-hardware-monitor --sim
+  - lap-counter:
+      layout: main-horizontal
+      panes:
+        - tui:
+            - echo "Waiting for services to be ready..."
+            - sleep 3
+            - echo "Starting Franklin TUI..."
+            - python franklin-tui.py
+  - web:
+      layout: main-horizontal
+      panes:
+        - server:
+            - echo "Waiting for services to be ready..."
+            - sleep 4
+            - echo "Starting Web Server..."
+            - python scoreboard_web_app.py
+  - referee:
+      layout: main-horizontal
+      panes:
+        - server:
+            - echo "Waiting for services to be ready..."
+            - sleep 4
+            - echo "Starting Referee Web Server..."
+            - python referee_web_app.py
+  - healthcheck:
+      layout: main-horizontal
+      panes:
+        - server:
+            - echo "Waiting for services to be ready..."
+            - sleep 4
+            - echo "Starting Health Check Web Server..."
+            - python healthcheck_web_app.py
+  - logs:
+      layout: main-horizontal
+      panes:
+        - system:
+            - echo "Opening logs in lnav..."
+            - touch race.log hardware_redis.log redis.log
+            - if [ -f /var/log/syslog ]; then lnav race.log hardware_redis.log redis.log /var/log/syslog; else lnav race.log hardware_redis.log redis.log; fi

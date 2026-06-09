@@ -1,0 +1,41 @@
+---
+- name: Install and configure Caddy reverse proxy for Franklin web apps
+  hosts: all
+  become: true
+  tasks:
+    - name: Ensure Caddy is installed
+      ansible.builtin.apt:
+        name: caddy
+        state: present
+
+    - name: Configure Caddy reverse proxy routes
+      ansible.builtin.copy:
+        dest: /etc/caddy/Caddyfile
+        mode: "0644"
+        content: |
+          {
+              auto_https off
+          }
+
+          http://{{ franklin_scoreboard_domain }} {
+              reverse_proxy {{ franklin_scoreboard_upstream }}
+          }
+
+          http://{{ franklin_referee_domain }} {
+              reverse_proxy {{ franklin_referee_upstream }}
+          }
+      notify: Validate and restart caddy
+
+    - name: Ensure caddy service is enabled and started
+      ansible.builtin.systemd:
+        name: caddy.service
+        enabled: true
+        state: started
+
+  handlers:
+    - name: Validate and restart caddy
+      ansible.builtin.shell: |
+        caddy validate --config /etc/caddy/Caddyfile
+        systemctl restart caddy.service
+      args:
+        executable: /bin/bash

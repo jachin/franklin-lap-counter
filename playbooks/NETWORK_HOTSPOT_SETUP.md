@@ -75,7 +75,13 @@ The above setup is reproduced by:
 devbox run -- ansible-playbook -i playbooks/inventory.ini playbooks/45-network-hotspot.yml
 ```
 
-### Apply full Pi setup (includes hotspot/router)
+### Apply Caddy reverse proxy setup only
+
+```bash
+devbox run setup-pi-caddy-proxy
+```
+
+### Apply full Pi setup (includes hotspot/router + Caddy proxy)
 
 ```bash
 devbox run setup-pi
@@ -88,6 +94,7 @@ devbox run setup-pi
 - Only the AP-side interface (`wlan0` by default) is pinned to a static subnet for clients.
 - AP clients are explicitly handed Pi-local router/DNS settings via DHCP (`option:router` and `option:dns-server`), so local web apps remain reachable without internet.
 - Additional local DNS aliases can be set with `franklin_ap_dns_aliases`.
+- Current local app aliases include `scoreboard.frank` and `referee.frank`.
 
 ## Notes
 

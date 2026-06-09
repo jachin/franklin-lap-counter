@@ -58,6 +58,25 @@ except Exception as exc:
 PY
         echo
 
+        echo "=== caddy service + proxy checks ==="
+        systemctl is-active caddy.service || true
+        python3 - <<PY
+import urllib.request
+
+def check(url: str, host: str) -> None:
+    req = urllib.request.Request(url, headers={"Host": host})
+    try:
+        with urllib.request.urlopen(req, timeout=3) as response:
+            status = response.status
+        print(f"{host} via caddy: HTTP {status}")
+    except Exception as exc:
+        print(f"{host} via caddy: failed ({exc})")
+
+check("http://127.0.0.1/", "scoreboard.frank")
+check("http://127.0.0.1/api/health", "referee.frank")
+PY
+        echo
+
         echo "=== wayvnc process/port ==="
         pgrep -af wayvnc | grep -v "bash -lc" || echo "wayvnc not running"
         ss -lnt | grep ":{{ franklin_wayvnc_port }} " || true

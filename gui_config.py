@@ -5,6 +5,7 @@ from typing import Any
 
 from race.race_mode import RaceMode
 from race.race_state import RaceEndMode
+from racer_colors import RacerColorScheme, parse_racer_color_assignments
 
 
 def _parse_race_mode(raw_mode: Any, default: RaceMode) -> RaceMode:
@@ -21,12 +22,20 @@ def _parse_race_mode(raw_mode: Any, default: RaceMode) -> RaceMode:
 
 def load_initial_config(
     config_path: Path,
-) -> tuple[RaceMode, int, RaceEndMode, list[dict[str, Any]], list[int]]:
+) -> tuple[
+    RaceMode,
+    int,
+    RaceEndMode,
+    list[dict[str, Any]],
+    list[int],
+    dict[int, RacerColorScheme],
+]:
     race_mode = RaceMode.TRAINING
     total_laps = 10
     race_end_mode = RaceEndMode.LAST_CAR
     contestants_data: list[dict[str, Any]] = []
     last_race_contestant_ids: list[int] = []
+    racer_color_assignments: dict[int, RacerColorScheme] = {}
 
     if not config_path.exists():
         return (
@@ -35,6 +44,7 @@ def load_initial_config(
             race_end_mode,
             contestants_data,
             last_race_contestant_ids,
+            racer_color_assignments,
         )
 
     try:
@@ -47,6 +57,7 @@ def load_initial_config(
             race_end_mode,
             contestants_data,
             last_race_contestant_ids,
+            racer_color_assignments,
         )
 
     config_data = raw_data if isinstance(raw_data, dict) else {}
@@ -97,10 +108,15 @@ def load_initial_config(
             type(raw_last_race_contestant_ids).__name__,
         )
 
+    racer_color_assignments = parse_racer_color_assignments(
+        config_data.get("racer_color_assignments", racer_color_assignments)
+    )
+
     return (
         race_mode,
         total_laps,
         race_end_mode,
         contestants_data,
         last_race_contestant_ids,
+        racer_color_assignments,
     )

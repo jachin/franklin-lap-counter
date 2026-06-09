@@ -42,6 +42,7 @@ from race.race import (
 )
 from race.race_contestants import RaceContestants
 from race.race_mode import RaceMode
+from racer_colors import RacerColorScheme, assign_random_scheme
 
 gi.require_version("Gdk", "4.0")
 gi.require_version("Gtk", "4.0")
@@ -57,6 +58,7 @@ class FranklinGuiApp(Gtk.Application):
         contestants_data: list[dict[str, Any]],
         race_end_mode: RaceEndMode,
         last_race_contestant_ids: list[int],
+        racer_color_assignments: dict[int, RacerColorScheme],
         redis_socket: str = "./redis.sock",
         db_path: str = "lap_counter.db",
     ) -> None:
@@ -77,6 +79,7 @@ class FranklinGuiApp(Gtk.Application):
         self.race_mode = initial_mode
         self.race_end_mode = race_end_mode
         self.global_contestants = RaceContestants(contestants_data)
+        self.racer_color_assignments = dict(racer_color_assignments)
         self.previous_race: Race | None = None
         if last_race_contestant_ids:
             seeded_previous_race = Race(previous_race=None)
@@ -88,6 +91,11 @@ class FranklinGuiApp(Gtk.Application):
         self.race = Race(previous_race=self.previous_race)
         self.race.total_laps = total_laps
         self.race.race_end_mode = race_end_mode
+
+        known_racer_ids = {
+            c.transmitter_id for c in self.global_contestants.contestants
+        }.union(last_race_contestant_ids)
+        self._ensure_racer_color_assignments(known_racer_ids, persist=False)
 
         self.redis_socket = redis_socket
         self.redis_in_channel = "hardware:in"
@@ -812,6 +820,73 @@ class FranklinGuiApp(Gtk.Application):
 
         return ""
 
+    def _ensure_racer_color_assignments(
+        self, racer_ids: set[int], *, persist: bool
+    ) -> None:
+        changed = False
+        for racer_id in racer_ids:
+            if racer_id <= 0:
+                continue
+            if racer_id in self.racer_color_assignments:
+                continue
+            self.racer_color_assignments[racer_id] = assign_random_scheme(
+                self.racer_color_assignments
+            )
+            changed = True
+
+        if changed and persist:
+            self.save_config()
+
+    def _racer_color_scheme(self, racer_id: int) -> tuple[str, str]:
+        self._ensure_racer_color_assignments({racer_id}, persist=False)
+        return self.racer_color_assignments.get(racer_id, ("#777777", "#bbbbbb"))
+
+    def _hex_to_rgb(self, color_hex: str) -> tuple[float, float, float]:
+        raw = color_hex.strip().lstrip("#")
+        if len(raw) != 6:
+            return (0.5, 0.5, 0.5)
+        try:
+            r = int(raw[0:2], 16) / 255.0
+            g = int(raw[2:4], 16) / 255.0
+            b = int(raw[4:6], 16) / 255.0
+            return (r, g, b)
+        except ValueError:
+            return (0.5, 0.5, 0.5)
+
+    def _new_color_swatch_for_colors(
+        self, primary_hex: str, secondary_hex: str
+    ) -> Gtk.DrawingArea:
+        primary_rgb = self._hex_to_rgb(primary_hex)
+        secondary_rgb = self._hex_to_rgb(secondary_hex)
+
+        swatch = Gtk.DrawingArea()
+        swatch.set_content_width(24)
+        swatch.set_content_height(14)
+        swatch.set_halign(Gtk.Align.CENTER)
+        swatch.set_valign(Gtk.Align.CENTER)
+
+        def draw(_area: Gtk.DrawingArea, cr: Any, width: int, height: int) -> None:
+            cr.set_source_rgb(*primary_rgb)
+            cr.rectangle(0, 0, width, height)
+            cr.fill()
+
+            stripe_height = max(2, height // 3)
+            stripe_y = (height - stripe_height) // 2
+            cr.set_source_rgb(*secondary_rgb)
+            cr.rectangle(0, stripe_y, width, stripe_height)
+            cr.fill()
+
+            cr.set_source_rgba(0.1, 0.1, 0.1, 0.6)
+            cr.rectangle(0.5, 0.5, width - 1, height - 1)
+            cr.stroke()
+
+        swatch.set_draw_func(draw)
+        return swatch
+
+    def _new_color_swatch(self, racer_id: int) -> Gtk.DrawingArea:
+        primary_hex, secondary_hex = self._racer_color_scheme(racer_id)
+        return self._new_color_swatch_for_colors(primary_hex, secondary_hex)
+
     def _new_leaderboard_label(
         self,
         text: str,
@@ -846,6 +921,7 @@ class FranklinGuiApp(Gtk.Application):
         header_cells: list[tuple[str, float, bool]] = [
             ("Pos", 1.0, False),
             ("", 0.5, False),
+            ("", 0.5, False),
             ("Racer", 0.0, True),
             ("Laps", 1.0, False),
             ("Best", 1.0, False),
@@ -855,11 +931,11 @@ class FranklinGuiApp(Gtk.Application):
 
         for col, (text, xalign, hexpand) in enumerate(header_cells):
             header_extra_classes: list[str] = []
-            if col == 4:
+            if col == 5:
                 header_extra_classes.append("leaderboard-best-col")
-            elif col == 5:
-                header_extra_classes.append("leaderboard-last-col")
             elif col == 6:
+                header_extra_classes.append("leaderboard-last-col")
+            elif col == 7:
                 header_extra_classes.append("leaderboard-total-col")
 
             header_label = self._new_leaderboard_label(
@@ -880,26 +956,22 @@ class FranklinGuiApp(Gtk.Application):
             last_s = self._format_time_cs(last)
             total_s = self._format_time_cs(total)
 
-            row_values: list[tuple[str, float, bool]] = [
-                (f"{pos}", 1.0, False),
-                (status_symbol, 0.5, False),
-                (name[:name_w], 0.0, True),
-                (f"{lap_count}", 1.0, False),
-                (best_s, 1.0, False),
-                (last_s, 1.0, False),
-                (total_s, 1.0, False),
+            row_values: list[tuple[str, float, bool, list[str]]] = [
+                (f"{pos}", 1.0, False, []),
+                (status_symbol, 0.5, False, ["leaderboard-status-cell"]),
+                ("", 0.5, False, []),
+                (name[:name_w], 0.0, True, []),
+                (f"{lap_count}", 1.0, False, []),
+                (best_s, 1.0, False, ["leaderboard-best-col"]),
+                (last_s, 1.0, False, ["leaderboard-last-col"]),
+                (total_s, 1.0, False, ["leaderboard-total-col"]),
             ]
 
-            for col, (text, xalign, hexpand) in enumerate(row_values):
-                extra_classes: list[str] = []
-                if col == 1:
-                    extra_classes.append("leaderboard-status-cell")
-                if col == 4:
-                    extra_classes.append("leaderboard-best-col")
-                elif col == 5:
-                    extra_classes.append("leaderboard-last-col")
-                elif col == 6:
-                    extra_classes.append("leaderboard-total-col")
+            for col, (text, xalign, hexpand, extra_classes) in enumerate(row_values):
+                if col == 2:
+                    swatch = self._new_color_swatch(racer_id)
+                    self.leaderboard_grid.attach(swatch, col, row_index, 1, 1)
+                    continue
 
                 cell_label = self._new_leaderboard_label(
                     text,
@@ -1137,7 +1209,7 @@ class FranklinGuiApp(Gtk.Application):
         root.set_margin_end(8)
 
         help_text = Gtk.Label(
-            label="Edit names, add or delete drivers. Enter=Add, Ctrl+Enter=Save, Ctrl+D=Delete focused driver, Esc=Cancel."
+            label="Edit names/colors, add or delete drivers. Colors use #RRGGBB. Enter=Add, Ctrl+Enter=Save, Ctrl+D=Delete focused driver, Esc=Cancel."
         )
         help_text.set_xalign(0)
         root.append(help_text)
@@ -1170,7 +1242,23 @@ class FranklinGuiApp(Gtk.Application):
         staged: dict[int, str] = {
             c.transmitter_id: c.name for c in self.global_contestants.contestants
         }
+        self._ensure_racer_color_assignments(set(staged.keys()), persist=False)
+        staged_colors: dict[int, RacerColorScheme] = {
+            tid: self.racer_color_assignments[tid]
+            for tid in staged.keys()
+            if tid in self.racer_color_assignments
+        }
         focused_driver_id: int | None = None
+        color_entry_refs: dict[int, tuple[Gtk.Entry, Gtk.Entry]] = {}
+
+        def normalize_hex_color(raw: str) -> str | None:
+            value = raw.strip().lower()
+            if len(value) != 7 or not value.startswith("#"):
+                return None
+            hex_part = value[1:]
+            if not all(c in "0123456789abcdef" for c in hex_part):
+                return None
+            return value
 
         def set_status(msg: str) -> None:
             status_label.set_text(msg)
@@ -1183,6 +1271,8 @@ class FranklinGuiApp(Gtk.Application):
             if tid not in staged:
                 return False
             staged.pop(tid, None)
+            staged_colors.pop(tid, None)
+            color_entry_refs.pop(tid, None)
             refresh_driver_rows()
             set_status(f"Deleted driver {tid}")
             return True
@@ -1195,12 +1285,13 @@ class FranklinGuiApp(Gtk.Application):
                 child = next_child
 
             nonlocal focused_driver_id
+            color_entry_refs.clear()
 
             for transmitter_id in sorted(staged.keys()):
                 row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
 
                 id_label = Gtk.Label(label=str(transmitter_id))
-                id_label.set_width_chars(12)
+                id_label.set_width_chars(8)
                 id_label.set_xalign(0)
 
                 name_entry = Gtk.Entry()
@@ -1213,6 +1304,43 @@ class FranklinGuiApp(Gtk.Application):
                     staged[tid] = entry.get_text().strip()
 
                 name_entry.connect("changed", on_name_changed)
+
+                primary_color, secondary_color = staged_colors.get(
+                    transmitter_id, ("#777777", "#bbbbbb")
+                )
+                swatch = self._new_color_swatch_for_colors(
+                    primary_color, secondary_color
+                )
+
+                primary_entry = Gtk.Entry()
+                primary_entry.set_width_chars(8)
+                primary_entry.set_text(primary_color)
+                primary_entry.set_placeholder_text("#RRGGBB")
+
+                secondary_entry = Gtk.Entry()
+                secondary_entry.set_width_chars(8)
+                secondary_entry.set_text(secondary_color)
+                secondary_entry.set_placeholder_text("#RRGGBB")
+
+                def on_color_changed(
+                    _entry: Gtk.Entry,
+                    tid: int = transmitter_id,
+                    p_entry: Gtk.Entry = primary_entry,
+                    s_entry: Gtk.Entry = secondary_entry,
+                ) -> None:
+                    primary_norm = normalize_hex_color(p_entry.get_text())
+                    secondary_norm = normalize_hex_color(s_entry.get_text())
+                    if primary_norm is None or secondary_norm is None:
+                        return
+                    staged_colors[tid] = (primary_norm, secondary_norm)
+                    # Rebuild row widgets to refresh swatch with new colors.
+                    refresh_driver_rows()
+                    set_focused_driver(tid)
+
+                primary_entry.connect("changed", on_color_changed)
+                secondary_entry.connect("changed", on_color_changed)
+
+                color_entry_refs[transmitter_id] = (primary_entry, secondary_entry)
 
                 name_focus = Gtk.EventControllerFocus()
                 name_focus.connect(
@@ -1238,6 +1366,9 @@ class FranklinGuiApp(Gtk.Application):
 
                 row.append(id_label)
                 row.append(name_entry)
+                row.append(swatch)
+                row.append(primary_entry)
+                row.append(secondary_entry)
                 row.append(delete_btn)
                 list_box.append(row)
 
@@ -1266,6 +1397,10 @@ class FranklinGuiApp(Gtk.Application):
                 set_status(f"Added driver {transmitter_id}")
 
             staged[transmitter_id] = name
+            self._ensure_racer_color_assignments({transmitter_id}, persist=False)
+            staged_colors[transmitter_id] = self.racer_color_assignments.get(
+                transmitter_id, ("#777777", "#bbbbbb")
+            )
             add_id_entry.set_text("")
             add_name_entry.set_text("")
             refresh_driver_rows()
@@ -1315,10 +1450,44 @@ class FranklinGuiApp(Gtk.Application):
                 cleaned = {
                     tid: name.strip() for tid, name in staged.items() if name.strip()
                 }
+
+                validated_colors: dict[int, RacerColorScheme] = {}
+                for tid in sorted(cleaned.keys()):
+                    color_entries = color_entry_refs.get(tid)
+                    if color_entries is None:
+                        validated_colors[tid] = staged_colors.get(
+                            tid, ("#777777", "#bbbbbb")
+                        )
+                        continue
+
+                    p_entry, s_entry = color_entries
+
+                    primary_norm = normalize_hex_color(p_entry.get_text())
+                    secondary_norm = normalize_hex_color(s_entry.get_text())
+                    if primary_norm is None or secondary_norm is None:
+                        set_status(f"Driver {tid}: colors must be valid #RRGGBB values")
+                        return
+
+                    validated_colors[tid] = (primary_norm, secondary_norm)
+
                 self.global_contestants.contestants = [
                     Contestant(transmitter_id=tid, name=cleaned[tid])
                     for tid in sorted(cleaned.keys())
                 ]
+
+                # Keep colors for active/previous racers, and update edited driver colors.
+                kept_ids = set(cleaned.keys())
+                kept_ids.update(self.race.active_contestants)
+                if self.previous_race is not None:
+                    kept_ids.update(self.previous_race.active_contestants)
+
+                self.racer_color_assignments = {
+                    tid: colors
+                    for tid, colors in self.racer_color_assignments.items()
+                    if tid in kept_ids
+                }
+                self.racer_color_assignments.update(validated_colors)
+
                 self.save_config()
                 self.refresh_views()
                 self.append_event(
@@ -1355,6 +1524,10 @@ class FranklinGuiApp(Gtk.Application):
             "race_end_mode": self.race_end_mode.value,
             "contestants": contestants,
             "last_race_contestant_ids": last_race_contestant_ids,
+            "racer_color_assignments": {
+                str(racer_id): {"primary": colors[0], "secondary": colors[1]}
+                for racer_id, colors in sorted(self.racer_color_assignments.items())
+            },
         }
         self.config_path.write_text(json.dumps(data, indent=2))
 
@@ -1430,6 +1603,8 @@ class FranklinGuiApp(Gtk.Application):
             return
 
         racer_id_i = int(racer_id)
+        self._ensure_racer_color_assignments({racer_id_i}, persist=True)
+
         sensor_id_raw = msg.get("sensor_id", racer_id_i)
         sensor_id_i = int(sensor_id_raw)
 
@@ -1555,6 +1730,7 @@ def main() -> None:
         race_end_mode,
         contestants_data,
         last_race_contestant_ids,
+        racer_color_assignments,
     ) = load_initial_config(Path("franklin.config.json"))
     mode_override = parse_mode_override()
     initial_mode = mode_override or configured_mode
@@ -1564,6 +1740,7 @@ def main() -> None:
         contestants_data=contestants_data,
         race_end_mode=race_end_mode,
         last_race_contestant_ids=last_race_contestant_ids,
+        racer_color_assignments=racer_color_assignments,
     )
     app.run([])
 

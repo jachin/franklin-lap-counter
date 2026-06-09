@@ -13,6 +13,7 @@
       - "{{ project_root }}/franklin-tui.py"
       - "{{ project_root }}/franklin-gui.py"
       - "{{ project_root }}/web_server.py"
+      - "{{ project_root }}/racer_colors.py"
       - "{{ project_root }}/database.py"
 
   pre_tasks:
@@ -41,6 +42,10 @@
         - {
             path: "{{ project_root }}/web_server.py",
             description: "Web server script",
+          }
+        - {
+            path: "{{ project_root }}/racer_colors.py",
+            description: "Racer color scheme module",
           }
         - { path: "{{ startup_script_local }}", description: "Startup script" }
         - {
@@ -149,6 +154,7 @@
         - "{{ pi_dest_dir }}/franklin-tui.py"
         - "{{ pi_dest_dir }}/franklin-gui.py"
         - "{{ pi_dest_dir }}/web_server.py"
+        - "{{ pi_dest_dir }}/racer_colors.py"
         - "{{ pi_dest_dir }}/start-franklin.sh"
         - "{{ pi_dest_dir }}/start-franklin-gui-session.sh"
       loop_control:
@@ -182,6 +188,6 @@
       ansible.builtin.debug:
         msg:
           - "Deployment complete to {{ inventory_hostname }}:{{ pi_dest_dir }}"
-          - "Deployed: franklin-hardware-monitor, franklin-tui.py, franklin-gui.py, web_server.py, database.py, start-franklin.sh, start-franklin-gui-session.sh"
+          - "Deployed: franklin-hardware-monitor, franklin-tui.py, franklin-gui.py, web_server.py, racer_colors.py, database.py, start-franklin.sh, start-franklin-gui-session.sh"
           - "Optional content copied when present: static/, race/ (race module code), tmuxinator/"
           - "Start on Pi with: cd {{ pi_dest_dir }} && ./start-franklin.sh"

@@ -66,7 +66,8 @@ The above setup is reproduced by:
 - Playbook: `playbooks/45-network-hotspot.yml`
 - Included in full setup: `playbooks/site.yml`
 - Tunables: `playbooks/group_vars/all.yml` (`franklin_ap_*` and `franklin_uplink_interface`)
-  - `franklin_uplink_interface: auto` (default) resolves to the current default-route interface, so the box can move between networks without changing firewall/NAT interface names.
+  - `franklin_uplink_interface: auto` (default) resolves to the current default-route interface.
+  - `franklin_uplink_interface_fallback: eth0` is used when no default route exists (offline/no uplink), so AP setup still applies cleanly.
 
 ### Apply only hotspot/router config
 
@@ -85,6 +86,8 @@ devbox run setup-pi
 - The playbook does **not** assign a static IP to the uplink Ethernet interface.
 - Uplink addressing/routing stays DHCP-driven by the host network stack (typically NetworkManager on Raspberry Pi OS).
 - Only the AP-side interface (`wlan0` by default) is pinned to a static subnet for clients.
+- AP clients are explicitly handed Pi-local router/DNS settings via DHCP (`option:router` and `option:dns-server`), so local web apps remain reachable without internet.
+- Additional local DNS aliases can be set with `franklin_ap_dns_aliases`.
 
 ## Notes
 

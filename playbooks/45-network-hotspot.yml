@@ -3,16 +3,23 @@
   hosts: all
   become: true
   vars:
-    resolved_uplink_interface: "{{ (franklin_uplink_interface == 'auto') | ternary(ansible_facts.default_ipv4.interface | default(''), franklin_uplink_interface) }}"
+    resolved_uplink_interface: >-
+      {{
+        (franklin_uplink_interface == 'auto')
+        | ternary(
+            ansible_facts.default_ipv4.interface | default(franklin_uplink_interface_fallback),
+            franklin_uplink_interface
+          )
+      }}
   tasks:
-    - name: Validate uplink interface resolution
+    - name: Validate AP/uplink interface relationship
       ansible.builtin.assert:
         that:
           - resolved_uplink_interface | length > 0
           - resolved_uplink_interface != franklin_ap_interface
         fail_msg: >-
-          Unable to resolve uplink interface. Set franklin_uplink_interface explicitly
-          (for example eth0), or ensure the Pi has a default IPv4 route.
+          Resolved uplink interface is invalid. Set franklin_uplink_interface
+          explicitly (for example eth0).
     - name: Ensure AP/router packages are installed
       ansible.builtin.apt:
         name:
@@ -57,8 +64,13 @@
         content: |
           interface={{ franklin_ap_interface }}
           dhcp-range={{ franklin_ap_dhcp_range_start }},{{ franklin_ap_dhcp_range_end }},{{ franklin_ap_netmask }},{{ franklin_ap_dhcp_lease_time }}
+          dhcp-option=option:router,{{ franklin_ap_gateway_ip }}
+          dhcp-option=option:dns-server,{{ franklin_ap_gateway_ip }}
           domain={{ franklin_ap_domain }}
           address=/{{ franklin_ap_dns_name }}/{{ franklin_ap_gateway_ip }}
+          {% for alias in franklin_ap_dns_aliases %}
+          address=/{{ alias }}/{{ franklin_ap_gateway_ip }}
+          {% endfor %}
       notify: Restart dnsmasq
 
     - name: Ensure wpa_supplicant base config exists (country + control socket)

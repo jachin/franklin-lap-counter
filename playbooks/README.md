@@ -71,10 +71,11 @@ ansible-playbook -i playbooks/inventory.ini playbooks/site.yml \
 - Ghostty terminfo install uses `infocmp -x xterm-ghostty` from the control machine when missing on the target.
 - Boot behavior is configurable with `franklin_enable_autologin`, `franklin_enable_autostart`, `franklin_enable_wayland_boot`, and `franklin_autologin_tty` in `group_vars/all.yml`.
 - Hotspot/router behavior is configurable with `franklin_ap_*` vars in `group_vars/all.yml`.
-- Uplink interface selection is portable by default: `franklin_uplink_interface: auto` resolves from the Pi's default route (override if needed).
+- Uplink interface selection is portable by default: `franklin_uplink_interface: auto` resolves from the Pi's default route and falls back to `franklin_uplink_interface_fallback` for offline setups.
 - WayVNC behavior is configurable with `franklin_enable_wayvnc`, `franklin_wayvnc_bind_address`, `franklin_wayvnc_port`, `franklin_wayvnc_enable_auth`, `franklin_wayvnc_username`, and `franklin_wayvnc_password` in `group_vars/all.yml`.
 - Firmware display setting uses `pi_firmware_config_path` (defaults to `/boot/firmware/config.txt`) and enforces `hdmi_force_hotplug=1`.
 - `30-tmuxinator.yml` installs tmuxinator only if it is missing.
 - This setup stage prepares the target machine; deployment of app binaries/files remains in your existing deploy flow.
 - `deploy-franklin.yml` does not copy `.env`; host/runtime settings should be managed in Ansible vars.
 - Network architecture details and the captured live-Pi baseline are documented in `playbooks/NETWORK_HOTSPOT_SETUP.md`.
+- Offline mode is supported: AP + DHCP + local DNS continue working even without internet/uplink.

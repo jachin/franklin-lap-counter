@@ -64,6 +64,8 @@ franklin_ap_interface: wlan0
 # Uplink can be set explicitly (e.g. eth0), or left as auto to resolve from
 # the Pi's current default IPv4 route (portable across different networks).
 franklin_uplink_interface: auto
+# Fallback uplink interface when no default route exists (for offline setup).
+franklin_uplink_interface_fallback: eth0
 franklin_ap_ssid: FranklinLapCounter
 franklin_ap_passphrase: lapcounter
 franklin_ap_channel: 7
@@ -77,3 +79,7 @@ franklin_ap_dhcp_range_end: 10.210.1.150
 franklin_ap_dhcp_lease_time: 24h
 franklin_ap_domain: wlan
 franklin_ap_dns_name: burke.local
+# Additional DNS names to resolve to the Pi AP gateway IP for local apps.
+franklin_ap_dns_aliases:
+  - lapcounter.local
+  - pi.lapcounter.local

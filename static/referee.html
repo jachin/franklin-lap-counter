@@ -5,6 +5,32 @@
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
         <title>Franklin Referee Control</title>
         <style>
+            :root {
+                color-scheme: light dark;
+
+                --bg: #111;
+                --text: #eee;
+                --control-bg: #222;
+                --control-bg-hover: #2c2c2c;
+                --control-border: #444;
+                --input-bg: #1b1b1b;
+                --surface: #000;
+                --surface-border: #333;
+            }
+
+            @media (prefers-color-scheme: light) {
+                :root {
+                    --bg: #f6f8fa;
+                    --text: #1f2328;
+                    --control-bg: #ffffff;
+                    --control-bg-hover: #f3f4f6;
+                    --control-border: #c7ced6;
+                    --input-bg: #ffffff;
+                    --surface: #ffffff;
+                    --surface-border: #d0d7de;
+                }
+            }
+
             body {
                 font-family:
                     system-ui,
@@ -13,8 +39,8 @@
                     Roboto,
                     sans-serif;
                 margin: 16px;
-                background: #111;
-                color: #eee;
+                background: var(--bg);
+                color: var(--text);
             }
             h1 {
                 margin-top: 0;
@@ -27,23 +53,26 @@
             }
             button {
                 padding: 8px 12px;
-                border: 1px solid #444;
-                background: #222;
-                color: #eee;
+                border: 1px solid var(--control-border);
+                background: var(--control-bg);
+                color: var(--text);
                 border-radius: 6px;
                 cursor: pointer;
             }
+            button:hover {
+                background: var(--control-bg-hover);
+            }
             input {
                 padding: 8px;
-                border: 1px solid #444;
-                background: #1b1b1b;
-                color: #eee;
+                border: 1px solid var(--control-border);
+                background: var(--input-bg);
+                color: var(--text);
                 border-radius: 6px;
             }
             #events,
             #audit {
-                background: #000;
-                border: 1px solid #333;
+                background: var(--surface);
+                border: 1px solid var(--surface-border);
                 padding: 10px;
                 height: 320px;
                 overflow-y: auto;

@@ -5,6 +5,36 @@
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
         <title>Franklin Health Check</title>
         <style>
+            :root {
+                color-scheme: light dark;
+
+                --bg: #111;
+                --text: #eee;
+                --control-bg: #222;
+                --control-bg-hover: #2c2c2c;
+                --control-border: #444;
+                --surface: #000;
+                --surface-border: #333;
+                --ok: #66d17a;
+                --bad: #ff6b6b;
+                --loading: #f5c26b;
+            }
+
+            @media (prefers-color-scheme: light) {
+                :root {
+                    --bg: #f6f8fa;
+                    --text: #1f2328;
+                    --control-bg: #ffffff;
+                    --control-bg-hover: #f3f4f6;
+                    --control-border: #c7ced6;
+                    --surface: #ffffff;
+                    --surface-border: #d0d7de;
+                    --ok: #1a7f37;
+                    --bad: #cf222e;
+                    --loading: #9a6700;
+                }
+            }
+
             body {
                 font-family:
                     system-ui,
@@ -13,8 +43,8 @@
                     Roboto,
                     sans-serif;
                 margin: 16px;
-                background: #111;
-                color: #eee;
+                background: var(--bg);
+                color: var(--text);
             }
             h1 {
                 margin-top: 0;
@@ -27,28 +57,31 @@
             }
             button {
                 padding: 8px 12px;
-                border: 1px solid #444;
-                background: #222;
-                color: #eee;
+                border: 1px solid var(--control-border);
+                background: var(--control-bg);
+                color: var(--text);
                 border-radius: 6px;
                 cursor: pointer;
+            }
+            button:hover {
+                background: var(--control-bg-hover);
             }
             #summary {
                 margin: 10px 0;
                 font-weight: 600;
             }
             .ok {
-                color: #66d17a;
+                color: var(--ok);
             }
             .bad {
-                color: #ff6b6b;
+                color: var(--bad);
             }
             .loading {
-                color: #f5c26b;
+                color: var(--loading);
             }
             #checks {
-                background: #000;
-                border: 1px solid #333;
+                background: var(--surface);
+                border: 1px solid var(--surface-border);
                 padding: 10px;
                 margin-bottom: 12px;
             }
@@ -68,8 +101,8 @@
                 opacity: 0.9;
             }
             #report {
-                background: #000;
-                border: 1px solid #333;
+                background: var(--surface);
+                border: 1px solid var(--surface-border);
                 padding: 10px;
                 min-height: 220px;
                 overflow: auto;

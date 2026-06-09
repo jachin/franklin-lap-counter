@@ -10,6 +10,8 @@
         />
         <style>
             :root {
+                color-scheme: light dark;
+
                 --bg-color: #1e1e1e;
                 --text-color: #d4d4d4;
                 --header-color: #4ec9b0;
@@ -20,6 +22,12 @@
                 --warning: #dcdcaa;
                 --error: #f48771;
                 --grid-line: #3e3e42;
+                --event-bg: rgba(45, 45, 48, 0.8);
+                --row-hover: rgba(62, 62, 66, 0.5);
+                --race-info-bg: rgba(0, 122, 204, 0.2);
+                --muted-text: #858585;
+                --button-hover: #005a9e;
+                --status-text-dark: #1e1e1e;
 
                 /* Driver colors */
                 --driver-1: #ff5252;
@@ -30,6 +38,27 @@
                 --driver-6: #00bcd4;
                 --driver-7: #ffeb3b;
                 --driver-8: #795548;
+            }
+
+            @media (prefers-color-scheme: light) {
+                :root {
+                    --bg-color: #f6f8fa;
+                    --text-color: #1f2328;
+                    --header-color: #0b6b5f;
+                    --border-color: #d0d7de;
+                    --panel-bg: #ffffff;
+                    --highlight: #0969da;
+                    --success: #1a7f37;
+                    --warning: #9a6700;
+                    --error: #cf222e;
+                    --grid-line: #d8dee4;
+                    --event-bg: rgba(208, 215, 222, 0.5);
+                    --row-hover: rgba(208, 215, 222, 0.35);
+                    --race-info-bg: rgba(9, 105, 218, 0.12);
+                    --muted-text: #57606a;
+                    --button-hover: #0550ae;
+                    --status-text-dark: #ffffff;
+                }
             }
 
             body {
@@ -98,7 +127,7 @@
 
             .race-info-item {
                 padding: 0.5rem 1rem;
-                background-color: rgba(0, 122, 204, 0.2);
+                background-color: var(--race-info-bg);
                 border-radius: 4px;
                 font-family: "Roboto Mono", monospace;
             }
@@ -131,7 +160,7 @@
             }
 
             .standings-table tr:hover {
-                background-color: rgba(62, 62, 66, 0.5);
+                background-color: var(--row-hover);
             }
 
             .driver-color {
@@ -159,7 +188,7 @@
                 padding: 0.5rem;
                 margin-bottom: 0.5rem;
                 border-left: 3px solid var(--highlight);
-                background-color: rgba(45, 45, 48, 0.8);
+                background-color: var(--event-bg);
             }
 
             .event.lap {
@@ -182,7 +211,7 @@
             }
 
             .event-time {
-                color: #858585;
+                color: var(--muted-text);
                 font-size: 0.75rem;
                 margin-left: 0.5rem;
             }
@@ -204,17 +233,17 @@
 
             .status.connected {
                 background-color: var(--success);
-                color: #1e1e1e;
+                color: var(--status-text-dark);
             }
 
             .status.disconnected {
                 background-color: var(--error);
-                color: #1e1e1e;
+                color: var(--status-text-dark);
             }
 
             .status.connecting {
                 background-color: var(--warning);
-                color: #1e1e1e;
+                color: var(--status-text-dark);
             }
 
             /* Race state */
@@ -228,12 +257,12 @@
 
             .race-state.running {
                 background-color: var(--success);
-                color: #1e1e1e;
+                color: var(--status-text-dark);
             }
 
             .race-state.finished {
                 background-color: var(--warning);
-                color: #1e1e1e;
+                color: var(--status-text-dark);
             }
 
             .race-state.not-started {
@@ -243,7 +272,7 @@
 
             .race-state.paused {
                 background-color: var(--error);
-                color: #1e1e1e;
+                color: var(--status-text-dark);
             }
 
             /* Best lap indicator */
@@ -274,7 +303,7 @@
             }
 
             button:hover {
-                background-color: #005a9e;
+                background-color: var(--button-hover);
             }
 
             button:disabled {
@@ -299,7 +328,7 @@
             /* Last update indicator */
             .last-update {
                 text-align: right;
-                color: #858585;
+                color: var(--muted-text);
                 font-size: 0.8rem;
                 font-style: italic;
                 margin-top: 0.5rem;

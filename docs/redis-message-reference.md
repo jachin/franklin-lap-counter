@@ -9,8 +9,8 @@ If another document or code comment conflicts with this one, treat this file as 
 | Channel | Direction / Purpose | Primary Publishers | Primary Subscribers |
 |---|---|---|---|
 | `hardware:in` | Commands to the race-control owner (hardware monitor) | `franklin-tui.py`, `franklin-gui.py`, `referee_web_app.py` | `rust/franklin-hardware-monitor` (`command_handler_task`) |
-| `hardware:out` | Hardware telemetry + status events | `rust/franklin-hardware-monitor` | `franklin-tui.py`, `franklin-gui.py`, `scoreboard_web_app.py`, `referee_web_app.py`, `healthcheck_web_app.py` (heartbeat sampling), rust local monitor TUI |
-| `franklin:events` | Race-control outcome events (`race_control`) | `rust/franklin-hardware-monitor` | `franklin-tui.py`, `franklin-gui.py`, `scoreboard_web_app.py`, `referee_web_app.py` |
+| `hardware:out` | **Hardware-only** telemetry/events (or simulation of those same hardware events) | `rust/franklin-hardware-monitor` | `franklin-tui.py`, `franklin-gui.py`, `scoreboard_web_app.py`, `referee_web_app.py`, `healthcheck_web_app.py` (heartbeat sampling), rust local monitor TUI |
+| `franklin:events` | Race-control outcome events (`race_control`) | `rust/franklin-hardware-monitor` | `franklin-tui.py`, `franklin-gui.py`, `scoreboard_web_app.py`, `referee_web_app.py`, rust local monitor TUI |
 | `franklin:race_state` | Periodic race-state snapshots for observers | `franklin-tui.py`, `franklin-gui.py` | (No in-repo subscriber currently) |
 
 ---
@@ -54,41 +54,51 @@ Notes:
 
 ## 2) Telemetry/events on `hardware:out`
 
-Produced by `OutMessage` (Rust):
+Produced by `OutMessage` (Rust).
+
+Channel policy:
+
+- `hardware:out` is reserved for things the lap-counting hardware does, or simulation of those same things.
+- Non-hardware control outcomes are published on `franklin:events`.
 
 ### `heartbeat`
 
 ```json
-{"type":"heartbeat"}
+{"type":"heartbeat","simulated":false}
 ```
 
 ### `status`
 
 ```json
-{"type":"status","message":"..."}
+{"type":"status","message":"...","simulated":false}
 ```
 
 ### `lap`
 
 ```json
-{"type":"lap","racer_id":1,"sensor_id":1,"race_time":12.345}
+{"type":"lap","racer_id":1,"sensor_id":1,"race_time":12.345,"simulated":false}
 ```
 
 ### `error`
 
 ```json
-{"type":"error","message":"..."}
+{"type":"error","message":"...","simulated":false}
 ```
 
 ### `debug`
 
 ```json
-{"type":"debug","message":"..."}
+{"type":"debug","message":"...","simulated":false}
 ```
 
 ### `raw`
 
 Schema exists in Rust `OutMessage`, but `Raw` is intentionally **not published** to Redis in current code path.
+
+`simulated` semantics on hardware events:
+
+- `true`: event came from simulator path (or `simulate_lap` command path)
+- `false`: event came from real hardware path
 
 ## 3) Race-control outcomes on `franklin:events`
 
@@ -142,6 +152,7 @@ Additional fields from TUI (non-training mode):
 ## `rust/franklin-hardware-monitor`
 
 - **Subscribes:** `hardware:in`
+- **Also listens (local monitor UI path):** `hardware:out`, `franklin:events`
 - **Publishes:**
   - `hardware:out` (`heartbeat`, `status`, `lap`, `error`, `debug`)
   - `franklin:events` (`race_control`)

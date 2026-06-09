@@ -36,16 +36,27 @@ enum OutMessage {
         racer_id: u32,
         sensor_id: u32,
         race_time: f64,
+        #[serde(default)]
+        simulated: bool,
     },
-    Heartbeat,
+    Heartbeat {
+        #[serde(default)]
+        simulated: bool,
+    },
     Status {
         message: String,
+        #[serde(default)]
+        simulated: bool,
     },
     Error {
         message: String,
+        #[serde(default)]
+        simulated: bool,
     },
     Debug {
         message: String,
+        #[serde(default)]
+        simulated: bool,
     },
     RaceControl {
         command: String,
@@ -135,14 +146,36 @@ impl App {
                 racer_id,
                 sensor_id,
                 race_time,
+                simulated,
             } => format!(
-                "[LAP] Racer {} - Sensor {} - Time: {:.3}s",
-                racer_id, sensor_id, race_time
+                "[LAP{}] Racer {} - Sensor {} - Time: {:.3}s",
+                if *simulated { " (SIM)" } else { "" },
+                racer_id,
+                sensor_id,
+                race_time
             ),
-            OutMessage::Heartbeat => "[HEARTBEAT] ♥".to_string(),
-            OutMessage::Status { message } => format!("[STATUS] {}", message),
-            OutMessage::Error { message } => format!("[ERROR] {}", message),
-            OutMessage::Debug { message } => format!("[DEBUG] {}", message),
+            OutMessage::Heartbeat { simulated } => {
+                if *simulated {
+                    "[HEARTBEAT (SIM)] ♥".to_string()
+                } else {
+                    "[HEARTBEAT] ♥".to_string()
+                }
+            }
+            OutMessage::Status { message, simulated } => format!(
+                "[STATUS{}] {}",
+                if *simulated { " (SIM)" } else { "" },
+                message
+            ),
+            OutMessage::Error { message, simulated } => format!(
+                "[ERROR{}] {}",
+                if *simulated { " (SIM)" } else { "" },
+                message
+            ),
+            OutMessage::Debug { message, simulated } => format!(
+                "[DEBUG{}] {}",
+                if *simulated { " (SIM)" } else { "" },
+                message
+            ),
             OutMessage::RaceControl {
                 command,
                 command_id,
@@ -289,7 +322,7 @@ impl HardwareComm {
     fn parse_hardware_line(&self, line: &str) -> Option<OutMessage> {
         if line.starts_with("\x01#") && line.contains("xC249") {
             // Heartbeat
-            Some(OutMessage::Heartbeat)
+            Some(OutMessage::Heartbeat { simulated: false })
         } else if line.starts_with("\x01@") || line.starts_with("@") {
             // Lap message: \x01@\t<sensor_id>\t...\t<racer_id>\t<race_time>\t...
             // Try tab-separated first, then fall back to whitespace-separated
@@ -316,6 +349,7 @@ impl HardwareComm {
                                 racer_id,
                                 sensor_id,
                                 race_time,
+                                simulated: false,
                             });
                         } else {
                             warn!(
@@ -337,6 +371,7 @@ impl HardwareComm {
             }
             Some(OutMessage::Status {
                 message: format!("Malformed lap line: {}", line),
+                simulated: false,
             })
         } else if line.starts_with("\x01$") {
             // New message: \x01$\t<sensor_id>\t<raw_time>\t<flag1>\t<flag2>
@@ -347,27 +382,32 @@ impl HardwareComm {
                     if let Ok(sensor_id) = sensor_id_str.trim().parse::<u32>() {
                         return Some(OutMessage::Status {
                             message: format!("Sensor {} signal received", sensor_id),
+                            simulated: false,
                         });
                     }
                 }
                 // Fall back to status message instead of raw
                 Some(OutMessage::Status {
-                    message: format!("New message received from hardware"),
+                    message: "New message received from hardware".to_string(),
+                    simulated: false,
                 })
             } else {
                 Some(OutMessage::Status {
                     message: format!("Malformed new_msg line: {}", line),
+                    simulated: false,
                 })
             }
         } else if line.contains("HELLO") || line.contains("RESET") {
             // Recognize common messages and turn them into status
             Some(OutMessage::Status {
                 message: format!("Hardware message: {}", line.trim()),
+                simulated: false,
             })
         } else if !line.is_empty() {
             // Only use Raw for debugging, not for normal operation
             Some(OutMessage::Debug {
                 message: format!("Hardware data: {}", line.trim()),
+                simulated: false,
             })
         } else {
             None
@@ -418,7 +458,15 @@ async fn redis_listener_task(hw: Arc<HardwareComm>, app: Arc<Mutex<App>>) -> Res
             .ok();
 
         if let Err(e) = pubsub.subscribe(REDIS_OUT_CHANNEL) {
-            error!("Failed to subscribe to Redis channel: {}", e);
+            error!("Failed to subscribe to Redis channel (hardware:out): {}", e);
+            return;
+        }
+
+        if let Err(e) = pubsub.subscribe(REDIS_EVENTS_CHANNEL) {
+            error!(
+                "Failed to subscribe to Redis channel (franklin:events): {}",
+                e
+            );
             return;
         }
 
@@ -464,13 +512,13 @@ async fn redis_listener_task(hw: Arc<HardwareComm>, app: Arc<Mutex<App>>) -> Res
                     let mut app = app.lock().await;
 
                     // Update last heartbeat time
-                    if matches!(&out_msg, OutMessage::Heartbeat) {
+                    if matches!(&out_msg, OutMessage::Heartbeat { .. }) {
                         app.last_heartbeat = Some(Instant::now());
                     }
 
                     // Skip RAW and HEARTBEAT messages unless verbose mode is enabled
                     let should_display = match &out_msg {
-                        OutMessage::Raw { .. } | OutMessage::Heartbeat => app.verbose,
+                        OutMessage::Raw { .. } | OutMessage::Heartbeat { .. } => app.verbose,
                         _ => true,
                     };
                     if should_display {
@@ -490,11 +538,6 @@ async fn redis_listener_task(hw: Arc<HardwareComm>, app: Arc<Mutex<App>>) -> Res
 async fn simulation_task(hw: Arc<HardwareComm>, app: Arc<Mutex<App>>) -> Result<()> {
     info!("Starting simulation task");
 
-    // Send initial status
-    hw.send_message(&OutMessage::Status {
-        message: "Running in simulation mode".to_string(),
-    })?;
-
     let mut last_heartbeat = Instant::now();
 
     loop {
@@ -502,7 +545,7 @@ async fn simulation_task(hw: Arc<HardwareComm>, app: Arc<Mutex<App>>) -> Result<
 
         // Send heartbeat every 2 seconds
         if last_heartbeat.elapsed() >= Duration::from_secs(2) {
-            hw.send_message(&OutMessage::Heartbeat)?;
+            hw.send_message(&OutMessage::Heartbeat { simulated: true })?;
             last_heartbeat = Instant::now();
         }
 
@@ -540,6 +583,7 @@ async fn hardware_task(hw: Arc<HardwareComm>, app: Arc<Mutex<App>>) -> Result<()
                 error!("SERIAL: Failed to open serial connection: {}", e);
                 let _ = hw.send_message(&OutMessage::Status {
                     message: format!("Lap tracking hardware not found: {}", e),
+                    simulated: false,
                 });
                 return;
             }
@@ -555,6 +599,7 @@ async fn hardware_task(hw: Arc<HardwareComm>, app: Arc<Mutex<App>>) -> Result<()
         info!("SERIAL: Connection established, sending initial status");
         if let Err(e) = hw.send_message(&OutMessage::Status {
             message: status_msg,
+            simulated: false,
         }) {
             error!("Failed to send status: {}", e);
         }
@@ -565,6 +610,7 @@ async fn hardware_task(hw: Arc<HardwareComm>, app: Arc<Mutex<App>>) -> Result<()
             error!("SERIAL: Failed to send reset commands: {}", e);
             let _ = hw.send_message(&OutMessage::Status {
                 message: format!("Error sending reset commands: {}", e),
+                simulated: false,
             });
         } else {
             info!("SERIAL: Initial reset commands sent successfully");
@@ -599,11 +645,13 @@ async fn hardware_task(hw: Arc<HardwareComm>, app: Arc<Mutex<App>>) -> Result<()
                     error!("SERIAL: Failed to send race reset commands: {}", e);
                     let _ = hw.send_message(&OutMessage::Status {
                         message: format!("Error sending reset commands: {}", e),
+                        simulated: false,
                     });
                 } else {
                     info!("SERIAL: Race reset commands sent successfully");
                     let _ = hw.send_message(&OutMessage::Status {
                         message: "Race reset commands sent".to_string(),
+                        simulated: false,
                     });
                 }
             }
@@ -626,7 +674,7 @@ async fn hardware_task(hw: Arc<HardwareComm>, app: Arc<Mutex<App>>) -> Result<()
                     // Parse and send message
                     if let Some(msg) = hw.parse_hardware_line(line) {
                         // Update heartbeat time if we got a heartbeat
-                        if matches!(msg, OutMessage::Heartbeat) {
+                        if matches!(msg, OutMessage::Heartbeat { .. }) {
                             last_heartbeat = Instant::now();
                         }
 
@@ -643,6 +691,7 @@ async fn hardware_task(hw: Arc<HardwareComm>, app: Arc<Mutex<App>>) -> Result<()
                     error!("Error reading from serial: {}", e);
                     let _ = hw.send_message(&OutMessage::Status {
                         message: format!("Error reading serial: {}", e),
+                        simulated: false,
                     });
                 }
             }
@@ -652,6 +701,7 @@ async fn hardware_task(hw: Arc<HardwareComm>, app: Arc<Mutex<App>>) -> Result<()
                 warn!("Heartbeat lost");
                 let _ = hw.send_message(&OutMessage::Status {
                     message: "Heartbeat lost".to_string(),
+                    simulated: false,
                 });
                 last_heartbeat = Instant::now(); // Reset to avoid spam
             }
@@ -674,18 +724,12 @@ fn handle_input(app: &mut App, hw: &HardwareComm, key: KeyCode) -> Result<()> {
             app.race_active = true;
             app.race_start_time = Some(Instant::now());
             // In simulation mode, send message directly without going through Redis command channel
-            hw.send_message(&OutMessage::Status {
-                message: "Simulation race started".to_string(),
-            })?;
             info!("Simulation race started");
         }
         KeyCode::Char('p') | KeyCode::Char('P') if app.simulation_mode => {
             app.race_active = false;
             app.race_start_time = None;
             // In simulation mode, send message directly without going through Redis command channel
-            hw.send_message(&OutMessage::Status {
-                message: "Simulation race stopped".to_string(),
-            })?;
             info!("Simulation race stopped");
         }
         KeyCode::Char(c @ '1'..='4') if app.simulation_mode => {
@@ -701,6 +745,7 @@ fn handle_input(app: &mut App, hw: &HardwareComm, key: KeyCode) -> Result<()> {
                 racer_id,
                 sensor_id: 1,
                 race_time,
+                simulated: true,
             })?;
             info!("Simulated lap for racer {}", racer_id);
         }
@@ -805,12 +850,6 @@ async fn command_handler_task(hw: Arc<HardwareComm>, app: Arc<Mutex<App>>) -> Re
                                 "Race started".to_string()
                             };
 
-                            if let Err(e) = hw.send_message(&OutMessage::Status {
-                                message: status_message.clone(),
-                            }) {
-                                error!("Failed to send status: {}", e);
-                            }
-
                             let _ = hw.send_message(&OutMessage::RaceControl {
                                 command: "start_race".to_string(),
                                 command_id: command_id.clone(),
@@ -838,12 +877,6 @@ async fn command_handler_task(hw: Arc<HardwareComm>, app: Arc<Mutex<App>>) -> Re
                                 "Race ended".to_string()
                             };
 
-                            if let Err(e) = hw.send_message(&OutMessage::Status {
-                                message: status_message.clone(),
-                            }) {
-                                error!("Failed to send status: {}", e);
-                            }
-
                             let _ = hw.send_message(&OutMessage::RaceControl {
                                 command: "end_race".to_string(),
                                 command_id: command_id.clone(),
@@ -866,9 +899,6 @@ async fn command_handler_task(hw: Arc<HardwareComm>, app: Arc<Mutex<App>>) -> Re
                             });
 
                             let status_message = "Race reset requested".to_string();
-                            let _ = hw.send_message(&OutMessage::Status {
-                                message: status_message.clone(),
-                            });
                             let _ = hw.send_message(&OutMessage::RaceControl {
                                 command: "reset_race".to_string(),
                                 command_id: command_id.clone(),
@@ -886,6 +916,7 @@ async fn command_handler_task(hw: Arc<HardwareComm>, app: Arc<Mutex<App>>) -> Re
                                 racer_id: racer_id.unwrap_or(1),
                                 sensor_id: sensor_id.unwrap_or(1),
                                 race_time: race_time.unwrap_or(0.0),
+                                simulated: true,
                             }) {
                                 error!("Failed to send lap message: {}", e);
                             }

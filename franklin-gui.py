@@ -1782,6 +1782,7 @@ class FranklinGuiApp(Gtk.Application):
 
     def handle_hardware_message(self, msg: dict[str, Any]) -> None:
         msg_type = msg.get("type")
+        simulated = bool(msg.get("simulated", False))
 
         if msg_type == "heartbeat":
             self.lap_counter_detected = True
@@ -1790,7 +1791,8 @@ class FranklinGuiApp(Gtk.Application):
             return
 
         if msg_type == "status":
-            self.append_event(f"STATUS: {msg.get('message', '')}")
+            source = "SIM" if simulated else "HW"
+            self.append_event(f"STATUS [{source}]: {msg.get('message', '')}")
             return
 
         if msg_type == "race_control":
@@ -1884,8 +1886,9 @@ class FranklinGuiApp(Gtk.Application):
             )
 
         name = self.global_contestants.get_contestant_name(lap.racer_id)
+        source = "SIM" if simulated else "HW"
         self.append_event(
-            f"LAP: {name} (ID {lap.racer_id}) lap {lap.lap_number} at {self._format_time_cs(lap.seconds_from_race_start)}"
+            f"LAP [{source}]: {name} (ID {lap.racer_id}) lap {lap.lap_number} at {self._format_time_cs(lap.seconds_from_race_start)}"
         )
         self.refresh_views()
 

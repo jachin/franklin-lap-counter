@@ -418,8 +418,12 @@ class Franklin(App[Any]):  # type: ignore[type-arg]
                             f"Received hardware message of type '{msg_type}': {msg}"
                         )
 
+                        simulated = bool(msg.get("simulated", False))
+
                         # Rely only on heartbeat message to update detection
                         if msg_type == "heartbeat":
+                            if simulated:
+                                logging.debug("Simulated heartbeat received")
                             if not self.lap_counter_detected:
                                 logging.info("Lap counter detected (heartbeat)")
                             self.lap_counter_detected = True
@@ -428,7 +432,11 @@ class Franklin(App[Any]):  # type: ignore[type-arg]
                             )
 
                         elif msg_type == "lap":
-                            logging.info(f"Lap message received: {msg}")
+                            logging.info(
+                                "%s lap message received: %s",
+                                "Simulated" if simulated else "Hardware",
+                                msg,
+                            )
                             if self.race.state == self.race.state.RUNNING:
                                 racer_id = msg.get("racer_id")
                                 hardware_race_time = msg.get("race_time")
@@ -464,7 +472,11 @@ class Franklin(App[Any]):  # type: ignore[type-arg]
                             logging.info(f"New message received: {msg}")
 
                         elif msg_type == "status":
-                            logging.info(f"Status message: {msg.get('message', '')}")
+                            logging.info(
+                                "%s status message: %s",
+                                "Simulated" if simulated else "Hardware",
+                                msg.get("message", ""),
+                            )
 
                         elif msg_type == "race_control":
                             command = msg.get("command")

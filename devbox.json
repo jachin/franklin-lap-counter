@@ -21,7 +21,8 @@
     "lnav@latest",
     "gtk4@latest",
     "python313Packages.pygobject3@latest",
-    "biome@latest"
+    "biome@latest",
+    "watchexec@latest"
   ],
 
   "shell": {

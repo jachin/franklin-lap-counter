@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Franklin health-check web app.
 
-Serves a small dashboard and JSON report endpoint intended to be proxied by
-Caddy at healthcheck.frank.
+Serves a dashboard and health endpoints intended to be proxied by Caddy at
+healthcheck.frank.
 """
 
 from __future__ import annotations
@@ -15,7 +15,7 @@ import socket
 import subprocess
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Awaitable, Callable
 
 import redis.asyncio as redis
 from aiohttp import web  # type: ignore[import-untyped]
@@ -31,6 +31,8 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+CheckRunner = Callable[[], Awaitable[dict[str, Any]]]
+
 
 class HealthCheckWebAppServer:
     def __init__(
@@ -44,9 +46,29 @@ class HealthCheckWebAppServer:
         self.host = host
         self.app = web.Application()
 
+        self.check_runners: dict[str, CheckRunner] = {
+            "terminfo_xterm_ghostty": self._check_terminfo_xterm_ghostty,
+            "tmux_sessions": self._check_tmux_sessions,
+            "redis_ping": self._check_redis_ping,
+            "heartbeat_sample": self._check_heartbeat_sample,
+            "referee_process": self._check_referee_process,
+            "wayvnc_process": self._check_wayvnc_process,
+            "emoji_font": self._check_emoji_font,
+            "scoreboard_direct_http": self._check_scoreboard_direct_http,
+            "referee_direct_http": self._check_referee_direct_http,
+            "caddy_scoreboard_proxy": self._check_caddy_scoreboard_proxy,
+            "caddy_referee_proxy": self._check_caddy_referee_proxy,
+            "caddy_healthcheck_proxy": self._check_caddy_healthcheck_proxy,
+            "gui_log_recent_issues": self._check_gui_log_recent_issues,
+            "hardware_redis_log_tail": self._check_hardware_redis_log_tail,
+            "caddy_service": self._check_caddy_service,
+        }
+
         self.app.router.add_get("/", self.index_handler)
         self.app.router.add_get("/api/health", self.health_handler)
         self.app.router.add_get("/api/report", self.report_handler)
+        self.app.router.add_get("/api/checks", self.checks_handler)
+        self.app.router.add_get("/api/check/{name}", self.check_handler)
 
     async def index_handler(self, request: web.Request) -> web.FileResponse:
         return web.FileResponse(STATIC_DIR / "healthcheck.html")
@@ -74,6 +96,11 @@ class HealthCheckWebAppServer:
         except Exception as exc:  # pragma: no cover - defensive
             return {"ok": False, "error": str(exc)}
 
+    async def _run_command_async(
+        self, command: list[str], timeout_seconds: int = 5
+    ) -> dict[str, Any]:
+        return await asyncio.to_thread(self._run_command, command, timeout_seconds)
+
     def _tail_file(self, path: Path, lines: int = 20) -> str:
         if not path.exists():
             return "(missing)"
@@ -99,6 +126,11 @@ class HealthCheckWebAppServer:
         except Exception as exc:
             return {"ok": False, "error": str(exc)}
 
+    async def _check_http_async(
+        self, url: str, host: str | None = None
+    ) -> dict[str, Any]:
+        return await asyncio.to_thread(self._check_http, url, host)
+
     async def _sample_heartbeat(self) -> dict[str, Any]:
         if not Path(self.redis_socket).exists():
             return {
@@ -111,9 +143,9 @@ class HealthCheckWebAppServer:
 
         try:
             await pubsub.subscribe(REDIS_OUT_CHANNEL)
-            deadline = asyncio.get_event_loop().time() + 6.0
+            deadline = asyncio.get_running_loop().time() + 6.0
 
-            while asyncio.get_event_loop().time() < deadline:
+            while asyncio.get_running_loop().time() < deadline:
                 message = await pubsub.get_message(
                     ignore_subscribe_messages=True,
                     timeout=1.0,
@@ -139,135 +171,25 @@ class HealthCheckWebAppServer:
             await pubsub.aclose()
             await client.aclose()
 
-    async def _build_report(self) -> dict[str, Any]:
-        checks: list[dict[str, Any]] = []
+    async def _run_named_check(self, name: str) -> dict[str, Any]:
+        runner = self.check_runners.get(name)
+        if not runner:
+            return {"name": name, "result": {"ok": False, "error": "unknown check"}}
 
-        checks.append(
-            {
-                "name": "terminfo_xterm_ghostty",
-                "result": self._run_command(["infocmp", "-x", "xterm-ghostty"]),
-            }
-        )
+        result = await runner()
+        return {"name": name, "result": result}
 
-        checks.append(
-            {
-                "name": "tmux_sessions",
-                "result": self._run_command(["tmux", "ls"]),
-            }
-        )
+    async def _build_report(self, parallel: bool = False) -> dict[str, Any]:
+        names = list(self.check_runners.keys())
 
-        checks.append(
-            {
-                "name": "redis_ping",
-                "result": self._run_command(
-                    ["redis-cli", "-s", self.redis_socket, "PING"]
-                ),
-            }
-        )
-
-        checks.append(
-            {"name": "heartbeat_sample", "result": await self._sample_heartbeat()}
-        )
-
-        checks.append(
-            {
-                "name": "referee_process",
-                "result": self._run_command(["pgrep", "-af", "referee_web_app.py"]),
-            }
-        )
-
-        checks.append(
-            {
-                "name": "wayvnc_process",
-                "result": self._run_command(["pgrep", "-af", "wayvnc"]),
-            }
-        )
-
-        checks.append(
-            {
-                "name": "emoji_font",
-                "result": self._run_command(
-                    ["sh", "-lc", "fc-list | grep -qi 'Noto Color Emoji'"]
-                ),
-            }
-        )
-
-        checks.append(
-            {
-                "name": "scoreboard_direct_http",
-                "result": self._check_http("http://127.0.0.1:8080/"),
-            }
-        )
-
-        checks.append(
-            {
-                "name": "referee_direct_http",
-                "result": self._check_http("http://127.0.0.1:8081/api/health"),
-            }
-        )
-
-        checks.append(
-            {
-                "name": "caddy_scoreboard_proxy",
-                "result": self._check_http(
-                    "http://127.0.0.1/",
-                    host="scoreboard.frank",
-                ),
-            }
-        )
-
-        checks.append(
-            {
-                "name": "caddy_referee_proxy",
-                "result": self._check_http(
-                    "http://127.0.0.1/api/health",
-                    host="referee.frank",
-                ),
-            }
-        )
-
-        checks.append(
-            {
-                "name": "caddy_healthcheck_proxy",
-                "result": self._check_http(
-                    "http://127.0.0.1/api/health",
-                    host="healthcheck.frank",
-                ),
-            }
-        )
-
-        if Path("gui.log").exists():
-            gui_tail = self._tail_file(Path("gui.log"), lines=120)
-            gui_issues = [
-                line
-                for line in gui_tail.splitlines()
-                if "Traceback" in line
-                or "TypeError" in line
-                or "Redis connect failed" in line
-                or "ERROR" in line
-            ]
-            checks.append(
-                {
-                    "name": "gui_log_recent_issues",
-                    "result": {
-                        "ok": len(gui_issues) == 0,
-                        "matches": gui_issues,
-                    },
-                }
+        if parallel:
+            checks = await asyncio.gather(
+                *(self._run_named_check(name) for name in names)
             )
-
-        checks.append(
-            {
-                "name": "hardware_redis_log_tail",
-                "result": {
-                    "ok": True,
-                    "tail": self._tail_file(Path("hardware_redis.log"), lines=20),
-                },
-            }
-        )
-
-        caddy_active = self._run_command(["systemctl", "is-active", "caddy.service"])
-        checks.append({"name": "caddy_service", "result": caddy_active})
+        else:
+            checks: list[dict[str, Any]] = []
+            for name in names:
+                checks.append(await self._run_named_check(name))
 
         report_ok = all(bool(check["result"].get("ok", False)) for check in checks)
 
@@ -279,10 +201,103 @@ class HealthCheckWebAppServer:
             "checks": checks,
         }
 
+    async def checks_handler(self, request: web.Request) -> web.Response:
+        return web.json_response(
+            {"ok": True, "checks": list(self.check_runners.keys())}
+        )
+
+    async def check_handler(self, request: web.Request) -> web.Response:
+        name = request.match_info["name"]
+        if name not in self.check_runners:
+            return web.json_response(
+                {"ok": False, "error": f"unknown check: {name}"},
+                status=404,
+            )
+
+        check = await self._run_named_check(name)
+        status = 200 if check["result"].get("ok") else 503
+        return web.json_response(check, status=status)
+
     async def report_handler(self, request: web.Request) -> web.Response:
-        report = await self._build_report()
+        mode = request.query.get("mode", "full").lower()
+        parallel = mode == "parallel"
+        report = await self._build_report(parallel=parallel)
         status = 200 if report["ok"] else 503
         return web.json_response(report, status=status)
+
+    async def _check_terminfo_xterm_ghostty(self) -> dict[str, Any]:
+        return await self._run_command_async(["infocmp", "-x", "xterm-ghostty"])
+
+    async def _check_tmux_sessions(self) -> dict[str, Any]:
+        return await self._run_command_async(["tmux", "ls"])
+
+    async def _check_redis_ping(self) -> dict[str, Any]:
+        return await self._run_command_async(
+            ["redis-cli", "-s", self.redis_socket, "PING"]
+        )
+
+    async def _check_heartbeat_sample(self) -> dict[str, Any]:
+        return await self._sample_heartbeat()
+
+    async def _check_referee_process(self) -> dict[str, Any]:
+        return await self._run_command_async(["pgrep", "-af", "referee_web_app.py"])
+
+    async def _check_wayvnc_process(self) -> dict[str, Any]:
+        return await self._run_command_async(["pgrep", "-af", "wayvnc"])
+
+    async def _check_emoji_font(self) -> dict[str, Any]:
+        return await self._run_command_async(
+            ["sh", "-lc", "fc-list | grep -qi 'Noto Color Emoji'"]
+        )
+
+    async def _check_scoreboard_direct_http(self) -> dict[str, Any]:
+        return await self._check_http_async("http://127.0.0.1:8080/")
+
+    async def _check_referee_direct_http(self) -> dict[str, Any]:
+        return await self._check_http_async("http://127.0.0.1:8081/api/health")
+
+    async def _check_caddy_scoreboard_proxy(self) -> dict[str, Any]:
+        return await self._check_http_async(
+            "http://127.0.0.1/", host="scoreboard.frank"
+        )
+
+    async def _check_caddy_referee_proxy(self) -> dict[str, Any]:
+        return await self._check_http_async(
+            "http://127.0.0.1/api/health", host="referee.frank"
+        )
+
+    async def _check_caddy_healthcheck_proxy(self) -> dict[str, Any]:
+        return await self._check_http_async(
+            "http://127.0.0.1/api/health", host="healthcheck.frank"
+        )
+
+    async def _check_gui_log_recent_issues(self) -> dict[str, Any]:
+        gui_tail = await asyncio.to_thread(self._tail_file, Path("gui.log"), 120)
+        if gui_tail == "(missing)":
+            return {"ok": True, "matches": []}
+
+        gui_issues = [
+            line
+            for line in gui_tail.splitlines()
+            if "Traceback" in line
+            or "TypeError" in line
+            or "Redis connect failed" in line
+            or "ERROR" in line
+        ]
+
+        return {
+            "ok": len(gui_issues) == 0,
+            "matches": gui_issues,
+        }
+
+    async def _check_hardware_redis_log_tail(self) -> dict[str, Any]:
+        tail = await asyncio.to_thread(self._tail_file, Path("hardware_redis.log"), 20)
+        return {"ok": True, "tail": tail}
+
+    async def _check_caddy_service(self) -> dict[str, Any]:
+        return await self._run_command_async(
+            ["systemctl", "is-active", "caddy.service"]
+        )
 
     def run(self) -> None:
         logger.info(

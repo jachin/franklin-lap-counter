@@ -43,11 +43,35 @@
             .bad {
                 color: #ff6b6b;
             }
+            .loading {
+                color: #f5c26b;
+            }
+            #checks {
+                background: #000;
+                border: 1px solid #333;
+                padding: 10px;
+                margin-bottom: 12px;
+            }
+            .check-row {
+                display: flex;
+                align-items: baseline;
+                gap: 8px;
+                margin-bottom: 6px;
+                font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+            }
+            .check-name {
+                min-width: 280px;
+                word-break: break-word;
+            }
+            .check-details {
+                white-space: pre-wrap;
+                opacity: 0.9;
+            }
             #report {
                 background: #000;
                 border: 1px solid #333;
                 padding: 10px;
-                min-height: 320px;
+                min-height: 220px;
                 overflow: auto;
                 font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
                 white-space: pre-wrap;
@@ -58,41 +82,167 @@
     <body>
         <h1>Health Check</h1>
         <div class="row">
-            <button type="button" id="refresh">Refresh Report</button>
+            <button type="button" id="refresh-parallel">
+                Refresh (parallel checks)
+            </button>
+            <button type="button" id="refresh-full">
+                Refresh (full report)
+            </button>
         </div>
         <div id="summary">Loading...</div>
+        <div id="checks"></div>
+        <h2>Full Report JSON</h2>
         <div id="report"></div>
 
         <script>
             const summaryEl = document.getElementById("summary");
+            const checksEl = document.getElementById("checks");
             const reportEl = document.getElementById("report");
 
-            async function loadReport() {
-                summaryEl.textContent = "Loading...";
-                summaryEl.className = "";
+            function setSummary(text, cls = "") {
+                summaryEl.textContent = text;
+                summaryEl.className = cls;
+            }
+
+            function checkRow(name, status = "loading", details = "") {
+                const row = document.createElement("div");
+                row.className = "check-row";
+                row.id = `check-${name}`;
+
+                const icon = document.createElement("span");
+                icon.className = `check-icon ${status}`;
+                icon.textContent =
+                    status === "ok" ? "✅" : status === "bad" ? "❌" : "⏳";
+
+                const nameEl = document.createElement("span");
+                nameEl.className = "check-name";
+                nameEl.textContent = name;
+
+                const detailsEl = document.createElement("span");
+                detailsEl.className = "check-details";
+                detailsEl.textContent = details;
+
+                row.append(icon, nameEl, detailsEl);
+                return row;
+            }
+
+            function updateCheckRow(name, ok, details = "") {
+                const row = document.getElementById(`check-${name}`);
+                if (!row) return;
+                const icon = row.querySelector(".check-icon");
+                const detailsEl = row.querySelector(".check-details");
+                icon.className = `check-icon ${ok ? "ok" : "bad"}`;
+                icon.textContent = ok ? "✅" : "❌";
+                detailsEl.textContent = details;
+            }
+
+            function summarizeResult(result) {
+                if (result.error) return `error=${result.error}`;
+                if (result.status != null) return `status=${result.status}`;
+                if (result.returncode != null)
+                    return `returncode=${result.returncode}`;
+                if (result.sample) return "heartbeat sampled";
+                if (result.matches) return `${result.matches.length} issue(s)`;
+                return result.ok ? "ok" : "failed";
+            }
+
+            async function loadParallelChecks() {
+                setSummary("Loading checks in parallel...", "loading");
+                checksEl.replaceChildren();
 
                 try {
-                    const res = await fetch("/api/report");
-                    const data = await res.json();
+                    const listRes = await fetch("/api/checks");
+                    const listData = await listRes.json();
+                    const names = listData.checks || [];
 
-                    if (data.ok) {
-                        summaryEl.textContent = `OK (${data.generated_at})`;
-                        summaryEl.className = "ok";
-                    } else {
-                        summaryEl.textContent = `UNHEALTHY (${data.generated_at})`;
-                        summaryEl.className = "bad";
+                    if (!names.length) {
+                        setSummary("No checks returned", "bad");
+                        return;
                     }
 
-                    reportEl.textContent = JSON.stringify(data, null, 2);
+                    for (const name of names) {
+                        checksEl.appendChild(
+                            checkRow(name, "loading", "waiting..."),
+                        );
+                    }
+
+                    let done = 0;
+                    let failures = 0;
+
+                    await Promise.all(
+                        names.map(async (name) => {
+                            try {
+                                const res = await fetch(
+                                    `/api/check/${encodeURIComponent(name)}`,
+                                );
+                                const data = await res.json();
+                                const ok = !!data.result?.ok;
+                                if (!ok) failures += 1;
+                                updateCheckRow(
+                                    name,
+                                    ok,
+                                    summarizeResult(data.result || {}),
+                                );
+                            } catch (err) {
+                                failures += 1;
+                                updateCheckRow(
+                                    name,
+                                    false,
+                                    `error=${err.message}`,
+                                );
+                            } finally {
+                                done += 1;
+                                if (done < names.length) {
+                                    setSummary(
+                                        `Running checks... ${done}/${names.length}`,
+                                        "loading",
+                                    );
+                                }
+                            }
+                        }),
+                    );
+
+                    if (failures === 0) {
+                        setSummary(
+                            `OK (${names.length}/${names.length})`,
+                            "ok",
+                        );
+                    } else {
+                        setSummary(
+                            `UNHEALTHY (${failures} failed of ${names.length})`,
+                            "bad",
+                        );
+                    }
                 } catch (err) {
-                    summaryEl.textContent = `ERROR: ${err.message}`;
-                    summaryEl.className = "bad";
-                    reportEl.textContent = "";
+                    setSummary(`ERROR: ${err.message}`, "bad");
                 }
             }
 
-            document.getElementById("refresh").onclick = loadReport;
-            void loadReport();
+            async function loadFullReport(mode = "full") {
+                try {
+                    const res = await fetch(`/api/report?mode=${mode}`);
+                    const data = await res.json();
+                    reportEl.textContent = JSON.stringify(data, null, 2);
+                } catch (err) {
+                    reportEl.textContent = `ERROR: ${err.message}`;
+                }
+            }
+
+            document.getElementById("refresh-parallel").onclick = async () => {
+                await loadParallelChecks();
+                await loadFullReport("parallel");
+            };
+
+            document.getElementById("refresh-full").onclick = async () => {
+                setSummary("Loading full report...", "loading");
+                await loadFullReport("full");
+                setSummary("Full report loaded", "ok");
+            };
+
+            void (async () => {
+                await loadParallelChecks();
+                await loadFullReport("parallel");
+            })();
         </script>
     </body>
 </html>

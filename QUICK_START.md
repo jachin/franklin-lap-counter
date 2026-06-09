@@ -140,7 +140,7 @@ All activity is logged to: `hardware_redis.log`
 - `build:pi` - Build release binary for Pi target (`aarch64-unknown-linux-gnu` by default)
 - `build:release` - Build Rust project (release)
 - `start:franklin` - Start full Franklin tmux stack (hardware mode)
-- `start:franklin-simulator` - Start full Franklin tmux stack (simulator mode)
+- `start:franklin-simulator` - Start full Franklin tmux stack (simulator mode, web apps auto-restart via `watchexec`)
 
 **Remote GUI (VNC over SSH tunnel):**
 - `vnc:open-tunnel` - Open local tunnel `127.0.0.1:5901 -> Pi:5900`

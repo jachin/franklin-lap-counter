@@ -6,6 +6,7 @@
 .DS_Store
 __pycache__
 race.log
+redis.log
 hardware.log
 hardware_redis.log
 .pytest_cache

@@ -1319,6 +1319,54 @@
           "store_path": "/nix/store/7h2vcb9nhxyxplavjv03fx62fa2vgfhx-tmuxinator-3.3.7"
         }
       }
+    },
+    "watchexec@latest": {
+      "last_modified": "2026-05-21T08:15:18Z",
+      "resolved": "github:NixOS/nixpkgs/4a29d733e8a7d5b824c3d8c958a946a9867b3eb2#watchexec",
+      "source": "devbox-search",
+      "version": "2.5.1",
+      "systems": {
+        "aarch64-darwin": {
+          "outputs": [
+            {
+              "name": "out",
+              "path": "/nix/store/i932x6kn6lzwb48097pa46p68chjcw8b-watchexec-2.5.1",
+              "default": true
+            }
+          ],
+          "store_path": "/nix/store/i932x6kn6lzwb48097pa46p68chjcw8b-watchexec-2.5.1"
+        },
+        "aarch64-linux": {
+          "outputs": [
+            {
+              "name": "out",
+              "path": "/nix/store/y19ks88j6m2pk6ww0zys4zhxkydlb1ri-watchexec-2.5.1",
+              "default": true
+            }
+          ],
+          "store_path": "/nix/store/y19ks88j6m2pk6ww0zys4zhxkydlb1ri-watchexec-2.5.1"
+        },
+        "x86_64-darwin": {
+          "outputs": [
+            {
+              "name": "out",
+              "path": "/nix/store/jc0pxdx4b09l3c9qfn28jp21g365mvqz-watchexec-2.5.1",
+              "default": true
+            }
+          ],
+          "store_path": "/nix/store/jc0pxdx4b09l3c9qfn28jp21g365mvqz-watchexec-2.5.1"
+        },
+        "x86_64-linux": {
+          "outputs": [
+            {
+              "name": "out",
+              "path": "/nix/store/rhsgviyjrmkhv3gn0sjxv0brab0q8d6b-watchexec-2.5.1",
+              "default": true
+            }
+          ],
+          "store_path": "/nix/store/rhsgviyjrmkhv3gn0sjxv0brab0q8d6b-watchexec-2.5.1"
+        }
+      }
     }
   }
 }

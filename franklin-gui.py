@@ -853,46 +853,49 @@ class FranklinGuiApp(Gtk.Application):
         except ValueError:
             return (0.5, 0.5, 0.5)
 
+    def _apply_widget_background(self, widget: Gtk.Widget, color_hex: str) -> None:
+        css_provider = Gtk.CssProvider()
+        css_provider.load_from_data(f"* {{ background-color: {color_hex}; }}".encode())
+        widget.get_style_context().add_provider(
+            css_provider,
+            Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION,
+        )
+
     def _new_color_swatch_for_colors(
         self, primary_hex: str, secondary_hex: str
-    ) -> Gtk.DrawingArea:
-        primary_rgb = self._hex_to_rgb(primary_hex)
-        secondary_rgb = self._hex_to_rgb(secondary_hex)
-
-        swatch = Gtk.DrawingArea()
-        swatch.set_content_width(24)
-        swatch.set_content_height(14)
+    ) -> Gtk.Widget:
+        swatch = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         swatch.set_size_request(24, 14)
         swatch.set_hexpand(False)
         swatch.set_vexpand(False)
         swatch.set_halign(Gtk.Align.CENTER)
         swatch.set_valign(Gtk.Align.CENTER)
 
-        def draw(
-            _area: Gtk.DrawingArea,
-            cr: Any,
-            width: int,
-            height: int,
-            _data: Any = None,
-        ) -> None:
-            cr.set_source_rgb(*primary_rgb)
-            cr.rectangle(0, 0, width, height)
-            cr.fill()
+        top = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
+        top.set_size_request(24, 5)
+        middle = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
+        middle.set_size_request(24, 4)
+        bottom = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
+        bottom.set_size_request(24, 5)
 
-            stripe_height = max(2, height // 3)
-            stripe_y = (height - stripe_height) // 2
-            cr.set_source_rgb(*secondary_rgb)
-            cr.rectangle(0, stripe_y, width, stripe_height)
-            cr.fill()
+        self._apply_widget_background(top, primary_hex)
+        self._apply_widget_background(middle, secondary_hex)
+        self._apply_widget_background(bottom, primary_hex)
 
-            cr.set_source_rgba(0.1, 0.1, 0.1, 0.6)
-            cr.rectangle(0.5, 0.5, width - 1, height - 1)
-            cr.stroke()
+        swatch.append(top)
+        swatch.append(middle)
+        swatch.append(bottom)
 
-        swatch.set_draw_func(draw)
-        return swatch
+        frame = Gtk.Frame()
+        frame.set_child(swatch)
+        frame.set_size_request(26, 16)
+        frame.set_hexpand(False)
+        frame.set_vexpand(False)
+        frame.set_halign(Gtk.Align.CENTER)
+        frame.set_valign(Gtk.Align.CENTER)
+        return frame
 
-    def _new_color_swatch(self, racer_id: int) -> Gtk.DrawingArea:
+    def _new_color_swatch(self, racer_id: int) -> Gtk.Widget:
         primary_hex, secondary_hex = self._racer_color_scheme(racer_id)
         return self._new_color_swatch_for_colors(primary_hex, secondary_hex)
 
@@ -918,7 +921,7 @@ class FranklinGuiApp(Gtk.Application):
         if not self.leaderboard_grid:
             return
 
-        status_col_width_px = 42
+        status_col_width_px = 50
         swatch_col_width_px = 40
 
         child = self.leaderboard_grid.get_first_child()

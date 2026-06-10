@@ -15,15 +15,14 @@ import asyncio
 import json
 import logging
 import time
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
-from uuid import uuid4
 
 import redis.asyncio as redis
 from aiohttp import web  # type: ignore[import-untyped]
 
 from database import LapDatabase
+from redis_commands import build_command_envelope, parse_command_envelope
 
 # Redis contract reference: docs/redis-message-reference.md
 REDIS_SOCKET_PATH = "./redis.sock"
@@ -100,12 +99,16 @@ class RefereeWebAppServer:
         if not self.redis_client:
             raise RuntimeError("Redis not connected")
 
-        payload.setdefault("type", "command")
-        payload.setdefault("command_id", str(uuid4()))
-        payload.setdefault("source", "referee_web_app")
-        payload.setdefault("timestamp", datetime.now(UTC).isoformat())
+        command = str(payload.get("command", ""))
+        fields = {k: v for k, v in payload.items() if k != "command"}
+        envelope = build_command_envelope(
+            command,
+            source="referee_web_app",
+            **fields,
+        )
+        validated = parse_command_envelope(envelope)
 
-        await self.redis_client.publish(REDIS_IN_CHANNEL, json.dumps(payload))
+        await self.redis_client.publish(REDIS_IN_CHANNEL, json.dumps(validated))
 
     async def start_race_handler(self, request: web.Request) -> web.Response:
         base = time.time() + 0.25
@@ -114,8 +117,6 @@ class RefereeWebAppServer:
         go_at = base + 2.0
         payload = {
             "command": "start_race",
-            "source": "referee_web_app",
-            "timestamp": datetime.now(UTC).isoformat(),
             "ready_at": ready_at,
             "set_at": set_at,
             "go_at": go_at,

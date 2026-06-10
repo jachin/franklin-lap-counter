@@ -28,11 +28,13 @@ Envelope:
 }
 ```
 
-Optional metadata fields currently accepted by the Rust owner and forwarded when present:
+Standard metadata fields on all in-repo command producers:
 
-- `command_id` (string)
-- `source` (string) *(currently sent by `referee_web_app.py`; tolerated/ignored by Rust owner)*
-- `timestamp` (string) *(currently sent by `referee_web_app.py`; tolerated/ignored by Rust owner)*
+- `command_id` (string UUID)
+- `source` (string producer id)
+- `timestamp` (ISO-8601 UTC string)
+
+All Python command producers (`franklin-tui.py`, `franklin-gui.py`, `referee_web_app.py`) use shared helpers in `redis_commands.py` to generate/validate this envelope.
 
 Supported commands:
 
@@ -230,26 +232,24 @@ Additional fields from TUI (non-training mode):
 
 ## Inconsistencies observed (as of 2026-06-09)
 
-1. **Command envelope metadata is not uniform across producers.**
-   - `referee_web_app.py` sends `command_id` / `source` / `timestamp` on all commands.
-   - TUI/GUI now send `source` / `timestamp` on scheduled `start_race`, but not consistently on every other command.
+> Resolved since this snapshot: command envelope metadata is now uniform across in-repo Python producers via `redis_commands.py`.
 
-2. **Race-control event shape differs from older design docs.**
+1. **Race-control event shape differs from older design docs.**
    - Current event uses `message` for error/acceptance details.
    - Some older docs mention an `error` field and event `timestamp`; current Rust `RaceControl` schema does not include those.
 
-3. **`franklin:race_state` has no in-repo subscriber today.**
+2. **`franklin:race_state` has no in-repo subscriber today.**
    - Produced by TUI/GUI, currently unused by other in-repo services.
 
-4. **`race_mode` value format differs between TUI and GUI snapshots.**
+3. **`race_mode` value format differs between TUI and GUI snapshots.**
    - TUI publishes `self.race_mode.name` (likely uppercase enum names).
    - GUI publishes `self.race_mode.value` (value string).
 
-5. **Command timestamp field formats vary by channel/publisher.**
+4. **Command timestamp field formats vary by channel/publisher.**
    - `referee_web_app.py` command payloads use ISO-8601 UTC strings on `hardware:in`.
    - TUI/GUI `franklin:race_state.timestamp` is Unix epoch seconds.
 
-6. **Stale/incorrect protocol details existed in docs before this file.**
+5. **Stale/incorrect protocol details existed in docs before this file.**
    - Example: some docs said scoreboard only subscribes to `hardware:out`; code subscribes to `hardware:out` and `franklin:events`.
 
 ---

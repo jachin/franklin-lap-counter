@@ -22,7 +22,6 @@ import socket
 import subprocess
 import threading
 import time
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -45,6 +44,7 @@ from race.race import (
 from race.race_contestants import RaceContestants
 from race.race_mode import RaceMode
 from racer_colors import RacerColorScheme, assign_random_scheme
+from redis_commands import build_command_envelope, parse_command_envelope
 
 gi.require_version("Gdk", "4.0")
 gi.require_version("Gtk", "4.0")
@@ -611,8 +611,6 @@ class FranklinGuiApp(Gtk.Application):
 
         self.publish_command(
             "start_race",
-            source="franklin_gui",
-            timestamp=datetime.now(UTC).isoformat(),
             ready_at=ready_at,
             set_at=set_at,
             go_at=go_at,
@@ -1993,9 +1991,9 @@ class FranklinGuiApp(Gtk.Application):
         if not self._redis_client:
             self.append_event("Redis client not initialized")
             return
-        payload: dict[str, Any] = {"type": "command", "command": command}
-        payload.update(kwargs)
-        self._redis_client.publish(self.redis_in_channel, json.dumps(payload))
+        payload = build_command_envelope(command, source="franklin_gui", **kwargs)
+        validated = parse_command_envelope(payload)
+        self._redis_client.publish(self.redis_in_channel, json.dumps(validated))
 
     def publish_race_state(self) -> None:
         if not self._redis_client:

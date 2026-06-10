@@ -4,7 +4,6 @@ import json
 import logging
 import pprint
 import time
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -41,6 +40,7 @@ from race.race import (
 )
 from race.race_contestants import RaceContestants
 from race.race_mode import RaceMode
+from redis_commands import build_command_envelope, parse_command_envelope
 
 
 def format_time_cs(seconds_value: float | None) -> str:
@@ -806,20 +806,19 @@ class Franklin(App[Any]):  # type: ignore[type-arg]
         set_at = base + 1.0
         go_at = base + 2.0
 
-        cmd: dict[str, Any] = {
-            "type": "command",
-            "command": "start_race",
-            "source": "franklin_tui",
-            "timestamp": datetime.now(UTC).isoformat(),
-            "ready_at": ready_at,
-            "set_at": set_at,
-            "go_at": go_at,
-            "start_at": go_at,
-        }
+        cmd = build_command_envelope(
+            "start_race",
+            source="franklin_tui",
+            ready_at=ready_at,
+            set_at=set_at,
+            go_at=go_at,
+            start_at=go_at,
+        )
 
         try:
-            self._redis_client.publish(self.redis_in_channel, json.dumps(cmd))
-            logging.info("Sent scheduled start_race command: %s", cmd)
+            validated = parse_command_envelope(cmd)
+            self._redis_client.publish(self.redis_in_channel, json.dumps(validated))
+            logging.info("Sent scheduled start_race command: %s", validated)
             status_display.race_state = RaceState.NOT_STARTED
             start_btn.disabled = True
             stop_btn.disabled = True
@@ -854,9 +853,13 @@ class Franklin(App[Any]):  # type: ignore[type-arg]
 
             # Publish end_race command to Redis
             if self._redis_client:
-                cmd = {"type": "command", "command": "end_race"}
-                self._redis_client.publish(self.redis_in_channel, json.dumps(cmd))
-                logging.info("Sent end_race command to Redis")
+                cmd = build_command_envelope("end_race", source="franklin_tui")
+                validated = parse_command_envelope(cmd)
+                self._redis_client.publish(
+                    self.redis_in_channel,
+                    json.dumps(validated),
+                )
+                logging.info("Sent end_race command to Redis: %s", validated)
 
             # Mark race as completed in database
             if self.current_race_id:

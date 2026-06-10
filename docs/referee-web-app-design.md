@@ -33,7 +33,6 @@ For exact publish/subscribe mappings and message fields, see:
 
 ## Remaining gaps / follow-up ideas
 
-- Decide whether `franklin:race_state` should have a first-class subscriber or be retired.
 - Consider explicit rejection events for unknown commands (currently logged only by owner).
 - Add stronger authz for referee actions if needed outside trusted networks.
 
@@ -41,6 +40,7 @@ For exact publish/subscribe mappings and message fields, see:
 
 - Command metadata envelope is now consistent across Python producers via `redis_commands.py` (`command_id`, `source`, `timestamp`).
 - `countdown_phase` and scheduled `start_race` timeline events are implemented by the command owner and published on `franklin:events`.
+- `franklin:race_state` periodic snapshot publishing has been retired for now.
 
 ## Data model notes
 

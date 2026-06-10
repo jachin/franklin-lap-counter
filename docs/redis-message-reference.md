@@ -11,7 +11,6 @@ If another document or code comment conflicts with this one, treat this file as 
 | `hardware:in` | Commands to the race-control owner (hardware monitor) | `franklin-tui.py`, `franklin-gui.py`, `referee_web_app.py` | `rust/franklin-hardware-monitor` (`command_handler_task`) |
 | `hardware:out` | **Hardware-only** telemetry/events (or simulation of those same hardware events) | `rust/franklin-hardware-monitor` | `franklin-tui.py`, `franklin-gui.py`, `scoreboard_web_app.py`, `referee_web_app.py`, `healthcheck_web_app.py` (heartbeat sampling), rust local monitor TUI |
 | `franklin:events` | Race-control + countdown timeline events (`race_control`, `countdown_phase`) | `rust/franklin-hardware-monitor` | `franklin-tui.py`, `franklin-gui.py`, `scoreboard_web_app.py`, `referee_web_app.py`, rust local monitor TUI |
-| `franklin:race_state` | Periodic race-state snapshots for observers | `franklin-tui.py`, `franklin-gui.py` | (No in-repo subscriber currently) |
 
 ---
 
@@ -161,29 +160,11 @@ Fields:
 - Required: `type`, `command`, `recorded_at`, `accepted`
 - Optional: `command_id`, `message`, `racer_id`, `penalty_seconds`, `reason`, `lap_number`
 
-## 4) Race snapshots on `franklin:race_state`
+## 4) Race snapshots on `franklin:race_state` *(retired)*
 
-Published by both TUI and GUI roughly once per second while race is running.
+`franklin:race_state` is currently retired and has no active publishers/subscribers in-repo.
 
-`timestamp` is Unix epoch seconds.
-
-Common fields:
-
-```json
-{
-  "type": "race_state",
-  "timestamp": 12345.67,
-  "race_state": "RUNNING",
-  "elapsed_time": 42.1,
-  "race_mode": "REAL",
-  "total_laps": 10
-}
-```
-
-Additional fields from TUI (non-training mode):
-
-- `racers` (name + completed_laps list)
-- `remaining_laps`
+If this channel is reintroduced later, define the schema here before adding publishers.
 
 ---
 
@@ -202,14 +183,12 @@ Additional fields from TUI (non-training mode):
 - **Subscribes:** `hardware:out`, `franklin:events`
 - **Publishes:**
   - `hardware:in` (`start_race` with schedule fields, `end_race`)
-  - `franklin:race_state`
 
 ## `franklin-gui.py`
 
 - **Subscribes:** `hardware:out`, `franklin:events`
 - **Publishes:**
   - `hardware:in` (`start_race` with schedule fields, `end_race`, `reset_race`)
-  - `franklin:race_state`
 
 ## `referee_web_app.py`
 
@@ -230,25 +209,15 @@ Additional fields from TUI (non-training mode):
 
 ---
 
-## Inconsistencies observed (as of 2026-06-09)
+## Inconsistencies observed
 
-> Resolved since this snapshot:
-> - command envelope metadata is now uniform across in-repo Python producers via `redis_commands.py`
-> - race-control event documentation has been aligned to the current `message` + `recorded_at` schema
+There are currently no known in-repo contract inconsistencies.
 
-1. **`franklin:race_state` has no in-repo subscriber today.**
-   - Produced by TUI/GUI, currently unused by other in-repo services.
+Recently resolved:
 
-2. **`race_mode` value format differs between TUI and GUI snapshots.**
-   - TUI publishes `self.race_mode.name` (likely uppercase enum names).
-   - GUI publishes `self.race_mode.value` (value string).
-
-3. **Command timestamp field formats vary by channel/publisher.**
-   - `referee_web_app.py` command payloads use ISO-8601 UTC strings on `hardware:in`.
-   - TUI/GUI `franklin:race_state.timestamp` is Unix epoch seconds.
-
-4. **Stale/incorrect protocol details existed in docs before this file.**
-   - Example: some docs said scoreboard only subscribes to `hardware:out`; code subscribes to `hardware:out` and `franklin:events`.
+- command envelope metadata is now uniform across in-repo Python producers via `redis_commands.py`
+- race-control event documentation has been aligned to the current `message` + `recorded_at` schema
+- stale/duplicated protocol notes in secondary docs were cleaned up to reference this canonical file
 
 ---
 

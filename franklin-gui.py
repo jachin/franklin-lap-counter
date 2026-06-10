@@ -148,7 +148,6 @@ class FranklinGuiApp(Gtk.Application):
         self.events_box: Gtk.Box | None = None
         self._events_visible = False
 
-        self._last_race_state_publish = 0.0
         self._system_status_thread: threading.Thread | None = None
         self._leaderboard_css_provider = Gtk.CssProvider()
         self._leaderboard_font_pt: int | None = None
@@ -1210,10 +1209,6 @@ class FranklinGuiApp(Gtk.Application):
                 f'<span size="48000" weight="bold">{self._format_time_cs(self.race.elapsed_time)}</span>'
             )
 
-        now = time.monotonic()
-        if now - self._last_race_state_publish > 1.0:
-            self.publish_race_state()
-            self._last_race_state_publish = now
         return True
 
     def on_mode_changed(self, combo: Gtk.ComboBoxText) -> None:
@@ -1994,22 +1989,6 @@ class FranklinGuiApp(Gtk.Application):
         payload = build_command_envelope(command, source="franklin_gui", **kwargs)
         validated = parse_command_envelope(payload)
         self._redis_client.publish(self.redis_in_channel, json.dumps(validated))
-
-    def publish_race_state(self) -> None:
-        if not self._redis_client:
-            return
-        try:
-            race_data = {
-                "type": "race_state",
-                "timestamp": time.time(),
-                "race_state": self.race.state.name,
-                "elapsed_time": round(self.race.elapsed_time, 2),
-                "race_mode": self.race_mode.value,
-                "total_laps": self.total_laps,
-            }
-            self._redis_client.publish("franklin:race_state", json.dumps(race_data))
-        except Exception as exc:
-            logging.error("Failed to publish race state: %s", exc)
 
     def start_fake_playback(self) -> None:
         fake_race = generate_fake_race()

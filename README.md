@@ -121,6 +121,21 @@ Current behavior:
 - in practice mode (`Training Mode`), shows the last 10 laps and highlights the fastest lap
 - in race mode, shows racer-specific detail (position, lap progress, best/last lap, elapsed/adjusted totals, penalties, and gap to leader)
 
+## Local Hostnames (AP + Caddy)
+
+When the Pi hotspot and Caddy reverse proxy are configured (see playbooks), these hostnames resolve to the Pi and route to the local web apps:
+
+- `scoreboard.frank` → `127.0.0.1:8080` (`scoreboard_web_app.py`)
+- `referee.frank` → `127.0.0.1:8081` (`referee_web_app.py`)
+- `healthcheck.frank` → `127.0.0.1:8082` (`healthcheck_web_app.py`)
+- `racer.frank` → `127.0.0.1:8083` (`driver_web_app.py`)
+
+Relevant Ansible config:
+
+- DNS aliases + domain/upstream vars: `playbooks/group_vars/all.yml`
+- Caddy routes: `playbooks/46-caddy-reverse-proxy.yml`
+- tmux web-app bounce/restart: `playbooks/62-bounce-web-apps.yml`
+
 ## Controls
 
 ### Franklin Race UI (Terminal 2)

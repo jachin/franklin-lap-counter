@@ -33,11 +33,14 @@ For exact publish/subscribe mappings and message fields, see:
 
 ## Remaining gaps / follow-up ideas
 
-- Enforce a consistent command metadata envelope across all producers.
-- Decide whether to support/implement `countdown_phase` in the command owner.
 - Decide whether `franklin:race_state` should have a first-class subscriber or be retired.
 - Consider explicit rejection events for unknown commands (currently logged only by owner).
 - Add stronger authz for referee actions if needed outside trusted networks.
+
+## Recently resolved
+
+- Command metadata envelope is now consistent across Python producers via `redis_commands.py` (`command_id`, `source`, `timestamp`).
+- `countdown_phase` and scheduled `start_race` timeline events are implemented by the command owner and published on `franklin:events`.
 
 ## Data model notes
 

@@ -232,24 +232,22 @@ Additional fields from TUI (non-training mode):
 
 ## Inconsistencies observed (as of 2026-06-09)
 
-> Resolved since this snapshot: command envelope metadata is now uniform across in-repo Python producers via `redis_commands.py`.
+> Resolved since this snapshot:
+> - command envelope metadata is now uniform across in-repo Python producers via `redis_commands.py`
+> - race-control event documentation has been aligned to the current `message` + `recorded_at` schema
 
-1. **Race-control event shape differs from older design docs.**
-   - Current event uses `message` for error/acceptance details.
-   - Some older docs mention an `error` field and event `timestamp`; current Rust `RaceControl` schema does not include those.
-
-2. **`franklin:race_state` has no in-repo subscriber today.**
+1. **`franklin:race_state` has no in-repo subscriber today.**
    - Produced by TUI/GUI, currently unused by other in-repo services.
 
-3. **`race_mode` value format differs between TUI and GUI snapshots.**
+2. **`race_mode` value format differs between TUI and GUI snapshots.**
    - TUI publishes `self.race_mode.name` (likely uppercase enum names).
    - GUI publishes `self.race_mode.value` (value string).
 
-4. **Command timestamp field formats vary by channel/publisher.**
+3. **Command timestamp field formats vary by channel/publisher.**
    - `referee_web_app.py` command payloads use ISO-8601 UTC strings on `hardware:in`.
    - TUI/GUI `franklin:race_state.timestamp` is Unix epoch seconds.
 
-5. **Stale/incorrect protocol details existed in docs before this file.**
+4. **Stale/incorrect protocol details existed in docs before this file.**
    - Example: some docs said scoreboard only subscribes to `hardware:out`; code subscribes to `hardware:out` and `franklin:events`.
 
 ---

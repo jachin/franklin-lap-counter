@@ -55,6 +55,14 @@ windows:
             - sleep 4
             - echo "Starting Health Check Web Server with watchexec..."
             - watchexec --restart --watch healthcheck_web_app.py --watch static -- python healthcheck_web_app.py
+  - web_driver:
+      layout: main-horizontal
+      panes:
+        - server:
+            - echo "Waiting for services to be ready..."
+            - sleep 4
+            - echo "Starting Driver Web Server with watchexec..."
+            - watchexec --restart --watch driver_web_app.py --watch database.py --watch static -- python driver_web_app.py
   - logs:
       layout: main-horizontal
       panes:

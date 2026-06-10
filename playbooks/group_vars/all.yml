@@ -86,11 +86,14 @@ franklin_ap_dns_aliases:
   - scoreboard.frank
   - referee.frank
   - healthcheck.frank
+  - racer.frank
 
 # Caddy reverse proxy settings
 franklin_scoreboard_domain: scoreboard.frank
 franklin_referee_domain: referee.frank
 franklin_healthcheck_domain: healthcheck.frank
+franklin_racer_domain: racer.frank
 franklin_scoreboard_upstream: 127.0.0.1:8080
 franklin_referee_upstream: 127.0.0.1:8081
 franklin_healthcheck_upstream: 127.0.0.1:8082
+franklin_racer_upstream: 127.0.0.1:8083

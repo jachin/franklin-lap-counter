@@ -1,0 +1,842 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>Franklin Driver View</title>
+        <style>
+            :root {
+                color-scheme: light dark;
+
+                --bg: #111;
+                --text: #eee;
+                --muted: #999;
+                --surface: #1a1a1a;
+                --border: #333;
+                --accent: #4ea1ff;
+                --good: #2e7d32;
+                --warn: #f9a825;
+                --bad: #c62828;
+                --highlight: #165a2a;
+            }
+
+            @media (prefers-color-scheme: light) {
+                :root {
+                    --bg: #f6f8fa;
+                    --text: #1f2328;
+                    --muted: #57606a;
+                    --surface: #fff;
+                    --border: #d0d7de;
+                    --accent: #0969da;
+                    --good: #1a7f37;
+                    --warn: #9a6700;
+                    --bad: #cf222e;
+                    --highlight: #dafbe1;
+                }
+            }
+
+            body {
+                margin: 0;
+                padding: 10px;
+                font-family:
+                    system-ui,
+                    -apple-system,
+                    Segoe UI,
+                    Roboto,
+                    sans-serif;
+                background: var(--bg);
+                color: var(--text);
+            }
+
+            .container {
+                width: 100%;
+                margin: 0 auto;
+            }
+
+            .card {
+                background: var(--surface);
+                border: 1px solid var(--border);
+                border-radius: 12px;
+                padding: 12px;
+                margin-bottom: 10px;
+            }
+
+            h1 {
+                margin: 0 0 8px;
+                font-size: 1.2rem;
+            }
+
+            h3 {
+                margin: 0 0 8px;
+            }
+
+            .meta {
+                color: var(--muted);
+                font-size: 0.9rem;
+                margin-bottom: 8px;
+            }
+
+            .row {
+                display: flex;
+                flex-direction: column;
+                gap: 8px;
+                align-items: stretch;
+            }
+
+            select,
+            button {
+                width: 100%;
+                font: inherit;
+                padding: 10px 12px;
+                border-radius: 10px;
+                border: 1px solid var(--border);
+                background: var(--surface);
+                color: var(--text);
+                min-height: 44px;
+            }
+
+            button {
+                cursor: pointer;
+            }
+
+            .driver-title {
+                font-size: 1.2rem;
+                margin: 0;
+            }
+
+            .lights {
+                display: flex;
+                gap: 10px;
+                margin: 10px 0 2px;
+            }
+
+            .light {
+                width: 24px;
+                height: 24px;
+                border-radius: 50%;
+                border: 2px solid #141414;
+                background: var(--bad);
+            }
+
+            .light.red {
+                background: var(--bad);
+            }
+
+            .light.yellow {
+                background: var(--warn);
+            }
+
+            .light.green {
+                background: var(--good);
+            }
+
+            .mode-badge {
+                display: inline-block;
+                padding: 3px 8px;
+                border-radius: 999px;
+                border: 1px solid var(--border);
+                font-size: 0.85rem;
+                margin-left: 8px;
+                color: var(--muted);
+            }
+
+            .top-three-strip {
+                display: flex;
+                gap: 8px;
+                overflow-x: auto;
+                padding-bottom: 2px;
+            }
+
+            .top-three-card {
+                min-width: 140px;
+                flex: 1 1 140px;
+                border: 1px solid var(--border);
+                border-radius: 10px;
+                padding: 8px;
+                cursor: pointer;
+            }
+
+            .top-three-card.selected {
+                border-color: var(--accent);
+                box-shadow: 0 0 0 1px var(--accent);
+            }
+
+            .top-three-pos {
+                font-size: 0.8rem;
+                color: var(--muted);
+            }
+
+            .top-three-name {
+                font-weight: 700;
+                margin-top: 2px;
+                white-space: nowrap;
+                overflow: hidden;
+                text-overflow: ellipsis;
+            }
+
+            .top-three-sub {
+                margin-top: 4px;
+                font-size: 0.85rem;
+                color: var(--muted);
+            }
+
+            table {
+                width: 100%;
+                border-collapse: collapse;
+                margin-top: 8px;
+                font-variant-numeric: tabular-nums;
+            }
+
+            th,
+            td {
+                border-bottom: 1px solid var(--border);
+                padding: 6px;
+                text-align: left;
+                font-size: 0.9rem;
+            }
+
+            .fastest {
+                background: var(--highlight);
+                font-weight: 700;
+            }
+
+            .muted {
+                color: var(--muted);
+            }
+
+            .summary-grid {
+                display: grid;
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+                gap: 8px;
+                margin-bottom: 10px;
+            }
+
+            .summary-item {
+                border: 1px solid var(--border);
+                border-radius: 8px;
+                padding: 8px;
+            }
+
+            .summary-label {
+                font-size: 0.8rem;
+                color: var(--muted);
+            }
+
+            .summary-value {
+                font-size: 1rem;
+                font-weight: 700;
+            }
+
+            @media (min-width: 700px) {
+                body {
+                    padding: 16px;
+                }
+
+                .container {
+                    max-width: 920px;
+                }
+
+                .row {
+                    flex-direction: row;
+                    align-items: center;
+                }
+
+                label[for="racerSelect"] {
+                    width: auto;
+                    white-space: nowrap;
+                }
+
+                #racerSelect {
+                    flex: 1;
+                    min-width: 220px;
+                }
+
+                #refreshBtn {
+                    width: auto;
+                    min-width: 110px;
+                }
+
+                .summary-grid {
+                    grid-template-columns: repeat(4, minmax(0, 1fr));
+                }
+            }
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <div class="card">
+                <h1>Driver / Team View</h1>
+                <div class="meta" id="connection">Connecting...</div>
+                <div class="row">
+                    <label for="racerSelect">Pick racer:</label>
+                    <select id="racerSelect"></select>
+                    <button type="button" id="refreshBtn">Refresh</button>
+                </div>
+            </div>
+
+            <div class="card">
+                <h2 class="driver-title" id="driverName">No racer selected</h2>
+                <div class="meta">
+                    Current race mode:
+                    <span id="modeText">Unknown</span>
+                    <span class="mode-badge" id="modeBadge">unknown</span>
+                </div>
+
+                <div class="lights" id="lights">
+                    <div class="light red"></div>
+                    <div class="light red"></div>
+                    <div class="light red"></div>
+                    <div class="light red"></div>
+                </div>
+                <div class="meta" id="phaseText">State: waiting</div>
+            </div>
+
+            <div class="card" id="leaderboardCard">
+                <h3>Top 3</h3>
+                <div id="topThreeStrip" class="top-three-strip">
+                    <div class="muted">Waiting for race data...</div>
+                </div>
+            </div>
+
+            <div class="card" id="detailCard">
+                <h3 id="detailTitle">Details</h3>
+                <div id="detailContent" class="muted">No race data yet.</div>
+            </div>
+        </div>
+
+        <script>
+            const state = {
+                ws: null,
+                current: null,
+                selectedRacerId: null,
+                phase: "waiting",
+                reconnectTimer: null,
+            };
+
+            const el = {
+                connection: document.getElementById("connection"),
+                racerSelect: document.getElementById("racerSelect"),
+                refreshBtn: document.getElementById("refreshBtn"),
+                driverName: document.getElementById("driverName"),
+                modeText: document.getElementById("modeText"),
+                modeBadge: document.getElementById("modeBadge"),
+                lights: document.getElementById("lights"),
+                phaseText: document.getElementById("phaseText"),
+                topThreeStrip: document.getElementById("topThreeStrip"),
+                detailTitle: document.getElementById("detailTitle"),
+                detailContent: document.getElementById("detailContent"),
+            };
+
+            function fmtTime(seconds) {
+                const n = Number(seconds);
+                if (!Number.isFinite(n)) return "--:--:--";
+                const cs = Math.max(0, Math.floor(n * 100));
+                const m = Math.floor(cs / 6000)
+                    .toString()
+                    .padStart(2, "0");
+                const s = Math.floor(cs / 100)
+                    .toString()
+                    .padStart(2, "0")
+                    .slice(-2);
+                const c = (cs % 100).toString().padStart(2, "0");
+                return `${m}:${s}:${c}`;
+            }
+
+            function inferModeLabel(mode) {
+                if (mode === "practice") return "Practice";
+                if (mode === "race") return "Race";
+                return "Unknown";
+            }
+
+            function setLights(pattern) {
+                const children = Array.from(el.lights.children);
+                if (children.length !== 4) return;
+                children.forEach((node, idx) => {
+                    node.className = `light ${pattern[idx]}`;
+                });
+            }
+
+            function syncLightsForPhase() {
+                if (state.phase === "ready") {
+                    setLights(["yellow", "red", "red", "yellow"]);
+                    el.phaseText.textContent = "State: starting - ready";
+                    return;
+                }
+                if (state.phase === "set") {
+                    setLights(["yellow", "yellow", "yellow", "yellow"]);
+                    el.phaseText.textContent = "State: starting - set";
+                    return;
+                }
+                if (state.phase === "go" || state.phase === "running") {
+                    setLights(["green", "green", "green", "green"]);
+                    el.phaseText.textContent = "State: running";
+                    return;
+                }
+
+                setLights(["red", "red", "red", "red"]);
+                el.phaseText.textContent = "State: waiting";
+            }
+
+            function applyRaceDerivedPhase() {
+                const race = state.current?.race;
+                if (!race) {
+                    state.phase = "waiting";
+                    syncLightsForPhase();
+                    return;
+                }
+
+                const inProgress =
+                    race.status === "in_progress" ||
+                    ((race.start_at || race.start_time) &&
+                        !(race.end_at || race.end_time));
+
+                state.phase = inProgress ? "running" : "waiting";
+                syncLightsForPhase();
+            }
+
+            function chosenRacer() {
+                const all = state.current?.racers || [];
+                if (!all.length) return null;
+                return (
+                    all.find((r) => r.racer_id === state.selectedRacerId) ||
+                    null
+                );
+            }
+
+            function renderRacerPicker() {
+                const racers = state.current?.racers || [];
+                el.racerSelect.replaceChildren();
+
+                if (!racers.length) {
+                    const none = document.createElement("option");
+                    none.value = "";
+                    none.textContent = "No racers";
+                    el.racerSelect.appendChild(none);
+                    state.selectedRacerId = null;
+                    return;
+                }
+
+                for (const racer of racers) {
+                    const opt = document.createElement("option");
+                    opt.value = String(racer.racer_id);
+                    const lapInfo = racer.lap_count
+                        ? ` (${racer.lap_count} laps)`
+                        : "";
+                    opt.textContent = `${racer.name}${lapInfo}`;
+                    el.racerSelect.appendChild(opt);
+                }
+
+                const stillValid = racers.some(
+                    (r) => r.racer_id === state.selectedRacerId,
+                );
+                if (!stillValid) {
+                    state.selectedRacerId = racers[0].racer_id;
+                }
+                el.racerSelect.value = String(state.selectedRacerId);
+            }
+
+            function renderHeader() {
+                const racer = chosenRacer();
+                el.driverName.textContent = racer
+                    ? racer.name
+                    : "No racer selected";
+
+                const mode = state.current?.mode || "unknown";
+                el.modeText.textContent = inferModeLabel(mode);
+                el.modeBadge.textContent = mode;
+            }
+
+            function renderPracticeLaps(laps) {
+                if (!laps.length) {
+                    el.detailContent.textContent =
+                        "No laps yet for this racer.";
+                    return;
+                }
+
+                const fastest = Math.min(
+                    ...laps
+                        .map((lap) => Number(lap.lap_time))
+                        .filter((v) => Number.isFinite(v)),
+                );
+
+                const table = document.createElement("table");
+                table.innerHTML = `
+                    <thead>
+                        <tr>
+                            <th>Lap</th>
+                            <th>Lap Time</th>
+                            <th>Race Time</th>
+                        </tr>
+                    </thead>
+                `;
+
+                const body = document.createElement("tbody");
+                for (const lap of laps) {
+                    const row = document.createElement("tr");
+                    const lapTimeNum = Number(lap.lap_time);
+                    const isFastest =
+                        Number.isFinite(lapTimeNum) &&
+                        Number.isFinite(fastest) &&
+                        Math.abs(lapTimeNum - fastest) < 0.0001;
+                    if (isFastest) row.classList.add("fastest");
+
+                    const rel = Number(lap.lap_at) - Number(lap.race_start_at);
+                    row.innerHTML = `
+                        <td>${lap.lap_number ?? "?"}</td>
+                        <td>${fmtTime(lap.lap_time)}</td>
+                        <td>${fmtTime(rel)}</td>
+                    `;
+                    body.appendChild(row);
+                }
+
+                table.appendChild(body);
+                el.detailContent.replaceChildren(table);
+            }
+
+            function findSelectedRaceSummaryRow(summary) {
+                if (!summary || !Array.isArray(summary.leaderboard)) {
+                    return null;
+                }
+
+                return (
+                    summary.leaderboard.find(
+                        (row) => Number(row.racer_id) === state.selectedRacerId,
+                    ) || null
+                );
+            }
+
+            function formatGapForRow(row) {
+                if (!row) return "n/a";
+                if (row.position_label === "1") return "Leader";
+                if (row.position_label === "DQ") return "Disqualified";
+
+                const lapsBehind = Number(row.laps_behind_leader);
+                const gapSeconds = Number(row.gap_to_leader_seconds);
+
+                if (Number.isFinite(lapsBehind) && lapsBehind > 0) {
+                    const lapSuffix = lapsBehind === 1 ? "lap" : "laps";
+                    if (Number.isFinite(gapSeconds)) {
+                        return `+${lapsBehind} ${lapSuffix} / +${fmtTime(gapSeconds)}`;
+                    }
+                    return `+${lapsBehind} ${lapSuffix}`;
+                }
+
+                if (Number.isFinite(gapSeconds)) {
+                    return `+${fmtTime(gapSeconds)}`;
+                }
+
+                return "n/a";
+            }
+
+            function renderTopThreeStrip(mode, summary) {
+                el.topThreeStrip.replaceChildren();
+
+                if (mode !== "race") {
+                    const empty = document.createElement("div");
+                    empty.className = "muted";
+                    empty.textContent = "Top 3 is shown during race mode.";
+                    el.topThreeStrip.appendChild(empty);
+                    return;
+                }
+
+                if (!summary || !Array.isArray(summary.leaderboard)) {
+                    const empty = document.createElement("div");
+                    empty.className = "muted";
+                    empty.textContent = "No leaderboard data";
+                    el.topThreeStrip.appendChild(empty);
+                    return;
+                }
+
+                const topThree = summary.leaderboard
+                    .filter((row) => String(row.position_label || "") !== "DQ")
+                    .slice(0, 3);
+
+                if (!topThree.length) {
+                    const empty = document.createElement("div");
+                    empty.className = "muted";
+                    empty.textContent = "No active racers yet";
+                    el.topThreeStrip.appendChild(empty);
+                    return;
+                }
+
+                for (const row of topThree) {
+                    const card = document.createElement("div");
+                    card.className = "top-three-card";
+                    if (Number(row.racer_id) === state.selectedRacerId) {
+                        card.classList.add("selected");
+                    }
+
+                    const pos = document.createElement("div");
+                    pos.className = "top-three-pos";
+                    const youMark =
+                        Number(row.racer_id) === state.selectedRacerId
+                            ? " • You"
+                            : "";
+                    pos.textContent = `P${String(row.position_label || "?")}${youMark}`;
+
+                    const name = document.createElement("div");
+                    name.className = "top-three-name";
+                    name.textContent = String(
+                        row.name || `Driver ${row.racer_id}`,
+                    );
+
+                    const sub = document.createElement("div");
+                    sub.className = "top-three-sub";
+                    sub.textContent = `${Number(row.lap_count || 0)} laps • ${formatGapForRow(row)}`;
+
+                    card.append(pos, name, sub);
+                    card.addEventListener("click", () => {
+                        const racerId = Number(row.racer_id);
+                        state.selectedRacerId = Number.isFinite(racerId)
+                            ? racerId
+                            : state.selectedRacerId;
+                        if (state.selectedRacerId !== null) {
+                            el.racerSelect.value = String(
+                                state.selectedRacerId,
+                            );
+                        }
+                        renderAll().catch((err) => {
+                            el.connection.textContent = `Render error: ${err.message}`;
+                        });
+                    });
+                    el.topThreeStrip.appendChild(card);
+                }
+            }
+
+            function renderRaceModeDetails(laps, summary) {
+                const row = findSelectedRaceSummaryRow(summary);
+                if (!row) {
+                    el.detailContent.textContent =
+                        "No race summary available yet for this racer.";
+                    return;
+                }
+
+                const wrapper = document.createElement("div");
+
+                const grid = document.createElement("div");
+                grid.className = "summary-grid";
+
+                const items = [
+                    ["Position", row.position_label || "-"],
+                    [
+                        "Laps",
+                        `${row.lap_count ?? 0} / ${summary?.total_laps_target ?? "?"}`,
+                    ],
+                    ["Gap", formatGapForRow(row)],
+                    ["Best Lap", fmtTime(row.best_lap_time)],
+                    ["Last Lap", fmtTime(row.last_lap_time)],
+                    ["Elapsed", fmtTime(row.elapsed_total_seconds)],
+                    ["Penalty", `${Number(row.penalty_seconds || 0)}s`],
+                    ["Adjusted Total", fmtTime(row.adjusted_total_seconds)],
+                ];
+
+                for (const [label, value] of items) {
+                    const cell = document.createElement("div");
+                    cell.className = "summary-item";
+
+                    const l = document.createElement("div");
+                    l.className = "summary-label";
+                    l.textContent = String(label);
+
+                    const v = document.createElement("div");
+                    v.className = "summary-value";
+                    v.textContent = String(value);
+
+                    cell.append(l, v);
+                    grid.appendChild(cell);
+                }
+
+                wrapper.appendChild(grid);
+
+                const lapsHeading = document.createElement("div");
+                lapsHeading.className = "muted";
+                lapsHeading.textContent = "Recent laps";
+                wrapper.appendChild(lapsHeading);
+
+                if (!laps.length) {
+                    const empty = document.createElement("div");
+                    empty.className = "muted";
+                    empty.textContent = "No laps yet for this racer.";
+                    wrapper.appendChild(empty);
+                    el.detailContent.replaceChildren(wrapper);
+                    return;
+                }
+
+                const table = document.createElement("table");
+                table.innerHTML = `
+                    <thead>
+                        <tr>
+                            <th>Lap</th>
+                            <th>Lap Time</th>
+                            <th>Race Time</th>
+                        </tr>
+                    </thead>
+                `;
+
+                const body = document.createElement("tbody");
+                for (const lap of laps) {
+                    const rel = Number(lap.lap_at) - Number(lap.race_start_at);
+                    const tr = document.createElement("tr");
+                    tr.innerHTML = `
+                        <td>${lap.lap_number ?? "?"}</td>
+                        <td>${fmtTime(lap.lap_time)}</td>
+                        <td>${fmtTime(rel)}</td>
+                    `;
+                    body.appendChild(tr);
+                }
+                table.appendChild(body);
+                wrapper.appendChild(table);
+
+                el.detailContent.replaceChildren(wrapper);
+            }
+
+            async function fetchCurrent() {
+                const res = await fetch("/api/current");
+                if (!res.ok)
+                    throw new Error(`Failed /api/current (${res.status})`);
+                state.current = await res.json();
+            }
+
+            async function fetchSelectedRacerLaps(limit = 10) {
+                if (!state.selectedRacerId) return [];
+
+                const res = await fetch(
+                    `/api/current/racers/${state.selectedRacerId}/laps?limit=${limit}`,
+                );
+                if (!res.ok) {
+                    throw new Error(
+                        `Failed racer laps (${res.status}) for racer ${state.selectedRacerId}`,
+                    );
+                }
+                const data = await res.json();
+                return data.laps || [];
+            }
+
+            async function renderAll() {
+                await fetchCurrent();
+                renderRacerPicker();
+                renderHeader();
+                applyRaceDerivedPhase();
+
+                const mode = state.current?.mode || "unknown";
+                renderTopThreeStrip(
+                    mode,
+                    state.current?.race_mode_summary || null,
+                );
+
+                if (!state.selectedRacerId) {
+                    el.detailTitle.textContent = "Details";
+                    el.detailContent.textContent = "No racer selected.";
+                    return;
+                }
+
+                const laps = await fetchSelectedRacerLaps(10);
+
+                if (mode === "practice") {
+                    el.detailTitle.textContent =
+                        "Practice Mode — Last 10 Laps (fastest highlighted)";
+                    renderPracticeLaps(laps);
+                } else {
+                    el.detailTitle.textContent = "Race Mode — Driver Detail";
+                    renderRaceModeDetails(
+                        laps,
+                        state.current?.race_mode_summary || null,
+                    );
+                }
+            }
+
+            function scheduleReconnect() {
+                if (state.reconnectTimer) clearTimeout(state.reconnectTimer);
+                state.reconnectTimer = setTimeout(connectWs, 1500);
+            }
+
+            function connectWs() {
+                const proto =
+                    window.location.protocol === "https:" ? "wss" : "ws";
+                state.ws = new WebSocket(
+                    `${proto}://${window.location.host}/ws`,
+                );
+
+                state.ws.onopen = () => {
+                    el.connection.textContent = "Connected";
+                };
+
+                state.ws.onclose = () => {
+                    el.connection.textContent = "Disconnected, reconnecting...";
+                    scheduleReconnect();
+                };
+
+                state.ws.onerror = () => {
+                    el.connection.textContent = "WebSocket error";
+                };
+
+                state.ws.onmessage = (evt) => {
+                    try {
+                        const msg = JSON.parse(evt.data);
+                        const type = msg?.type;
+
+                        if (type === "countdown_phase") {
+                            const phase = String(msg.phase || "").toLowerCase();
+                            if (
+                                phase === "ready" ||
+                                phase === "set" ||
+                                phase === "go"
+                            ) {
+                                state.phase = phase;
+                                syncLightsForPhase();
+                            }
+                        }
+
+                        if (type === "start_race") {
+                            state.phase = "running";
+                            syncLightsForPhase();
+                            renderAll().catch((err) => {
+                                el.connection.textContent = `Refresh error: ${err.message}`;
+                            });
+                        }
+
+                        if (type === "lap") {
+                            if (
+                                Number(msg.racer_id) === state.selectedRacerId
+                            ) {
+                                renderAll().catch((err) => {
+                                    el.connection.textContent = `Refresh error: ${err.message}`;
+                                });
+                            }
+                        }
+
+                        if (type === "status") {
+                            const txt = String(msg.message || "").toLowerCase();
+                            if (txt.includes("end") || txt.includes("reset")) {
+                                state.phase = "waiting";
+                                syncLightsForPhase();
+                                renderAll().catch((err) => {
+                                    el.connection.textContent = `Refresh error: ${err.message}`;
+                                });
+                            }
+                        }
+                    } catch (_) {}
+                };
+            }
+
+            el.racerSelect.addEventListener("change", () => {
+                const id = Number(el.racerSelect.value);
+                state.selectedRacerId = Number.isFinite(id) ? id : null;
+                renderAll().catch((err) => {
+                    el.connection.textContent = `Render error: ${err.message}`;
+                });
+            });
+
+            el.refreshBtn.addEventListener("click", () => {
+                renderAll().catch((err) => {
+                    el.connection.textContent = `Refresh error: ${err.message}`;
+                });
+            });
+
+            renderAll().catch((err) => {
+                el.connection.textContent = `Initial load failed: ${err.message}`;
+            });
+            connectWs();
+        </script>
+    </body>
+</html>

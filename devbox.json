@@ -38,14 +38,15 @@
       "web_scoreboard": ["python scoreboard_web_app.py"],
       "web_referee": ["python referee_web_app.py"],
       "web_healthcheck": ["python healthcheck_web_app.py"],
+      "web_driver": ["python driver_web_app.py"],
       "lint": [
         "devbox run lint:python",
         "devbox run lint:web",
         "devbox run lint:rust"
       ],
       "lint:python": [
-        "ruff check franklin-tui.py franklin-gui.py scoreboard_web_app.py referee_web_app.py healthcheck_web_app.py database.py race",
-        "basedpyright franklin-tui.py franklin-gui.py scoreboard_web_app.py referee_web_app.py healthcheck_web_app.py database.py race"
+        "ruff check franklin-tui.py franklin-gui.py scoreboard_web_app.py referee_web_app.py healthcheck_web_app.py driver_web_app.py database.py race",
+        "basedpyright franklin-tui.py franklin-gui.py scoreboard_web_app.py referee_web_app.py healthcheck_web_app.py driver_web_app.py database.py race"
       ],
       "lint:web": ["biome check --files-ignore-unknown=true static"],
       "lint:rust": ["cargo check --manifest-path rust/Cargo.toml"],

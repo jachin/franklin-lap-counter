@@ -28,6 +28,10 @@
           http://{{ franklin_healthcheck_domain }} {
               reverse_proxy {{ franklin_healthcheck_upstream }}
           }
+
+          http://{{ franklin_racer_domain }} {
+              reverse_proxy {{ franklin_racer_upstream }}
+          }
       notify: Validate and restart caddy
 
     - name: Ensure caddy service is enabled and started

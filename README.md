@@ -100,6 +100,27 @@ This starts `scoreboard_web_app.py` on `0.0.0.0:8080`.
 
 The app serves the live scoreboard UI and exposes WebSocket/REST endpoints used for race data.
 
+## Driver Web App
+
+Run the driver/team web app:
+
+```bash
+devbox shell
+devbox run web_driver
+```
+
+This starts `driver_web_app.py` on `0.0.0.0:8083`.
+
+- On the Pi itself: `http://127.0.0.1:8083`
+- From a device on the same network or AP: `http://<pi-ip>:8083`
+
+Current behavior:
+
+- lets a driver/team pick a racer from the roster
+- shows racer name + 4 start lights matching GUI countdown/race state
+- in practice mode (`Training Mode`), shows the last 10 laps and highlights the fastest lap
+- in race mode, shows racer-specific detail (position, lap progress, best/last lap, elapsed/adjusted totals, penalties, and gap to leader)
+
 ## Controls
 
 ### Franklin Race UI (Terminal 2)
@@ -254,6 +275,7 @@ Audit logging:
 - ✅ Redis pub/sub architecture for flexible component communication
 - ✅ Simulation mode for testing without hardware
 - ✅ Real-time leaderboard display
+- ✅ Driver/team-focused racer web view
 - ✅ Lap time tracking and analysis
 - ✅ Multiple race modes (Real, Fake, Training)
 - ✅ Contestant management

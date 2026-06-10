@@ -10,7 +10,7 @@
       - franklin-services
 
   tasks:
-    - name: Ensure scoreboard/referee/healthcheck panes are running in active tmux sessions
+    - name: Ensure scoreboard/referee/healthcheck/driver panes are running in active tmux sessions
       ansible.builtin.shell: |
         set -euo pipefail
         cd "{{ pi_dest_dir }}"
@@ -41,6 +41,7 @@
           ensure_window "$session" "web_scoreboard" "source .venv/bin/activate && export FRANKLIN_SESSION=tmux && echo 'Starting Web Server...' && python scoreboard_web_app.py"
           ensure_window "$session" "web_referee" "source .venv/bin/activate && export FRANKLIN_SESSION=tmux && echo 'Starting Referee Web Server...' && python referee_web_app.py"
           ensure_window "$session" "web_healthcheck" "source .venv/bin/activate && export FRANKLIN_SESSION=tmux && echo 'Starting Health Check Web Server...' && python healthcheck_web_app.py"
+          ensure_window "$session" "web_driver" "source .venv/bin/activate && export FRANKLIN_SESSION=tmux && echo 'Starting Driver Web Server...' && python driver_web_app.py"
         done
 
         if [ "$changed" -eq 0 ]; then

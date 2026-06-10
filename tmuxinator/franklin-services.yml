@@ -47,3 +47,11 @@ windows:
             - sleep 3
             - echo "Starting Health Check Web Server..."
             - python healthcheck_web_app.py
+  - web_driver:
+      layout: main-horizontal
+      panes:
+        - server:
+            - echo "Waiting for services to be ready..."
+            - sleep 3
+            - echo "Starting Driver Web Server..."
+            - python driver_web_app.py

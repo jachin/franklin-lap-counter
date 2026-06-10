@@ -56,13 +56,16 @@ class HealthCheckWebAppServer:
             "redis_ping": self._check_redis_ping,
             "heartbeat_sample": self._check_heartbeat_sample,
             "referee_process": self._check_referee_process,
+            "driver_process": self._check_driver_process,
             "wayvnc_process": self._check_wayvnc_process,
             "emoji_font": self._check_emoji_font,
             "scoreboard_direct_http": self._check_scoreboard_direct_http,
             "referee_direct_http": self._check_referee_direct_http,
+            "driver_direct_http": self._check_driver_direct_http,
             "caddy_scoreboard_proxy": self._check_caddy_scoreboard_proxy,
             "caddy_referee_proxy": self._check_caddy_referee_proxy,
             "caddy_healthcheck_proxy": self._check_caddy_healthcheck_proxy,
+            "caddy_driver_proxy": self._check_caddy_driver_proxy,
             "gui_log_recent_issues": self._check_gui_log_recent_issues,
             "hardware_redis_log_tail": self._check_hardware_redis_log_tail,
             "caddy_service": self._check_caddy_service,
@@ -246,6 +249,9 @@ class HealthCheckWebAppServer:
     async def _check_referee_process(self) -> dict[str, Any]:
         return await self._run_command_async(["pgrep", "-af", "referee_web_app.py"])
 
+    async def _check_driver_process(self) -> dict[str, Any]:
+        return await self._run_command_async(["pgrep", "-af", "driver_web_app.py"])
+
     async def _check_wayvnc_process(self) -> dict[str, Any]:
         return await self._run_command_async(["pgrep", "-af", "wayvnc"])
 
@@ -259,6 +265,9 @@ class HealthCheckWebAppServer:
 
     async def _check_referee_direct_http(self) -> dict[str, Any]:
         return await self._check_http_async("http://127.0.0.1:8081/api/health")
+
+    async def _check_driver_direct_http(self) -> dict[str, Any]:
+        return await self._check_http_async("http://127.0.0.1:8083/")
 
     async def _check_caddy_scoreboard_proxy(self) -> dict[str, Any]:
         return await self._check_http_async(
@@ -274,6 +283,9 @@ class HealthCheckWebAppServer:
         return await self._check_http_async(
             "http://127.0.0.1/api/health", host="healthcheck.frank"
         )
+
+    async def _check_caddy_driver_proxy(self) -> dict[str, Any]:
+        return await self._check_http_async("http://127.0.0.1/", host="racer.frank")
 
     async def _check_gui_log_recent_issues(self) -> dict[str, Any]:
         gui_tail = await asyncio.to_thread(self._tail_file, Path("gui.log"), 120)

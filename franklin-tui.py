@@ -36,7 +36,7 @@ from race.race import (
     generate_fake_race,
     is_race_going,
     make_fake_lap,
-    make_lap_from_sensor_data_and_race,
+    make_lap_from_sensor_event_and_race,
     order_laps_by_occurrence,
 )
 from race.race_contestants import RaceContestants
@@ -482,23 +482,9 @@ class Franklin(App[Any]):  # type: ignore[type-arg]
                                 racer_id = msg.get("racer_id")
                                 lap_at = msg.get("lap_at")
                                 race_start_at = msg.get("race_start_at")
-                                hardware_race_time = msg.get("race_time")
-                                if (
-                                    hardware_race_time is None
-                                    and isinstance(lap_at, (int, float))
-                                    and isinstance(race_start_at, (int, float))
-                                ):
-                                    hardware_race_time = float(lap_at) - float(
-                                        race_start_at
-                                    )
+                                recorded_at = msg.get("recorded_at")
 
-                                if (
-                                    racer_id is not None
-                                    and hardware_race_time is not None
-                                ):
-                                    # Capture the internal (monotonic) time from the event loop.
-                                    internal_time = asyncio.get_event_loop().time()
-
+                                if racer_id is not None:
                                     if int(racer_id) in self.disqualified_racers:
                                         logging.info(
                                             "Ignored lap for disqualified racer %s",
@@ -506,12 +492,28 @@ class Franklin(App[Any]):  # type: ignore[type-arg]
                                         )
                                         continue
 
-                                    lap = make_lap_from_sensor_data_and_race(
-                                        racer_id,
-                                        float(hardware_race_time),
-                                        internal_time,
-                                        self.race,
+                                    if not (
+                                        isinstance(lap_at, (int, float))
+                                        and isinstance(race_start_at, (int, float))
+                                    ):
+                                        logging.error("Invalid lap data received")
+                                        continue
+
+                                    lap_at_epoch = float(lap_at)
+                                    race_start_epoch = float(race_start_at)
+                                    recorded_epoch = (
+                                        float(recorded_at)
+                                        if isinstance(recorded_at, (int, float))
+                                        else lap_at_epoch
                                     )
+                                    lap = make_lap_from_sensor_event_and_race(
+                                        int(racer_id),
+                                        race_start_at=race_start_epoch,
+                                        lap_at=lap_at_epoch,
+                                        recorded_at=recorded_epoch,
+                                        race=self.race,
+                                    )
+
                                     logging.info("new lap %s", pprint.pformat(lap))
                                     await self.lap_queue.put(lap)
                                 else:
@@ -628,9 +630,11 @@ class Franklin(App[Any]):  # type: ignore[type-arg]
                             sensor_id=getattr(
                                 lap, "sensor_id", lap.racer_id
                             ),  # Use racer_id as fallback
-                            race_time=lap.seconds_from_race_start,
                             lap_number=lap.lap_number,
                             lap_time=lap.lap_time if lap.lap_number > 0 else None,
+                            race_start_at=float(lap.race_start_at),
+                            lap_at=float(lap.lap_at),
+                            recorded_at=float(lap.recorded_at),
                         )
                         logging.debug(
                             f"Saved lap to database: racer={lap.racer_id}, lap={lap.lap_number}"
@@ -901,7 +905,7 @@ class Franklin(App[Any]):  # type: ignore[type-arg]
         try:
             race_data = {
                 "type": "race_state",
-                "timestamp": asyncio.get_event_loop().time(),
+                "timestamp": time.time(),
                 "race_state": self.race.state.name,
                 "elapsed_time": round(self.race.elapsed_time, 2)
                 if self.race.elapsed_time is not None

@@ -2,7 +2,7 @@ import logging
 import random
 from typing import List, Optional, Set, Tuple
 
-from race.lap import InternalLapTime, Lap, LapTime, SecondsFromRaceStart
+from race.lap import EpochSeconds, Lap, LapTime
 from race.race_end_logic import resolve_post_lap_state
 from race.race_state import RaceEndMode, RaceState, is_race_going_state
 
@@ -27,12 +27,11 @@ def generate_fake_race():
         racer_cumulative_times[racer_id] = start_time
         logging.debug(f"Adding start trigger for racer {racer_id} at {start_time:.2f}s")
         fake_race.add_fake_lap(
-            Lap(
+            make_fake_lap(
                 racer_id=racer_id,
                 lap_number=0,  # Lap 0 = initial start line crossing
-                seconds_from_race_start=SecondsFromRaceStart(start_time),
-                internal_lap_time=InternalLapTime(start_time),
-                lap_time=LapTime(start_time),
+                lap_time=start_time,
+                seconds_from_start=start_time,
             )
         )
 
@@ -47,14 +46,13 @@ def generate_fake_race():
             logging.debug(
                 f"Adding lap {lap_number} for racer {racer_id} at {cumulative_time:.2f}s with time {lap_time:.2f}s"
             )
-            # For a fake lap, use the same value for hardware and internal times.
+            # For a fake lap, use cumulative elapsed + lap interval.
             fake_race.add_fake_lap(
-                Lap(
+                make_fake_lap(
                     racer_id=racer_id,
                     lap_number=lap_number,
-                    seconds_from_race_start=SecondsFromRaceStart(cumulative_time),
-                    internal_lap_time=InternalLapTime(lap_time),
-                    lap_time=LapTime(lap_time),
+                    lap_time=lap_time,
+                    seconds_from_start=cumulative_time,
                 )
             )
     logging.info(f"Generated fake race with {len(fake_race.laps)} laps")
@@ -326,31 +324,30 @@ def order_laps_by_occurrence(laps: List[Lap]) -> List[Tuple[float, Lap]]:
     return laps_with_cumulative_time
 
 
-def make_lap_from_sensor_data_and_race(
-    racer_id: int, race_time: float, interal_time: float, race: Race
+def make_lap_from_sensor_event_and_race(
+    racer_id: int,
+    race_start_at: float,
+    lap_at: float,
+    recorded_at: float,
+    race: Race,
 ) -> Lap:
+    """Create a Lap from canonical epoch fields carried on hardware events."""
     lap_number = sum(1 for lap in race.laps if lap.racer_id == racer_id) or 0
-    if race.start_time is None:
-        raise ValueError("Race has not started")
 
-    # Get the race_time for the last lap for this racer_id
-    # if we don't have one then this must be the first lap to it should be zero.
-    laps = list(filter(lambda lap: lap.racer_id == racer_id, race.laps))
-
-    if len(laps) == 0:
-        lap_time = LapTime(race_time)
+    racer_laps = [lap for lap in race.laps if lap.racer_id == racer_id]
+    if len(racer_laps) == 0:
+        lap_time = float(lap_at) - float(race_start_at)
     else:
-        lap_time = race_time - laps[-1].seconds_from_race_start
+        lap_time = float(lap_at) - float(racer_laps[-1].lap_at)
 
-    new_lap = Lap(
+    return Lap(
         racer_id=racer_id,
         lap_number=lap_number,
-        seconds_from_race_start=SecondsFromRaceStart(race_time),
-        internal_lap_time=InternalLapTime(interal_time),
+        race_start_at=EpochSeconds(race_start_at),
+        lap_at=EpochSeconds(lap_at),
+        recorded_at=EpochSeconds(recorded_at),
         lap_time=LapTime(lap_time),
     )
-
-    return new_lap
 
 
 def make_fake_lap(
@@ -365,11 +362,13 @@ def make_fake_lap(
     - lap_time: The time for this individual lap
     - seconds_from_start: Cumulative time since race start
     """
+    synthetic_start_epoch = 1.0
     return Lap(
         racer_id=racer_id,
         lap_number=lap_number,
-        seconds_from_race_start=SecondsFromRaceStart(seconds_from_start),
-        internal_lap_time=InternalLapTime(lap_time),
+        race_start_at=EpochSeconds(synthetic_start_epoch),
+        lap_at=EpochSeconds(synthetic_start_epoch + seconds_from_start),
+        recorded_at=EpochSeconds(synthetic_start_epoch + seconds_from_start),
         lap_time=LapTime(lap_time),
     )
 

@@ -102,6 +102,9 @@ All activity is logged to: `hardware_redis.log`
 - `build:release` - Build Rust project (release)
 - `start:franklin` - Start full Franklin tmux stack (hardware mode)
 - `start:franklin-simulator` - Start full Franklin tmux stack (simulator mode, web apps auto-restart via `watchexec`)
+- `web_scoreboard` - Run scoreboard web app locally (`scoreboard_web_app.py`)
+- `web_referee` - Run referee web app locally (`referee_web_app.py`)
+- `web_healthcheck` - Run health-check web app locally (`healthcheck_web_app.py`)
 
 **Remote GUI (VNC over SSH tunnel):**
 - `vnc:open-tunnel` - Open local tunnel `127.0.0.1:5901 -> Pi:5900`

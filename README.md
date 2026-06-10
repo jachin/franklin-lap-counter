@@ -90,7 +90,7 @@ Run the scoreboard web app:
 
 ```bash
 devbox shell
-devbox run web
+devbox run web_scoreboard
 ```
 
 This starts `scoreboard_web_app.py` on `0.0.0.0:8080`.
@@ -223,7 +223,7 @@ Run the referee web app:
 
 ```bash
 devbox shell
-devbox run referee-web
+devbox run web_referee
 ```
 
 This starts `referee_web_app.py` on `0.0.0.0:8081`.

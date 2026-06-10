@@ -39,7 +39,7 @@ from race.race import (
     generate_fake_race,
     is_race_going,
     make_fake_lap,
-    make_lap_from_sensor_data_and_race,
+    make_lap_from_sensor_event_and_race,
     order_laps_by_occurrence,
 )
 from race.race_contestants import RaceContestants
@@ -1903,16 +1903,9 @@ class FranklinGuiApp(Gtk.Application):
         racer_id = msg.get("racer_id")
         lap_at = msg.get("lap_at")
         race_start_at = msg.get("race_start_at")
-        hardware_race_time = msg.get("race_time")
+        recorded_at = msg.get("recorded_at")
 
-        if (
-            hardware_race_time is None
-            and isinstance(lap_at, (int, float))
-            and isinstance(race_start_at, (int, float))
-        ):
-            hardware_race_time = float(lap_at) - float(race_start_at)
-
-        if racer_id is None or hardware_race_time is None:
+        if racer_id is None:
             self.append_event("Invalid lap data received")
             return
 
@@ -1927,8 +1920,25 @@ class FranklinGuiApp(Gtk.Application):
         sensor_id_raw = msg.get("sensor_id", racer_id_i)
         sensor_id_i = int(sensor_id_raw)
 
-        lap = make_lap_from_sensor_data_and_race(
-            racer_id_i, float(hardware_race_time), time.monotonic(), self.race
+        if not (
+            isinstance(lap_at, (int, float)) and isinstance(race_start_at, (int, float))
+        ):
+            self.append_event("Invalid lap data received")
+            return
+
+        lap_at_epoch = float(lap_at)
+        race_start_epoch = float(race_start_at)
+        recorded_epoch = (
+            float(recorded_at)
+            if isinstance(recorded_at, (int, float))
+            else lap_at_epoch
+        )
+        lap = make_lap_from_sensor_event_and_race(
+            racer_id_i,
+            race_start_at=race_start_epoch,
+            lap_at=lap_at_epoch,
+            recorded_at=recorded_epoch,
+            race=self.race,
         )
         previous_state = self.race.state
         lap_accepted = self.race.add_lap(lap)
@@ -1946,13 +1956,24 @@ class FranklinGuiApp(Gtk.Application):
         )
 
         if self.current_race_id:
+            lap_at_epoch = (
+                float(lap_at) if isinstance(lap_at, (int, float)) else float(lap.lap_at)
+            )
+            race_start_epoch = (
+                float(race_start_at)
+                if isinstance(race_start_at, (int, float))
+                else float(lap.race_start_at)
+            )
+            recorded_epoch = float(msg.get("recorded_at", lap_at_epoch))
             self.db.add_lap(
                 race_id=self.current_race_id,
                 racer_id=lap.racer_id,
                 sensor_id=sensor_id_i,
-                race_time=lap.seconds_from_race_start,
                 lap_number=lap.lap_number,
                 lap_time=lap.lap_time if lap.lap_number > 0 else None,
+                race_start_at=race_start_epoch,
+                lap_at=lap_at_epoch,
+                recorded_at=recorded_epoch,
             )
 
         if finished_now:
@@ -1982,7 +2003,7 @@ class FranklinGuiApp(Gtk.Application):
         try:
             race_data = {
                 "type": "race_state",
-                "timestamp": time.monotonic(),
+                "timestamp": time.time(),
                 "race_state": self.race.state.name,
                 "elapsed_time": round(self.race.elapsed_time, 2),
                 "race_mode": self.race_mode.value,

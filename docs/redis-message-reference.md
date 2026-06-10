@@ -161,6 +161,8 @@ Fields:
 
 Published by both TUI and GUI roughly once per second while race is running.
 
+`timestamp` is Unix epoch seconds.
+
 Common fields:
 
 ```json
@@ -241,9 +243,9 @@ Additional fields from TUI (non-training mode):
    - TUI publishes `self.race_mode.name` (likely uppercase enum names).
    - GUI publishes `self.race_mode.value` (value string).
 
-5. **`timestamp` semantics vary by publisher.**
-   - `referee_web_app.py` command timestamps are ISO-8601 UTC strings.
-   - TUI/GUI race-state timestamps use monotonic float seconds.
+5. **Command timestamp field formats vary by channel/publisher.**
+   - `referee_web_app.py` command payloads use ISO-8601 UTC strings on `hardware:in`.
+   - TUI/GUI `franklin:race_state.timestamp` is Unix epoch seconds.
 
 6. **Stale/incorrect protocol details existed in docs before this file.**
    - Example: some docs said scoreboard only subscribes to `hardware:out`; code subscribes to `hardware:out` and `franklin:events`.

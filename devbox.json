@@ -35,6 +35,9 @@
       "start:franklin-simulator": [
         "tmuxinator start -p tmuxinator/franklin-simulator.yml"
       ],
+      "web_scoreboard": ["python scoreboard_web_app.py"],
+      "web_referee": ["python referee_web_app.py"],
+      "web_healthcheck": ["python healthcheck_web_app.py"],
       "lint": [
         "devbox run lint:python",
         "devbox run lint:web",

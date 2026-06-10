@@ -1,7 +1,24 @@
 import unittest
 
-from race.lap import InternalLapTime, Lap, LapTime, SecondsFromRaceStart
+from race.lap import EpochSeconds, Lap, LapTime
 from race.race import Race
+
+
+def rel_lap(
+    racer_id: int,
+    lap_number: int,
+    seconds_from_start: float,
+    lap_time: float,
+) -> Lap:
+    synthetic_start_epoch = 1.0
+    return Lap(
+        racer_id=racer_id,
+        lap_number=lap_number,
+        race_start_at=EpochSeconds(synthetic_start_epoch),
+        lap_at=EpochSeconds(synthetic_start_epoch + seconds_from_start),
+        recorded_at=EpochSeconds(synthetic_start_epoch + seconds_from_start),
+        lap_time=LapTime(lap_time),
+    )
 
 
 class TestRaceLeaderboard(unittest.TestCase):
@@ -13,346 +30,91 @@ class TestRaceLeaderboard(unittest.TestCase):
         self.assertEqual(leaderboard, [])
 
     def test_single_lap(self):
-
-        # Add lap 0 start lap
-        self.race.add_fake_lap(
-            Lap(
-                racer_id=1,
-                lap_number=0,
-                seconds_from_race_start=SecondsFromRaceStart(0.5),
-                internal_lap_time=InternalLapTime(0.5),
-                lap_time=LapTime(0.5),
-            )
-        )
-
-        lap = Lap(
-            racer_id=1,
-            lap_number=1,
-            seconds_from_race_start=SecondsFromRaceStart(10.0),
-            internal_lap_time=InternalLapTime(10.0),
-            lap_time=LapTime(10.0),
-        )
-        self.race.add_fake_lap(lap)
+        self.race.add_fake_lap(rel_lap(1, 0, 0.5, 0.5))
+        self.race.add_fake_lap(rel_lap(1, 1, 10.0, 10.0))
 
         leaderboard = self.race.leaderboard()
         self.assertEqual(leaderboard, [(1, 1, 1, 10.0, 10.0, 10.0)])
 
     def test_multiple_laps_single_racer(self):
-        # Add lap 0 start lap
-        self.race.add_fake_lap(
-            Lap(
-                racer_id=1,
-                lap_number=0,
-                seconds_from_race_start=SecondsFromRaceStart(0.5),
-                internal_lap_time=InternalLapTime(0.5),
-                lap_time=LapTime(0.5),
-            )
-        )
+        self.race.add_fake_lap(rel_lap(1, 0, 0.5, 0.5))
 
         laps = [
-            Lap(
-                racer_id=1,
-                lap_number=1,
-                seconds_from_race_start=SecondsFromRaceStart(9.0),
-                internal_lap_time=InternalLapTime(9.0),
-                lap_time=LapTime(9.0),
-            ),
-            Lap(
-                racer_id=1,
-                lap_number=2,
-                seconds_from_race_start=SecondsFromRaceStart(19.0),
-                internal_lap_time=InternalLapTime(10.0),
-                lap_time=LapTime(10.0),
-            ),
-            Lap(
-                racer_id=1,
-                lap_number=3,
-                seconds_from_race_start=SecondsFromRaceStart(30.0),
-                internal_lap_time=InternalLapTime(11.0),
-                lap_time=LapTime(11.0),
-            ),
+            rel_lap(1, 1, 9.0, 9.0),
+            rel_lap(1, 2, 19.0, 10.0),
+            rel_lap(1, 3, 30.0, 11.0),
         ]
         for lap in laps:
             self.race.add_fake_lap(lap)
+
         leaderboard = self.race.leaderboard()
         expected = [(1, 1, 3, 9.0, 11.0, 30.0)]
         self.assertEqual(leaderboard, expected)
 
     def test_multiple_racers_sort_by_laps(self):
-        # Add lap 0 start laps
-        self.race.add_fake_lap(
-            Lap(
-                racer_id=1,
-                lap_number=0,
-                seconds_from_race_start=SecondsFromRaceStart(0.5),
-                internal_lap_time=InternalLapTime(0.5),
-                lap_time=LapTime(0.5),
-            )
-        )
-        self.race.add_fake_lap(
-            Lap(
-                racer_id=2,
-                lap_number=0,
-                seconds_from_race_start=SecondsFromRaceStart(0.5),
-                internal_lap_time=InternalLapTime(0.5),
-                lap_time=LapTime(0.5),
-            )
-        )
+        self.race.add_fake_lap(rel_lap(1, 0, 0.5, 0.5))
+        self.race.add_fake_lap(rel_lap(2, 0, 0.5, 0.5))
 
-        # Racer 1: 3 laps
         for i in range(1, 4):
-            self.race.add_fake_lap(
-                Lap(
-                    racer_id=1,
-                    lap_number=i,
-                    seconds_from_race_start=SecondsFromRaceStart(10.0),
-                    internal_lap_time=InternalLapTime(10.0),
-                    lap_time=LapTime(10.0),
-                )
-            )
-        # Racer 2: 2 laps
+            self.race.add_fake_lap(rel_lap(1, i, 10.0 + i, 10.0))
         for i in range(1, 3):
-            self.race.add_fake_lap(
-                Lap(
-                    racer_id=2,
-                    lap_number=i,
-                    seconds_from_race_start=SecondsFromRaceStart(9.0),
-                    internal_lap_time=InternalLapTime(9.0),
-                    lap_time=LapTime(9.0),
-                )
-            )
+            self.race.add_fake_lap(rel_lap(2, i, 9.0 + i, 9.0))
+
         leaderboard = self.race.leaderboard()
-        self.assertEqual(leaderboard[0][1], 1)  # Racer 1 first, more laps
-        self.assertEqual(leaderboard[1][1], 2)  # Racer 2 second
+        self.assertEqual(leaderboard[0][1], 1)
+        self.assertEqual(leaderboard[1][1], 2)
 
     def test_tie_on_laps_sort_by_best_lap_time(self):
-        # Add lap 0 start laps
-        self.race.add_fake_lap(
-            Lap(
-                racer_id=1,
-                lap_number=0,
-                seconds_from_race_start=SecondsFromRaceStart(0.5),
-                internal_lap_time=InternalLapTime(0.5),
-                lap_time=LapTime(0.5),
-            )
-        )
-        self.race.add_fake_lap(
-            Lap(
-                racer_id=2,
-                lap_number=0,
-                seconds_from_race_start=SecondsFromRaceStart(0.5),
-                internal_lap_time=InternalLapTime(0.5),
-                lap_time=LapTime(0.5),
-            )
-        )
+        self.race.add_fake_lap(rel_lap(1, 0, 0.5, 0.5))
+        self.race.add_fake_lap(rel_lap(2, 0, 0.5, 0.5))
 
-        # Racer 1: 2 laps, best lap 9.0
-        self.race.add_fake_lap(
-            Lap(
-                racer_id=1,
-                lap_number=1,
-                seconds_from_race_start=SecondsFromRaceStart(10.0),
-                internal_lap_time=InternalLapTime(10.0),
-                lap_time=LapTime(10.0),
-            )
-        )
-        self.race.add_fake_lap(
-            Lap(
-                racer_id=1,
-                lap_number=2,
-                seconds_from_race_start=SecondsFromRaceStart(19.0),
-                internal_lap_time=InternalLapTime(9.0),
-                lap_time=LapTime(9.0),
-            )
-        )
+        self.race.add_fake_lap(rel_lap(1, 1, 10.0, 10.0))
+        self.race.add_fake_lap(rel_lap(1, 2, 19.0, 9.0))
 
-        # Racer 2: 2 laps, best lap 8.0
-        self.race.add_fake_lap(
-            Lap(
-                racer_id=2,
-                lap_number=1,
-                seconds_from_race_start=SecondsFromRaceStart(10.0),
-                internal_lap_time=InternalLapTime(10.0),
-                lap_time=LapTime(10.0),
-            )
-        )
-        self.race.add_fake_lap(
-            Lap(
-                racer_id=2,
-                lap_number=2,
-                seconds_from_race_start=SecondsFromRaceStart(8.0),
-                internal_lap_time=InternalLapTime(8.0),
-                lap_time=LapTime(8.0),
-            )
-        )
+        self.race.add_fake_lap(rel_lap(2, 1, 10.0, 10.0))
+        self.race.add_fake_lap(rel_lap(2, 2, 8.0, 8.0))
 
         leaderboard = self.race.leaderboard()
         self.assertEqual(leaderboard[0][1], 2)
         self.assertEqual(leaderboard[1][1], 1)
 
     def test_lap_zero_start_is_not_counted(self):
-        # Add lap 0 for racer 1 (start lap)
-        self.race.add_fake_lap(
-            Lap(
-                racer_id=1,
-                lap_number=0,
-                seconds_from_race_start=SecondsFromRaceStart(0.5),
-                internal_lap_time=InternalLapTime(0.5),
-                lap_time=LapTime(0.5),
-            )
-        )
-        # Add lap 1 for racer 1
-        self.race.add_fake_lap(
-            Lap(
-                racer_id=1,
-                lap_number=1,
-                seconds_from_race_start=SecondsFromRaceStart(10.0),
-                internal_lap_time=InternalLapTime(10.0),
-                lap_time=LapTime(9.5),
-            )
-        )
+        self.race.add_fake_lap(rel_lap(1, 0, 0.5, 0.5))
+        self.race.add_fake_lap(rel_lap(1, 1, 10.0, 9.5))
 
-        # Add lap 0 for racer 2 (start lap)
-        self.race.add_fake_lap(
-            Lap(
-                racer_id=2,
-                lap_number=0,
-                seconds_from_race_start=SecondsFromRaceStart(0.7),
-                internal_lap_time=InternalLapTime(0.7),
-                lap_time=LapTime(0.7),
-            )
-        )
-        # Add lap 1 for racer 2
-        self.race.add_fake_lap(
-            Lap(
-                racer_id=2,
-                lap_number=1,
-                seconds_from_race_start=SecondsFromRaceStart(9.0),
-                internal_lap_time=InternalLapTime(9.0),
-                lap_time=LapTime(8.3),
-            )
-        )
+        self.race.add_fake_lap(rel_lap(2, 0, 0.7, 0.7))
+        self.race.add_fake_lap(rel_lap(2, 1, 9.0, 8.3))
 
         leaderboard = self.race.leaderboard()
-        # Lap count should be 1 for both (lap 0 not counted)
         self.assertEqual(leaderboard[0][2], 1)
         self.assertEqual(leaderboard[1][2], 1)
-        # Leader should be racer 2 (better lap time)
         self.assertEqual(leaderboard[0][1], 2)
         self.assertEqual(leaderboard[1][1], 1)
 
     def test_positions_are_correct(self):
-        from .lap import InternalLapTime, SecondsFromRaceStart
+        self.race.add_fake_lap(rel_lap(1, 1, 10.0, 10.0))
+        self.race.add_fake_lap(rel_lap(1, 2, 11.0, 11.0))
+        self.race.add_fake_lap(rel_lap(1, 3, 12.0, 12.0))
 
-        # 3 racers with different laps and times
-        # Racer 1: 3 laps, best lap 10.0
-        self.race.add_fake_lap(
-            Lap(
-                racer_id=1,
-                lap_number=1,
-                seconds_from_race_start=SecondsFromRaceStart(10.0),
-                internal_lap_time=InternalLapTime(10.0),
-                lap_time=LapTime(10.0),
-            )
-        )
-        self.race.add_fake_lap(
-            Lap(
-                racer_id=1,
-                lap_number=2,
-                seconds_from_race_start=SecondsFromRaceStart(11.0),
-                internal_lap_time=InternalLapTime(11.0),
-                lap_time=LapTime(11.0),
-            )
-        )
-        self.race.add_fake_lap(
-            Lap(
-                racer_id=1,
-                lap_number=3,
-                seconds_from_race_start=SecondsFromRaceStart(12.0),
-                internal_lap_time=InternalLapTime(12.0),
-                lap_time=LapTime(12.0),
-            )
-        )
-        # Racer 2: 3 laps, best lap 9.5
-        self.race.add_fake_lap(
-            Lap(
-                racer_id=2,
-                lap_number=1,
-                seconds_from_race_start=SecondsFromRaceStart(10.0),
-                internal_lap_time=InternalLapTime(10.0),
-                lap_time=LapTime(10.0),
-            )
-        )
-        self.race.add_fake_lap(
-            Lap(
-                racer_id=2,
-                lap_number=2,
-                seconds_from_race_start=SecondsFromRaceStart(9.5),
-                internal_lap_time=InternalLapTime(9.5),
-                lap_time=LapTime(9.5),
-            )
-        )
-        self.race.add_fake_lap(
-            Lap(
-                racer_id=2,
-                lap_number=3,
-                seconds_from_race_start=SecondsFromRaceStart(11.0),
-                internal_lap_time=InternalLapTime(11.0),
-                lap_time=LapTime(11.0),
-            )
-        )
-        # Racer 3: 2 laps, best lap 9.0
-        self.race.add_fake_lap(
-            Lap(
-                racer_id=3,
-                lap_number=1,
-                seconds_from_race_start=SecondsFromRaceStart(9.0),
-                internal_lap_time=InternalLapTime(9.0),
-                lap_time=LapTime(9.0),
-            )
-        )
-        self.race.add_fake_lap(
-            Lap(
-                racer_id=3,
-                lap_number=2,
-                seconds_from_race_start=SecondsFromRaceStart(9.2),
-                internal_lap_time=InternalLapTime(9.2),
-                lap_time=LapTime(9.2),
-            )
-        )
+        self.race.add_fake_lap(rel_lap(2, 1, 10.0, 10.0))
+        self.race.add_fake_lap(rel_lap(2, 2, 9.5, 9.5))
+        self.race.add_fake_lap(rel_lap(2, 3, 11.0, 11.0))
+
+        self.race.add_fake_lap(rel_lap(3, 1, 9.0, 9.0))
+        self.race.add_fake_lap(rel_lap(3, 2, 9.2, 9.2))
 
         leaderboard = self.race.leaderboard()
-        # Racer 2 should be in position 1 (best lap is lower)
-        self.assertEqual(leaderboard[0][0], 1)  # Racer in position 1
-        self.assertEqual(leaderboard[0][1], 2)  # Racer 2 first (better best lap)
-        self.assertEqual(leaderboard[1][0], 2)  # Racer 1 second
+        self.assertEqual(leaderboard[0][0], 1)
+        self.assertEqual(leaderboard[0][1], 2)
+        self.assertEqual(leaderboard[1][0], 2)
         self.assertEqual(leaderboard[1][1], 1)
-        self.assertEqual(leaderboard[2][0], 3)  # Racer 3 third (fewer laps)
-        self.assertEqual(leaderboard[2][1], 3)
-        # Racer 3 in position 3 (less laps)
         self.assertEqual(leaderboard[2][0], 3)
         self.assertEqual(leaderboard[2][1], 3)
 
     def test_previous_race_contestants_are_visible_with_zeroed_stats(self):
         previous_race = Race()
-        previous_race.add_fake_lap(
-            Lap(
-                racer_id=11,
-                lap_number=1,
-                seconds_from_race_start=SecondsFromRaceStart(10.0),
-                internal_lap_time=InternalLapTime(10.0),
-                lap_time=LapTime(10.0),
-            )
-        )
-        previous_race.add_fake_lap(
-            Lap(
-                racer_id=12,
-                lap_number=1,
-                seconds_from_race_start=SecondsFromRaceStart(11.0),
-                internal_lap_time=InternalLapTime(11.0),
-                lap_time=LapTime(11.0),
-            )
-        )
+        previous_race.add_fake_lap(rel_lap(11, 1, 10.0, 10.0))
+        previous_race.add_fake_lap(rel_lap(12, 1, 11.0, 11.0))
 
         next_race = Race(previous_race=previous_race)
         leaderboard = next_race.leaderboard()

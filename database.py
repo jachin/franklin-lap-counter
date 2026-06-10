@@ -6,9 +6,18 @@ Manages races, laps, and race-control audit actions using SQLite.
 
 import json
 import sqlite3
-from datetime import datetime
+import time
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+
+
+def _epoch_now() -> float:
+    return time.time()
+
+
+def _epoch_to_iso(epoch: float) -> str:
+    return datetime.fromtimestamp(epoch, UTC).isoformat()
 
 
 class LapDatabase:
@@ -30,7 +39,9 @@ class LapDatabase:
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS races (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                start_time TEXT NOT NULL,
+                start_at REAL,
+                end_at REAL,
+                start_time TEXT,
                 end_time TEXT,
                 status TEXT NOT NULL DEFAULT 'in_progress',
                 notes TEXT
@@ -44,10 +55,13 @@ class LapDatabase:
                 race_id INTEGER NOT NULL,
                 racer_id INTEGER NOT NULL,
                 sensor_id INTEGER NOT NULL,
-                race_time REAL NOT NULL,
+                race_start_at REAL,
+                lap_at REAL,
+                recorded_at REAL,
+                race_time REAL,
                 lap_number INTEGER NOT NULL,
                 lap_time REAL,
-                timestamp TEXT NOT NULL,
+                timestamp TEXT,
                 FOREIGN KEY (race_id) REFERENCES races(id)
             )
         """)
@@ -94,6 +108,22 @@ class LapDatabase:
         """)
 
         # Lightweight migrations for existing databases
+        cursor.execute("PRAGMA table_info(races)")
+        race_columns = {row[1] for row in cursor.fetchall()}
+        if "start_at" not in race_columns:
+            cursor.execute("ALTER TABLE races ADD COLUMN start_at REAL")
+        if "end_at" not in race_columns:
+            cursor.execute("ALTER TABLE races ADD COLUMN end_at REAL")
+
+        cursor.execute("PRAGMA table_info(laps)")
+        lap_columns = {row[1] for row in cursor.fetchall()}
+        if "race_start_at" not in lap_columns:
+            cursor.execute("ALTER TABLE laps ADD COLUMN race_start_at REAL")
+        if "lap_at" not in lap_columns:
+            cursor.execute("ALTER TABLE laps ADD COLUMN lap_at REAL")
+        if "recorded_at" not in lap_columns:
+            cursor.execute("ALTER TABLE laps ADD COLUMN recorded_at REAL")
+
         cursor.execute("PRAGMA table_info(race_control_actions)")
         existing_columns = {row[1] for row in cursor.fetchall()}
         if "command_id" not in existing_columns:
@@ -101,40 +131,91 @@ class LapDatabase:
                 "ALTER TABLE race_control_actions ADD COLUMN command_id TEXT"
             )
 
+        # Backfill epoch columns from historical text/relative columns where possible.
+        cursor.execute(
+            """
+            UPDATE races
+            SET start_at = strftime('%s', start_time)
+            WHERE start_at IS NULL AND start_time IS NOT NULL
+            """
+        )
+        cursor.execute(
+            """
+            UPDATE races
+            SET end_at = strftime('%s', end_time)
+            WHERE end_at IS NULL AND end_time IS NOT NULL
+            """
+        )
+        cursor.execute(
+            """
+            UPDATE laps
+            SET race_start_at = (
+                SELECT r.start_at FROM races r WHERE r.id = laps.race_id
+            )
+            WHERE race_start_at IS NULL
+              AND race_time IS NOT NULL
+            """
+        )
+        cursor.execute(
+            """
+            UPDATE laps
+            SET lap_at = race_start_at + race_time
+            WHERE lap_at IS NULL
+              AND race_start_at IS NOT NULL
+              AND race_time IS NOT NULL
+            """
+        )
+        cursor.execute(
+            """
+            UPDATE laps
+            SET recorded_at = COALESCE(strftime('%s', timestamp), lap_at)
+            WHERE recorded_at IS NULL
+            """
+        )
+
         cursor.execute("""
             CREATE INDEX IF NOT EXISTS idx_race_control_actions_command_id
             ON race_control_actions(command_id)
         """)
 
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_laps_lap_at
+            ON laps(lap_at)
+        """)
+
         self.conn.commit()
 
-    def create_race(self, notes: str | None = None) -> int:
-        """Create a new race and return its ID"""
+    def create_race(
+        self, notes: str | None = None, *, start_at: float | None = None
+    ) -> int:
+        """Create a new race and return its ID."""
         assert self.conn is not None
         cursor = self.conn.cursor()
+        start_epoch = float(start_at) if start_at is not None else _epoch_now()
         cursor.execute(
             """
-            INSERT INTO races (start_time, status, notes)
-            VALUES (?, 'in_progress', ?)
+            INSERT INTO races (start_at, start_time, status, notes)
+            VALUES (?, ?, 'in_progress', ?)
         """,
-            (datetime.now().isoformat(), notes),
+            (start_epoch, _epoch_to_iso(start_epoch), notes),
         )
         self.conn.commit()
         race_id = cursor.lastrowid
         assert race_id is not None
         return race_id
 
-    def end_race(self, race_id: int) -> None:
-        """Mark a race as completed"""
+    def end_race(self, race_id: int, *, end_at: float | None = None) -> None:
+        """Mark a race as completed."""
         assert self.conn is not None
         cursor = self.conn.cursor()
+        end_epoch = float(end_at) if end_at is not None else _epoch_now()
         cursor.execute(
             """
             UPDATE races
-            SET end_time = ?, status = 'completed'
+            SET end_at = ?, end_time = ?, status = 'completed'
             WHERE id = ?
         """,
-            (datetime.now().isoformat(), race_id),
+            (end_epoch, _epoch_to_iso(end_epoch), race_id),
         )
         self.conn.commit()
 
@@ -146,7 +227,7 @@ class LapDatabase:
             """
             SELECT * FROM races
             WHERE status = 'in_progress'
-            ORDER BY start_time DESC
+            ORDER BY COALESCE(start_at, strftime('%s', start_time)) DESC
             LIMIT 1
         """
         )
@@ -158,27 +239,64 @@ class LapDatabase:
         race_id: int,
         racer_id: int,
         sensor_id: int,
-        race_time: float,
         lap_number: int,
         lap_time: float | None = None,
+        *,
+        race_start_at: float | None = None,
+        lap_at: float | None = None,
+        recorded_at: float | None = None,
+        race_time: float | None = None,
     ) -> int:
-        """Add a lap to the database"""
+        """Add a lap to the database using epoch-native fields.
+
+        Preferred inputs: `race_start_at`, `lap_at`, and `recorded_at`.
+        `race_time` remains accepted for compatibility and is derived when omitted.
+        """
         assert self.conn is not None
         cursor = self.conn.cursor()
+
+        resolved_race_time = race_time
+        if (
+            resolved_race_time is None
+            and lap_at is not None
+            and race_start_at is not None
+        ):
+            resolved_race_time = float(lap_at) - float(race_start_at)
+
+        resolved_recorded_at = (
+            float(recorded_at)
+            if recorded_at is not None
+            else (float(lap_at) if lap_at is not None else _epoch_now())
+        )
+
         cursor.execute(
             """
             INSERT INTO laps
-            (race_id, racer_id, sensor_id, race_time, lap_number, lap_time, timestamp)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            (
+                race_id,
+                racer_id,
+                sensor_id,
+                race_start_at,
+                lap_at,
+                recorded_at,
+                race_time,
+                lap_number,
+                lap_time,
+                timestamp
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
             (
                 race_id,
                 racer_id,
                 sensor_id,
-                race_time,
+                race_start_at,
+                lap_at,
+                resolved_recorded_at,
+                resolved_race_time,
                 lap_number,
                 lap_time,
-                datetime.now().isoformat(),
+                _epoch_to_iso(resolved_recorded_at),
             ),
         )
         self.conn.commit()
@@ -194,7 +312,7 @@ class LapDatabase:
             """
             SELECT * FROM laps
             WHERE race_id = ?
-            ORDER BY timestamp ASC
+            ORDER BY COALESCE(lap_at, strftime('%s', timestamp), id) ASC
         """,
             (race_id,),
         )

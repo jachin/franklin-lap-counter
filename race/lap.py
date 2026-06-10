@@ -1,48 +1,74 @@
 from dataclasses import dataclass, field
 from typing import NewType
 
-# Wrap raw float times in types for clarity.
-InternalLapTime = NewType('InternalLapTime', float)
-SecondsFromRaceStart = NewType('SecondsFromRaceStart', float)
-LapTime = NewType('LapTime', float)
+# Epoch-based timestamps (seconds since Unix epoch).
+EpochSeconds = NewType("EpochSeconds", float)
+LapTime = NewType("LapTime", float)
+
 
 @dataclass(order=True)
 class Lap:
-    """Represents a single lap completed by a racer.
+    """Represents one lap event using absolute timestamps.
 
-    A lap now records two time values:
-      • seconds_from_race_start: The time reported by the lap counter hardware.
-      • internal_lap_time: The event loop’s monotonic time.
+    Canonical time fields:
+      - race_start_at: race start timestamp (epoch seconds)
+      - lap_at: when this lap crossing occurred (epoch seconds)
+      - recorded_at: when this event was recorded/ingested (epoch seconds)
+
+    `lap_time` remains the lap interval in seconds for leaderboard/best-lap logic.
     """
+
     racer_id: int = field(compare=False)
     lap_number: int
-    seconds_from_race_start: SecondsFromRaceStart
-    internal_lap_time: InternalLapTime = field(compare=False)
+    race_start_at: EpochSeconds
+    lap_at: EpochSeconds
+    recorded_at: EpochSeconds = field(compare=False)
     lap_time: LapTime = field(compare=False)
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         if self.lap_number < 0:
             raise ValueError("Lap number must be >= 0")
-        if self.seconds_from_race_start <= 0:
-            raise ValueError("Seconds from race start must be positive")
-        if self.internal_lap_time <= 0:
-            raise ValueError("Internal lap time must be positive")
+        if self.race_start_at <= 0:
+            raise ValueError("race_start_at must be positive")
+        if self.lap_at <= 0:
+            raise ValueError("lap_at must be positive")
+        if self.recorded_at <= 0:
+            raise ValueError("recorded_at must be positive")
+        if self.lap_at < self.race_start_at:
+            raise ValueError("lap_at must be >= race_start_at")
 
-    def __str__(self):return (f"Racer {self.racer_id} Lap {self.lap_number} | "
-            f"Hardware: {self.seconds_from_race_start:.2f}s, "
-            f"Internal: {self.internal_lap_time:.2f}s, "
-            f"Lap Time: {self.lap_time:.2f}s")
+    @property
+    def seconds_from_race_start(self) -> float:
+        """Compatibility accessor for older code paths."""
+        return float(self.lap_at - self.race_start_at)
 
-    def __repr__(self):return (f"Lap(racer_id={self.racer_id}, lap_number={self.lap_number}, "
-            f"seconds_from_race_start={self.seconds_from_race_start}, "
-            f"internal_lap_time={self.internal_lap_time}, "
-            f"lap_time={self.lap_time})")
+    @property
+    def internal_lap_time(self) -> float:
+        """Deprecated compatibility accessor used by older displays."""
+        return float(self.lap_time)
+
+    def __str__(self) -> str:
+        return (
+            f"Racer {self.racer_id} Lap {self.lap_number} | "
+            f"LapAt={self.lap_at:.3f}, StartAt={self.race_start_at:.3f}, "
+            f"RecordedAt={self.recorded_at:.3f}, "
+            f"Elapsed={self.seconds_from_race_start:.2f}s, Lap Time={self.lap_time:.2f}s"
+        )
+
+    def __repr__(self) -> str:
+        return (
+            "Lap("
+            f"racer_id={self.racer_id}, "
+            f"lap_number={self.lap_number}, "
+            f"race_start_at={self.race_start_at}, "
+            f"lap_at={self.lap_at}, "
+            f"recorded_at={self.recorded_at}, "
+            f"lap_time={self.lap_time}"
+            ")"
+        )
 
     def is_better_than(self, other: "Lap") -> bool:
-        """
-        Compare this lap's quality to another lap by lap_number, then by hardware time.
-        A higher lap number is better; if equal, a lower hardware time is better.
-        """
+        """Compare lap quality by lap_number, then by earlier absolute lap timestamp."""
         if self.lap_number != other.lap_number:
             return self.lap_number > other.lap_number
-        return self.seconds_from_race_start < other.seconds_from_race_start
+        return self.lap_at < other.lap_at

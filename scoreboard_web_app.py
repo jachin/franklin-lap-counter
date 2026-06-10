@@ -102,7 +102,7 @@ class ScoreboardWebAppServer:
             cursor.execute(
                 """
                 SELECT * FROM races
-                ORDER BY start_time DESC
+                ORDER BY COALESCE(start_at, strftime('%s', start_time)) DESC
                 LIMIT ? OFFSET ?
                 """,
                 (limit, offset),

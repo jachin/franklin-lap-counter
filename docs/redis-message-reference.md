@@ -42,6 +42,8 @@ Supported commands:
 - `end_race`
 - `reset_race`
 - `simulate_lap` *(simulation/harness use)*
+  - fields: optional `racer_id`, optional `sensor_id`, optional `race_time` (relative seconds for simulator input)
+  - emitted lap events on `hardware:out` still use epoch fields: `race_start_at`, `lap_at`, `recorded_at`
 - `add_penalty`
   - fields: `racer_id` (required), `penalty_seconds` (required positive multiple of 5), optional `reason`
 - `remove_lap`

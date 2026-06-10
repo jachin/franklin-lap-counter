@@ -467,6 +467,18 @@
                 });
             }
 
+            function lapElapsedSeconds(lap) {
+                const lapAt = Number(lap?.lap_at);
+                const raceStartAt = Number(lap?.race_start_at);
+                if (Number.isFinite(lapAt) && Number.isFinite(raceStartAt)) {
+                    return lapAt - raceStartAt;
+                }
+
+                // Compatibility fallback for older persisted rows.
+                const raceTime = Number(lap?.race_time);
+                return Number.isFinite(raceTime) ? raceTime : null;
+            }
+
             function getDriverColor(driverId) {
                 // Use CSS variables for driver colors, fallback to a default
                 return `var(--driver-${driverId}, var(--highlight))`;
@@ -506,12 +518,17 @@
                 if (state.currentRace) {
                     if (
                         state.currentRace.status === "in_progress" ||
-                        (state.currentRace.start_time &&
-                            !state.currentRace.end_time)
+                        ((state.currentRace.start_at ||
+                            state.currentRace.start_time) &&
+                            !(
+                                state.currentRace.end_at ||
+                                state.currentRace.end_time
+                            ))
                     ) {
                         raceState = "running";
                     } else if (
                         state.currentRace.status === "completed" ||
+                        state.currentRace.end_at ||
                         state.currentRace.end_time
                     ) {
                         raceState = "finished";
@@ -561,11 +578,17 @@
 
                 elements.raceTypeDisplay.textContent = raceType;
 
-                // Update race time if stats available
-                if (state.raceStats?.race_time) {
-                    elements.raceTimeDisplay.textContent = formatTime(
-                        state.raceStats.race_time,
-                    );
+                // Update race elapsed time from lap stream (epoch fields).
+                if (state.raceLaps?.laps && state.raceLaps.laps.length > 0) {
+                    let maxElapsed = 0;
+                    state.raceLaps.laps.forEach((lap) => {
+                        const elapsed = lapElapsedSeconds(lap);
+                        if (Number.isFinite(elapsed) && elapsed > maxElapsed) {
+                            maxElapsed = elapsed;
+                        }
+                    });
+                    elements.raceTimeDisplay.textContent =
+                        formatTime(maxElapsed);
                 } else {
                     elements.raceTimeDisplay.textContent = "00:00:00";
                 }
@@ -599,7 +622,7 @@
                         lap_count: data.lap_count || 0,
                         best_lap_time: data.best_lap_time || null,
                         last_lap_time: null, // Need to calculate from laps
-                        total_time: null, // Will be from the last lap's race_time
+                        total_time: null, // Will be elapsed from most recent lap event
                     }),
                 );
 
@@ -627,8 +650,8 @@
                             const lastLap = racerLaps[0];
                             entry.last_lap_time = lastLap.lap_time;
 
-                            // Total time is race_time of the most recent lap
-                            entry.total_time = lastLap.race_time;
+                            // Total time is elapsed time of the most recent lap.
+                            entry.total_time = lapElapsedSeconds(lastLap);
                         }
                     });
                 }
@@ -714,17 +737,7 @@
                 let dataStr = "";
                 if (eventType === "lap") {
                     const driverName = getDriverName(eventData.racer_id);
-                    let rel = Number(eventData.race_time);
-                    if (!Number.isFinite(rel)) {
-                        const lapAt = Number(eventData.lap_at);
-                        const raceStartAt = Number(eventData.race_start_at);
-                        if (
-                            Number.isFinite(lapAt) &&
-                            Number.isFinite(raceStartAt)
-                        ) {
-                            rel = lapAt - raceStartAt;
-                        }
-                    }
+                    const rel = lapElapsedSeconds(eventData);
                     dataStr = `${driverName} completed lap ${eventData.lap_number ?? "?"} (Sensor ${eventData.sensor_id}) - Time: ${Number.isFinite(rel) ? formatTime(rel) : "n/a"}${eventData.simulated ? " [SIM]" : ""}`;
                 } else if (eventType === "status") {
                     dataStr =
@@ -752,11 +765,16 @@
                     dataStr = JSON.stringify(eventData, null, 2);
                 }
 
-                const timestamp = new Date().toISOString();
+                const eventEpoch = Number(
+                    eventData.recorded_at ?? eventData.at ?? NaN,
+                );
+                const timestamp = Number.isFinite(eventEpoch)
+                    ? new Date(eventEpoch * 1000)
+                    : new Date();
                 eventDiv.innerHTML = `
                     <div>
                         <span class="event-type">${eventType}</span>
-                        <span class="event-time">${timestamp.substring(11, 19)}</span>
+                        <span class="event-time">${formatTimestamp(timestamp)}</span>
                     </div>
                     <div class="event-data">${dataStr}</div>
                 `;
@@ -838,10 +856,17 @@
                     state.currentRace = latestRace;
 
                     // Only fetch additional data if the race is in progress or recently ended
+                    const endEpochMs = Number.isFinite(
+                        Number(latestRace.end_at),
+                    )
+                        ? Number(latestRace.end_at) * 1000
+                        : latestRace.end_time
+                          ? new Date(latestRace.end_time).getTime()
+                          : null;
+
                     if (
-                        latestRace.end_time === null ||
-                        Date.now() - new Date(latestRace.end_time).getTime() <
-                            3600000
+                        endEpochMs === null ||
+                        Date.now() - endEpochMs < 3600000
                     ) {
                         // Within the last hour
 
@@ -1016,8 +1041,12 @@
                 if (
                     state.currentRace &&
                     (state.currentRace.status === "in_progress" ||
-                        (state.currentRace.start_time &&
-                            !state.currentRace.end_time))
+                        ((state.currentRace.start_at ||
+                            state.currentRace.start_time) &&
+                            !(
+                                state.currentRace.end_at ||
+                                state.currentRace.end_time
+                            )))
                 ) {
                     console.log("Auto-refreshing race data...");
                     fetchRaceData().catch((err) => {

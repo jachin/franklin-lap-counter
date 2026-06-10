@@ -11,6 +11,7 @@ import asyncio
 import json
 import logging
 import os
+import time
 from pathlib import Path
 from typing import Any
 
@@ -222,11 +223,16 @@ class ScoreboardWebAppServer:
             )
 
         elif event_type == "lap":
+            now = time.time()
             event_data = {
                 "type": "lap",
                 "racer_id": 1,
                 "sensor_id": 1,
-                "race_time": 10.5,
+                "lap_number": 1,
+                "race_start_at": now - 10.5,
+                "lap_at": now,
+                "recorded_at": now,
+                "simulated": True,
             }
             await self.broadcast_to_websockets(event_data)
             return web.json_response(

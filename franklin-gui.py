@@ -2035,7 +2035,10 @@ class FranklinGuiApp(Gtk.Application):
                             "type": "lap",
                             "racer_id": lap_event.racer_id,
                             "sensor_id": 1,
-                            "race_time": float(lap_event.seconds_from_race_start),
+                            "race_start_at": float(lap_event.race_start_at),
+                            "lap_at": float(lap_event.lap_at),
+                            "recorded_at": float(lap_event.recorded_at),
+                            "simulated": True,
                         }
                     )
             except Exception as exc:

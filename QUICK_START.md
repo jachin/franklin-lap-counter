@@ -49,6 +49,8 @@ devbox shell
 redis-cli -s ./redis.sock
 > PUBLISH hardware:in '{"type":"command","command":"start_race"}'
 > PUBLISH hardware:in '{"type":"command","command":"simulate_lap","racer_id":1,"sensor_id":1,"race_time":5.5}'
+# Note: `race_time` here is only the simulator command input (relative seconds).
+# The emitted `hardware:out` lap event uses epoch fields: `race_start_at`, `lap_at`, `recorded_at`.
 ```
 
 ## What You Can Build Next

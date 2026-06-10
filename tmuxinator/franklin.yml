@@ -62,7 +62,7 @@ windows:
             - echo "Waiting for Redis to be ready..."
             - sleep 2
             - echo "Starting Hardware Monitor..."
-            - ./franklin-hardware-monitor
+            - cargo run --manifest-path rust/Cargo.toml --bin franklin-hardware-monitor
   - lap-counter:
       layout: main-horizontal
       panes:

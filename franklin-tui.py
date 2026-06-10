@@ -29,6 +29,7 @@ from textual.widgets import (
 )
 
 from database import LapDatabase
+from gui_config import load_initial_config, write_config
 from race.race import (
     Race,
     RaceState,
@@ -40,6 +41,8 @@ from race.race import (
 )
 from race.race_contestants import RaceContestants
 from race.race_mode import RaceMode
+from race.race_state import RaceEndMode
+from racer_colors import RacerColorScheme, assign_random_scheme
 from redis_commands import build_command_envelope, parse_command_envelope
 
 
@@ -229,25 +232,43 @@ class Franklin(App[Any]):  # type: ignore[type-arg]
         self,
         *,
         initial_mode: RaceMode,
-        total_laps,
-        contestants_data,
-        redis_socket="./redis.sock",
-        db_path="lap_counter.db",
+        total_laps: int,
+        contestants_data: list[dict[str, Any]],
+        race_end_mode: RaceEndMode,
+        last_race_contestant_ids: list[int],
+        racer_color_assignments: dict[int, RacerColorScheme],
+        redis_socket: str = "./redis.sock",
+        db_path: str = "lap_counter.db",
         **kwargs,
     ):
         super().__init__(**kwargs)
-        self.lap_queue = asyncio.Queue()
+        self.lap_queue: asyncio.Queue[Any] = asyncio.Queue()
 
         self.total_laps = total_laps
         self.race_mode = initial_mode
+        self.race_end_mode = race_end_mode
         self.global_contestants = RaceContestants(contestants_data)
-        self.previous_race = None
-        self.race = Race(previous_race=None)
+        self.racer_color_assignments = dict(racer_color_assignments)
+        self.previous_race: Race | None = None
+        if last_race_contestant_ids:
+            seeded_previous_race = Race(previous_race=None)
+            seeded_previous_race.active_contestants = set(last_race_contestant_ids)
+            seeded_previous_race.total_laps = total_laps
+            seeded_previous_race.race_end_mode = race_end_mode
+            self.previous_race = seeded_previous_race
+
+        self.race = Race(previous_race=self.previous_race)
         self.race.total_laps = self.total_laps
+        self.race.race_end_mode = self.race_end_mode
 
         # Referee adjustments (applied from franklin:events)
         self.racer_penalties_seconds: dict[int, int] = {}
         self.disqualified_racers: set[int] = set()
+
+        known_racer_ids = {
+            c.transmitter_id for c in self.global_contestants.contestants
+        }.union(last_race_contestant_ids)
+        self._ensure_racer_color_assignments(known_racer_ids, persist=False)
 
         self.lap_counter_detected = reactive(False)
         self._last_lap_counter_signal_time = None
@@ -307,6 +328,44 @@ class Franklin(App[Any]):  # type: ignore[type-arg]
             # Header widget not found yet
             pass
 
+    def _ensure_racer_color_assignments(
+        self, racer_ids: set[int], *, persist: bool
+    ) -> None:
+        changed = False
+        for racer_id in racer_ids:
+            if racer_id <= 0:
+                continue
+            if racer_id in self.racer_color_assignments:
+                continue
+            self.racer_color_assignments[racer_id] = assign_random_scheme(
+                self.racer_color_assignments
+            )
+            changed = True
+
+        if changed and persist:
+            self.save_config()
+
+    def save_config(self) -> None:
+        contestants = [
+            {"transmitter_id": c.transmitter_id, "name": c.name}
+            for c in self.global_contestants.contestants
+        ]
+
+        if self.previous_race is not None:
+            last_race_contestant_ids = sorted(self.previous_race.active_contestants)
+        else:
+            last_race_contestant_ids = sorted(self.race.active_contestants)
+
+        write_config(
+            self.config_path,
+            race_mode=self.race_mode,
+            total_laps=self.total_laps,
+            race_end_mode=self.race_end_mode,
+            contestants_data=contestants,
+            last_race_contestant_ids=last_race_contestant_ids,
+            racer_color_assignments=self.racer_color_assignments,
+        )
+
     def action_toggle_mode(self) -> None:
         if self.race.state == RaceState.RUNNING:
             logging.info("Cannot change race mode while race is running")
@@ -324,6 +383,7 @@ class Franklin(App[Any]):  # type: ignore[type-arg]
             self.race_mode = RaceMode.FAKE
         logging.info(f"Toggled race mode to: {self.race_mode}")
         self.update_subtitle()
+        self.save_config()
 
     def _referee_adjusted_leaderboard_data(self) -> list[tuple[Any, ...]]:
         base = self.race.leaderboard()
@@ -479,7 +539,11 @@ class Franklin(App[Any]):  # type: ignore[type-arg]
                                 recorded_at = msg.get("recorded_at")
 
                                 if racer_id is not None:
-                                    if int(racer_id) in self.disqualified_racers:
+                                    racer_id_i = int(racer_id)
+                                    self._ensure_racer_color_assignments(
+                                        {racer_id_i}, persist=True
+                                    )
+                                    if racer_id_i in self.disqualified_racers:
                                         logging.info(
                                             "Ignored lap for disqualified racer %s",
                                             racer_id,
@@ -501,7 +565,7 @@ class Franklin(App[Any]):  # type: ignore[type-arg]
                                         else lap_at_epoch
                                     )
                                     lap = make_lap_from_sensor_event_and_race(
-                                        int(racer_id),
+                                        racer_id_i,
                                         race_start_at=race_start_epoch,
                                         lap_at=lap_at_epoch,
                                         recorded_at=recorded_epoch,
@@ -733,6 +797,7 @@ class Franklin(App[Any]):  # type: ignore[type-arg]
 
         self.race = Race(previous_race=self.previous_race)
         self.race.total_laps = self.total_laps
+        self.race.race_end_mode = self.race_end_mode
 
         status_display = self.query_one(RaceStatusDisplay)
         start_btn = self.query_one("#start_btn", Button)
@@ -753,6 +818,7 @@ class Franklin(App[Any]):  # type: ignore[type-arg]
         self.disqualified_racers.clear()
         self.race = Race(previous_race=self.previous_race)
         self.race.total_laps = self.total_laps
+        self.race.race_end_mode = self.race_end_mode
 
         current_time = asyncio.get_event_loop().time()
         self.race.start(start_time=current_time)
@@ -844,6 +910,7 @@ class Franklin(App[Any]):  # type: ignore[type-arg]
             stop_btn.disabled = True
             # Store this race for the next one
             self.previous_race = self.race
+            self.save_config()
 
             # Publish end_race command to Redis
             if self._redis_client:
@@ -871,9 +938,20 @@ class Franklin(App[Any]):  # type: ignore[type-arg]
     def action_rename_driver(self) -> None:
         """Action to open the rename driver dialog."""
         self.push_screen(
-            RenameDriverScreen(self.global_contestants, self.race, self.config_path),
-            lambda result: self.refresh_driver_data() if result else None,
+            RenameDriverScreen(self.global_contestants, self.race),
+            self._handle_driver_rename_result,
         )
+
+    def _handle_driver_rename_result(self, result: bool | None) -> None:
+        if not result:
+            return
+
+        known_racer_ids = {
+            c.transmitter_id for c in self.global_contestants.contestants
+        }
+        self._ensure_racer_color_assignments(known_racer_ids, persist=False)
+        self.save_config()
+        self.refresh_driver_data()
 
     def refresh_driver_data(self) -> None:
         """Refresh displays that show driver information."""
@@ -981,11 +1059,10 @@ class RenameDriverScreen(ModalScreen[bool]):
     }
     """
 
-    def __init__(self, contestants, race, config_path):
+    def __init__(self, contestants, race):
         super().__init__()
         self.contestants = contestants
         self.race = race
-        self.config_path = config_path
         self.selected_driver_id = None
         self.driver_name_input = None
 
@@ -1099,55 +1176,7 @@ class RenameDriverScreen(ModalScreen[bool]):
             )
             self.contestants.contestants.append(new_contestant)
 
-        # Save the updated contestants to franklin.config.json
-        success = self.save_config()
-        self.dismiss(success)
-
-    def save_config(self) -> bool:
-        """
-        Save the updated contestants to franklin.config.json.
-        Returns True if successful, False otherwise.
-        """
-        # Check if config file exists
-        if not self.config_path.exists():
-            logging.info(f"Config file {self.config_path} does not exist, creating it.")
-            self.notify("Creating new config file", severity="information")
-
-        # Load existing config or create new
-        try:
-            if self.config_path.exists():
-                config_data = json.loads(self.config_path.read_text())
-            else:
-                config_data = {"total_laps": 10, "contestants": []}
-        except Exception as e:
-            logging.error(f"Failed to read franklin.config.json: {e}")
-            config_data = {"total_laps": 10, "contestants": []}
-
-        # Update contestants in config
-        contestants_data = []
-        for contestant in self.contestants.contestants:
-            contestants_data.append(
-                {"transmitter_id": contestant.transmitter_id, "name": contestant.name}
-            )
-
-        config_data["contestants"] = contestants_data
-
-        # Write back to file
-        try:
-            # Create parent directories if they don't exist
-            self.config_path.parent.mkdir(parents=True, exist_ok=True)
-
-            # Write the config file
-            self.config_path.write_text(json.dumps(config_data, indent=2))
-            logging.info("Updated franklin.config.json with new driver names")
-            self.notify(
-                "Driver information updated successfully", severity="information"
-            )
-            return True
-        except Exception as e:
-            logging.error(f"Failed to write to franklin.config.json: {e}")
-            self.notify(f"Error saving configuration: {e}", severity="error")
-            return False
+        self.dismiss(True)
 
 
 if __name__ == "__main__":
@@ -1176,27 +1205,21 @@ if __name__ == "__main__":
     else:
         initial_mode = RaceMode.TRAINING
 
-    config_path = Path("franklin.config.json")
-
-    total_laps = 10
-    contestants_data = []
-
-    # Try to load configuration, but continue with defaults if file doesn't exist or is invalid
-    if config_path.exists():
-        try:
-            config_data = json.loads(config_path.read_text())
-            total_laps = config_data.get("total_laps", 10)
-            contestants_data = config_data.get("contestants", [])
-            logging.info(f"Loaded configuration from {config_path}")
-        except Exception as e:
-            logging.error(f"Failed to read franklin.config.json: {e}")
-            logging.info("Continuing with default configuration")
-    else:
-        logging.info(f"Config file {config_path} not found, using defaults")
+    (
+        configured_mode,
+        total_laps,
+        race_end_mode,
+        contestants_data,
+        last_race_contestant_ids,
+        racer_color_assignments,
+    ) = load_initial_config(Path("franklin.config.json"))
 
     app = Franklin(
-        initial_mode=initial_mode,
+        initial_mode=initial_mode if selected_modes == 1 else configured_mode,
         total_laps=total_laps,
         contestants_data=contestants_data,
+        race_end_mode=race_end_mode,
+        last_race_contestant_ids=last_race_contestant_ids,
+        racer_color_assignments=racer_color_assignments,
     )
     app.run()

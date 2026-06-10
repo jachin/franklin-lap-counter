@@ -120,3 +120,37 @@ def load_initial_config(
         last_race_contestant_ids,
         racer_color_assignments,
     )
+
+
+def write_config(
+    config_path: Path,
+    *,
+    race_mode: RaceMode,
+    total_laps: int,
+    race_end_mode: RaceEndMode,
+    contestants_data: list[dict[str, Any]],
+    last_race_contestant_ids: list[int],
+    racer_color_assignments: dict[int, RacerColorScheme],
+) -> None:
+    normalized_last_race_contestant_ids = sorted(
+        {
+            int(racer_id)
+            for racer_id in last_race_contestant_ids
+            if isinstance(racer_id, int) and racer_id > 0
+        }
+    )
+
+    data = {
+        "race_mode": race_mode.value,
+        "total_laps": total_laps,
+        "race_end_mode": race_end_mode.value,
+        "contestants": contestants_data,
+        "last_race_contestant_ids": normalized_last_race_contestant_ids,
+        "racer_color_assignments": {
+            str(racer_id): {"primary": colors[0], "secondary": colors[1]}
+            for racer_id, colors in sorted(racer_color_assignments.items())
+        },
+    }
+
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    config_path.write_text(json.dumps(data, indent=2))

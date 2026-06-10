@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from gui_config import load_initial_config
+from gui_config import load_initial_config, write_config
 from race.race_mode import RaceMode
 from race.race_state import RaceEndMode
 from racer_colors import COLOR_SCHEMES
@@ -191,6 +191,83 @@ class TestLoadInitialConfig(unittest.TestCase):
                     3: ("#aabbcc", "#ddeeff"),
                     10: COLOR_SCHEMES[3],
                 },
+            )
+
+
+class TestWriteConfig(unittest.TestCase):
+    def test_write_config_round_trip_with_load_initial_config(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config_path = Path(tmpdir) / "nested" / "franklin.config.json"
+            write_config(
+                config_path,
+                race_mode=RaceMode.REAL,
+                total_laps=14,
+                race_end_mode=RaceEndMode.MANUAL,
+                contestants_data=[
+                    {"transmitter_id": 2, "name": "Alice"},
+                    {"transmitter_id": 7, "name": "Bob"},
+                ],
+                last_race_contestant_ids=[7, 2, 7, -1, 0],
+                racer_color_assignments={
+                    7: ("#778899", "#112233"),
+                    2: ("#abcdef", "#fedcba"),
+                },
+            )
+
+            self.assertTrue(config_path.exists())
+
+            (
+                race_mode,
+                total_laps,
+                race_end_mode,
+                contestants,
+                last_race_ids,
+                color_map,
+            ) = load_initial_config(config_path)
+
+            self.assertEqual(race_mode, RaceMode.REAL)
+            self.assertEqual(total_laps, 14)
+            self.assertEqual(race_end_mode, RaceEndMode.MANUAL)
+            self.assertEqual(
+                contestants,
+                [
+                    {"transmitter_id": 2, "name": "Alice"},
+                    {"transmitter_id": 7, "name": "Bob"},
+                ],
+            )
+            self.assertEqual(last_race_ids, [2, 7])
+            self.assertEqual(
+                color_map,
+                {
+                    2: ("#abcdef", "#fedcba"),
+                    7: ("#778899", "#112233"),
+                },
+            )
+
+    def test_write_config_persists_expected_json_shape(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config_path = Path(tmpdir) / "franklin.config.json"
+            write_config(
+                config_path,
+                race_mode=RaceMode.FAKE,
+                total_laps=9,
+                race_end_mode=RaceEndMode.LAST_CAR,
+                contestants_data=[{"transmitter_id": 4, "name": "Cara"}],
+                last_race_contestant_ids=[4],
+                racer_color_assignments={4: ("#0a0b0c", "#0d0e0f")},
+            )
+
+            payload = json.loads(config_path.read_text())
+            self.assertEqual(payload["race_mode"], RaceMode.FAKE.value)
+            self.assertEqual(payload["total_laps"], 9)
+            self.assertEqual(payload["race_end_mode"], RaceEndMode.LAST_CAR.value)
+            self.assertEqual(
+                payload["contestants"], [{"transmitter_id": 4, "name": "Cara"}]
+            )
+            self.assertEqual(payload["last_race_contestant_ids"], [4])
+            self.assertEqual(
+                payload["racer_color_assignments"],
+                {"4": {"primary": "#0a0b0c", "secondary": "#0d0e0f"}},
             )
 
 

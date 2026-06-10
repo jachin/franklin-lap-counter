@@ -29,7 +29,7 @@ import gi
 import redis
 
 from database import LapDatabase
-from gui_config import load_initial_config
+from gui_config import load_initial_config, write_config
 from race.contestant import Contestant
 from race.race import (
     Race,
@@ -1725,18 +1725,15 @@ class FranklinGuiApp(Gtk.Application):
         else:
             last_race_contestant_ids = sorted(self.race.active_contestants)
 
-        data = {
-            "race_mode": self.race_mode.value,
-            "total_laps": self.total_laps,
-            "race_end_mode": self.race_end_mode.value,
-            "contestants": contestants,
-            "last_race_contestant_ids": last_race_contestant_ids,
-            "racer_color_assignments": {
-                str(racer_id): {"primary": colors[0], "secondary": colors[1]}
-                for racer_id, colors in sorted(self.racer_color_assignments.items())
-            },
-        }
-        self.config_path.write_text(json.dumps(data, indent=2))
+        write_config(
+            self.config_path,
+            race_mode=self.race_mode,
+            total_laps=self.total_laps,
+            race_end_mode=self.race_end_mode,
+            contestants_data=contestants,
+            last_race_contestant_ids=last_race_contestant_ids,
+            racer_color_assignments=self.racer_color_assignments,
+        )
 
     def connect_redis(self) -> None:
         try:

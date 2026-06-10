@@ -66,13 +66,13 @@ Channel policy:
 ### `heartbeat`
 
 ```json
-{"type":"heartbeat","simulated":false}
+{"type":"heartbeat","recorded_at":1736200010.000,"simulated":false}
 ```
 
 ### `status`
 
 ```json
-{"type":"status","message":"...","simulated":false}
+{"type":"status","message":"...","recorded_at":1736200010.123,"simulated":false}
 ```
 
 ### `lap`
@@ -82,10 +82,10 @@ Channel policy:
   "type":"lap",
   "racer_id":1,
   "sensor_id":1,
-  "race_time":12.345,
   "lap_number":3,
   "race_start_at":1736200000.250,
   "lap_at":1736200012.595,
+  "recorded_at":1736200012.600,
   "simulated":false
 }
 ```
@@ -93,19 +93,19 @@ Channel policy:
 ### `error`
 
 ```json
-{"type":"error","message":"...","simulated":false}
+{"type":"error","message":"...","recorded_at":1736200010.456,"simulated":false}
 ```
 
 ### `debug`
 
 ```json
-{"type":"debug","message":"...","simulated":false}
+{"type":"debug","message":"...","recorded_at":1736200010.789,"simulated":false}
 ```
 
 ### `start_race`
 
 ```json
-{"type":"start_race","at":1736200000.250,"command_id":"optional-id","source":"franklin_tui","simulated":false}
+{"type":"start_race","at":1736200000.250,"recorded_at":1736199998.250,"command_id":"optional-id","source":"franklin_tui","simulated":false}
 ```
 
 ### `raw`
@@ -119,9 +119,9 @@ Schema exists in Rust `OutMessage`, but `Raw` is intentionally **not published**
 
 Lap time semantics:
 
-- `lap_at` and `race_start_at` are Unix epoch seconds (authoritative absolute timeline)
+- `lap_at`, `race_start_at`, and `recorded_at` are Unix epoch seconds (authoritative absolute timeline)
 - `lap_number` is per-racer sequence count from lap stream (does not include penalties)
-- `race_time` is kept for compatibility and equals `lap_at - race_start_at`
+- If a consumer needs race-relative seconds, compute `lap_at - race_start_at`
 
 ## 3) Control timeline events on `franklin:events`
 
@@ -130,7 +130,7 @@ Produced by Rust owner (`OutMessage::RaceControl` and `OutMessage::CountdownPhas
 ### `countdown_phase`
 
 ```json
-{"type":"countdown_phase","phase":"ready","at":1736200000.250,"command_id":"optional-id","source":"franklin_tui"}
+{"type":"countdown_phase","phase":"ready","at":1736200000.250,"recorded_at":1736199998.250,"command_id":"optional-id","source":"franklin_tui"}
 ```
 
 Phases emitted for scheduled starts: `ready`, `set`, `go`.
@@ -142,6 +142,7 @@ Phases emitted for scheduled starts: `ready`, `set`, `go`.
   "type": "race_control",
   "command": "add_penalty",
   "command_id": "optional-id",
+  "recorded_at": 1736200000.500,
   "accepted": true,
   "message": "Penalty accepted",
   "racer_id": 2,
@@ -153,7 +154,7 @@ Phases emitted for scheduled starts: `ready`, `set`, `go`.
 
 Fields:
 
-- Required: `type`, `command`, `accepted`
+- Required: `type`, `command`, `recorded_at`, `accepted`
 - Optional: `command_id`, `message`, `racer_id`, `penalty_seconds`, `reason`, `lap_number`
 
 ## 4) Race snapshots on `franklin:race_state`

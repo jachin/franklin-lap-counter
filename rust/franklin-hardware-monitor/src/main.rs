@@ -36,29 +36,33 @@ enum OutMessage {
     Lap {
         racer_id: u32,
         sensor_id: u32,
-        race_time: f64,
         lap_number: u32,
         race_start_at: f64,
         lap_at: f64,
+        recorded_at: f64,
         #[serde(default)]
         simulated: bool,
     },
     Heartbeat {
+        recorded_at: f64,
         #[serde(default)]
         simulated: bool,
     },
     Status {
         message: String,
+        recorded_at: f64,
         #[serde(default)]
         simulated: bool,
     },
     Error {
         message: String,
+        recorded_at: f64,
         #[serde(default)]
         simulated: bool,
     },
     Debug {
         message: String,
+        recorded_at: f64,
         #[serde(default)]
         simulated: bool,
     },
@@ -66,6 +70,7 @@ enum OutMessage {
         command: String,
         #[serde(skip_serializing_if = "Option::is_none")]
         command_id: Option<String>,
+        recorded_at: f64,
         accepted: bool,
         #[serde(skip_serializing_if = "Option::is_none")]
         message: Option<String>,
@@ -81,6 +86,7 @@ enum OutMessage {
     CountdownPhase {
         phase: String,
         at: f64,
+        recorded_at: f64,
         #[serde(skip_serializing_if = "Option::is_none")]
         command_id: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none")]
@@ -88,6 +94,7 @@ enum OutMessage {
     },
     StartRace {
         at: f64,
+        recorded_at: f64,
         #[serde(skip_serializing_if = "Option::is_none")]
         command_id: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none")]
@@ -182,46 +189,65 @@ impl App {
             OutMessage::Lap {
                 racer_id,
                 sensor_id,
-                race_time,
                 lap_number,
                 race_start_at,
                 lap_at,
+                recorded_at,
                 simulated,
             } => format!(
-                "[LAP{}] Racer {} - Sensor {} - lap={} rel={:.3}s start_at={:.3} lap_at={:.3}",
+                "[LAP{}] Racer {} - Sensor {} - lap={} start_at={:.3} lap_at={:.3} recorded_at={:.3}",
                 if *simulated { " (SIM)" } else { "" },
                 racer_id,
                 sensor_id,
                 lap_number,
-                race_time,
                 race_start_at,
-                lap_at
+                lap_at,
+                recorded_at
             ),
-            OutMessage::Heartbeat { simulated } => {
+            OutMessage::Heartbeat {
+                recorded_at,
+                simulated,
+            } => {
                 if *simulated {
-                    "[HEARTBEAT (SIM)] ♥".to_string()
+                    format!("[HEARTBEAT (SIM)] ♥ at={:.3}", recorded_at)
                 } else {
-                    "[HEARTBEAT] ♥".to_string()
+                    format!("[HEARTBEAT] ♥ at={:.3}", recorded_at)
                 }
             }
-            OutMessage::Status { message, simulated } => format!(
-                "[STATUS{}] {}",
+            OutMessage::Status {
+                message,
+                recorded_at,
+                simulated,
+            } => format!(
+                "[STATUS{}] {} (at={:.3})",
                 if *simulated { " (SIM)" } else { "" },
-                message
+                message,
+                recorded_at
             ),
-            OutMessage::Error { message, simulated } => format!(
-                "[ERROR{}] {}",
+            OutMessage::Error {
+                message,
+                recorded_at,
+                simulated,
+            } => format!(
+                "[ERROR{}] {} (at={:.3})",
                 if *simulated { " (SIM)" } else { "" },
-                message
+                message,
+                recorded_at
             ),
-            OutMessage::Debug { message, simulated } => format!(
-                "[DEBUG{}] {}",
+            OutMessage::Debug {
+                message,
+                recorded_at,
+                simulated,
+            } => format!(
+                "[DEBUG{}] {} (at={:.3})",
                 if *simulated { " (SIM)" } else { "" },
-                message
+                message,
+                recorded_at
             ),
             OutMessage::RaceControl {
                 command,
                 command_id,
+                recorded_at,
                 accepted,
                 message,
                 racer_id,
@@ -230,7 +256,7 @@ impl App {
                 lap_number,
             } => {
                 let status = if *accepted { "accepted" } else { "rejected" };
-                let mut details: Vec<String> = Vec::new();
+                let mut details: Vec<String> = vec![format!("recorded_at={:.3}", recorded_at)];
                 if let Some(cid) = command_id {
                     details.push(format!("command_id={}", cid));
                 }
@@ -264,10 +290,14 @@ impl App {
             OutMessage::CountdownPhase {
                 phase,
                 at,
+                recorded_at,
                 command_id,
                 source,
             } => {
-                let mut details: Vec<String> = vec![format!("at={:.3}", at)];
+                let mut details: Vec<String> = vec![
+                    format!("at={:.3}", at),
+                    format!("recorded_at={:.3}", recorded_at),
+                ];
                 if let Some(cid) = command_id {
                     details.push(format!("command_id={}", cid));
                 }
@@ -278,11 +308,15 @@ impl App {
             }
             OutMessage::StartRace {
                 at,
+                recorded_at,
                 command_id,
                 source,
                 simulated,
             } => {
-                let mut details: Vec<String> = vec![format!("at={:.3}", at)];
+                let mut details: Vec<String> = vec![
+                    format!("at={:.3}", at),
+                    format!("recorded_at={:.3}", recorded_at),
+                ];
                 if let Some(cid) = command_id {
                     details.push(format!("command_id={}", cid));
                 }
@@ -396,7 +430,10 @@ impl HardwareComm {
     fn parse_hardware_line(&self, line: &str) -> Option<OutMessage> {
         if line.starts_with("\x01#") && line.contains("xC249") {
             // Heartbeat
-            Some(OutMessage::Heartbeat { simulated: false })
+            Some(OutMessage::Heartbeat {
+                recorded_at: now_epoch_seconds(),
+                simulated: false,
+            })
         } else if line.starts_with("\x01@") || line.starts_with("@") {
             // Lap message: \x01@\t<sensor_id>\t...\t<racer_id>\t<race_time>\t...
             // Try tab-separated first, then fall back to whitespace-separated
@@ -422,10 +459,10 @@ impl HardwareComm {
                             return Some(OutMessage::Lap {
                                 racer_id,
                                 sensor_id,
-                                race_time,
                                 lap_number: 0,
                                 race_start_at: 0.0,
-                                lap_at: 0.0,
+                                lap_at: race_time,
+                                recorded_at: now_epoch_seconds(),
                                 simulated: false,
                             });
                         } else {
@@ -448,6 +485,7 @@ impl HardwareComm {
             }
             Some(OutMessage::Status {
                 message: format!("Malformed lap line: {}", line),
+                recorded_at: now_epoch_seconds(),
                 simulated: false,
             })
         } else if line.starts_with("\x01$") {
@@ -459,6 +497,7 @@ impl HardwareComm {
                     if let Ok(sensor_id) = sensor_id_str.trim().parse::<u32>() {
                         return Some(OutMessage::Status {
                             message: format!("Sensor {} signal received", sensor_id),
+                            recorded_at: now_epoch_seconds(),
                             simulated: false,
                         });
                     }
@@ -466,11 +505,13 @@ impl HardwareComm {
                 // Fall back to status message instead of raw
                 Some(OutMessage::Status {
                     message: "New message received from hardware".to_string(),
+                    recorded_at: now_epoch_seconds(),
                     simulated: false,
                 })
             } else {
                 Some(OutMessage::Status {
                     message: format!("Malformed new_msg line: {}", line),
+                    recorded_at: now_epoch_seconds(),
                     simulated: false,
                 })
             }
@@ -478,12 +519,14 @@ impl HardwareComm {
             // Recognize common messages and turn them into status
             Some(OutMessage::Status {
                 message: format!("Hardware message: {}", line.trim()),
+                recorded_at: now_epoch_seconds(),
                 simulated: false,
             })
         } else if !line.is_empty() {
             // Only use Raw for debugging, not for normal operation
             Some(OutMessage::Debug {
                 message: format!("Hardware data: {}", line.trim()),
+                recorded_at: now_epoch_seconds(),
                 simulated: false,
             })
         } else {
@@ -624,7 +667,10 @@ async fn simulation_task(hw: Arc<HardwareComm>, app: Arc<Mutex<App>>) -> Result<
 
         // Send heartbeat every 2 seconds
         if last_heartbeat.elapsed() >= Duration::from_secs(2) {
-            hw.send_message(&OutMessage::Heartbeat { simulated: true })?;
+            hw.send_message(&OutMessage::Heartbeat {
+                recorded_at: now_epoch_seconds(),
+                simulated: true,
+            })?;
             last_heartbeat = Instant::now();
         }
 
@@ -662,6 +708,7 @@ async fn hardware_task(hw: Arc<HardwareComm>, app: Arc<Mutex<App>>) -> Result<()
                 error!("SERIAL: Failed to open serial connection: {}", e);
                 let _ = hw.send_message(&OutMessage::Status {
                     message: format!("Lap tracking hardware not found: {}", e),
+                    recorded_at: now_epoch_seconds(),
                     simulated: false,
                 });
                 return;
@@ -678,6 +725,7 @@ async fn hardware_task(hw: Arc<HardwareComm>, app: Arc<Mutex<App>>) -> Result<()
         info!("SERIAL: Connection established, sending initial status");
         if let Err(e) = hw.send_message(&OutMessage::Status {
             message: status_msg,
+            recorded_at: now_epoch_seconds(),
             simulated: false,
         }) {
             error!("Failed to send status: {}", e);
@@ -689,6 +737,7 @@ async fn hardware_task(hw: Arc<HardwareComm>, app: Arc<Mutex<App>>) -> Result<()
             error!("SERIAL: Failed to send reset commands: {}", e);
             let _ = hw.send_message(&OutMessage::Status {
                 message: format!("Error sending reset commands: {}", e),
+                recorded_at: now_epoch_seconds(),
                 simulated: false,
             });
         } else {
@@ -724,12 +773,14 @@ async fn hardware_task(hw: Arc<HardwareComm>, app: Arc<Mutex<App>>) -> Result<()
                     error!("SERIAL: Failed to send race reset commands: {}", e);
                     let _ = hw.send_message(&OutMessage::Status {
                         message: format!("Error sending reset commands: {}", e),
+                        recorded_at: now_epoch_seconds(),
                         simulated: false,
                     });
                 } else {
                     info!("SERIAL: Race reset commands sent successfully");
                     let _ = hw.send_message(&OutMessage::Status {
                         message: "Race reset commands sent".to_string(),
+                        recorded_at: now_epoch_seconds(),
                         simulated: false,
                     });
                 }
@@ -759,22 +810,24 @@ async fn hardware_task(hw: Arc<HardwareComm>, app: Arc<Mutex<App>>) -> Result<()
 
                         if let OutMessage::Lap {
                             racer_id,
-                            race_time,
                             lap_number,
                             race_start_at,
                             lap_at,
+                            recorded_at,
                             ..
                         } = &mut msg
                         {
+                            let relative_race_time = *lap_at;
                             let rt = tokio::runtime::Handle::current();
                             let (computed_lap_number, computed_start_at, computed_lap_at) = rt
                                 .block_on(async {
                                     let mut app = app.lock().await;
-                                    next_lap_metadata(&mut app, *racer_id, *race_time)
+                                    next_lap_metadata(&mut app, *racer_id, relative_race_time)
                                 });
                             *lap_number = computed_lap_number;
                             *race_start_at = computed_start_at;
                             *lap_at = computed_lap_at;
+                            *recorded_at = now_epoch_seconds();
                         }
 
                         if let Err(e) = hw.send_message(&msg) {
@@ -790,6 +843,7 @@ async fn hardware_task(hw: Arc<HardwareComm>, app: Arc<Mutex<App>>) -> Result<()
                     error!("Error reading from serial: {}", e);
                     let _ = hw.send_message(&OutMessage::Status {
                         message: format!("Error reading serial: {}", e),
+                        recorded_at: now_epoch_seconds(),
                         simulated: false,
                     });
                 }
@@ -800,6 +854,7 @@ async fn hardware_task(hw: Arc<HardwareComm>, app: Arc<Mutex<App>>) -> Result<()
                 warn!("Heartbeat lost");
                 let _ = hw.send_message(&OutMessage::Status {
                     message: "Heartbeat lost".to_string(),
+                    recorded_at: now_epoch_seconds(),
                     simulated: false,
                 });
                 last_heartbeat = Instant::now(); // Reset to avoid spam
@@ -846,10 +901,10 @@ fn handle_input(app: &mut App, hw: &HardwareComm, key: KeyCode) -> Result<()> {
             hw.send_message(&OutMessage::Lap {
                 racer_id,
                 sensor_id: 1,
-                race_time,
                 lap_number,
                 race_start_at,
                 lap_at,
+                recorded_at: now_epoch_seconds(),
                 simulated: true,
             })?;
             info!("Simulated lap for racer {} (lap #{})", racer_id, lap_number);
@@ -991,24 +1046,28 @@ async fn command_handler_task(hw: Arc<HardwareComm>, app: Arc<Mutex<App>>) -> Re
                             let _ = hw.send_message(&OutMessage::CountdownPhase {
                                 phase: "ready".to_string(),
                                 at: ready_epoch,
+                                recorded_at: now_epoch_seconds(),
                                 command_id: command_id.clone(),
                                 source: source.clone(),
                             });
                             let _ = hw.send_message(&OutMessage::CountdownPhase {
                                 phase: "set".to_string(),
                                 at: set_epoch,
+                                recorded_at: now_epoch_seconds(),
                                 command_id: command_id.clone(),
                                 source: source.clone(),
                             });
                             let _ = hw.send_message(&OutMessage::CountdownPhase {
                                 phase: "go".to_string(),
                                 at: go_epoch,
+                                recorded_at: now_epoch_seconds(),
                                 command_id: command_id.clone(),
                                 source: source.clone(),
                             });
 
                             let _ = hw.send_message(&OutMessage::StartRace {
                                 at: start_epoch,
+                                recorded_at: now_epoch_seconds(),
                                 command_id: command_id.clone(),
                                 source: source.clone(),
                                 simulated: is_simulation,
@@ -1023,6 +1082,7 @@ async fn command_handler_task(hw: Arc<HardwareComm>, app: Arc<Mutex<App>>) -> Re
                             let _ = hw.send_message(&OutMessage::RaceControl {
                                 command: "start_race".to_string(),
                                 command_id: command_id.clone(),
+                                recorded_at: now_epoch_seconds(),
                                 accepted: true,
                                 message: Some(status_message.clone()),
                                 racer_id: None,
@@ -1054,6 +1114,7 @@ async fn command_handler_task(hw: Arc<HardwareComm>, app: Arc<Mutex<App>>) -> Re
                             let _ = hw.send_message(&OutMessage::RaceControl {
                                 command: "end_race".to_string(),
                                 command_id: command_id.clone(),
+                                recorded_at: now_epoch_seconds(),
                                 accepted: true,
                                 message: Some(status_message.clone()),
                                 racer_id: None,
@@ -1080,6 +1141,7 @@ async fn command_handler_task(hw: Arc<HardwareComm>, app: Arc<Mutex<App>>) -> Re
                             let _ = hw.send_message(&OutMessage::RaceControl {
                                 command: "reset_race".to_string(),
                                 command_id: command_id.clone(),
+                                recorded_at: now_epoch_seconds(),
                                 accepted: true,
                                 message: Some(status_message.clone()),
                                 racer_id: None,
@@ -1102,10 +1164,10 @@ async fn command_handler_task(hw: Arc<HardwareComm>, app: Arc<Mutex<App>>) -> Re
                             if let Err(e) = hw.send_message(&OutMessage::Lap {
                                 racer_id: rid,
                                 sensor_id: sensor_id.unwrap_or(1),
-                                race_time: rel_race_time,
                                 lap_number,
                                 race_start_at,
                                 lap_at,
+                                recorded_at: now_epoch_seconds(),
                                 simulated: true,
                             }) {
                                 error!("Failed to send lap message: {}", e);
@@ -1119,6 +1181,7 @@ async fn command_handler_task(hw: Arc<HardwareComm>, app: Arc<Mutex<App>>) -> Re
                                     let _ = hw.send_message(&OutMessage::RaceControl {
                                         command: "add_penalty".to_string(),
                                         command_id: command_id.clone(),
+                                        recorded_at: now_epoch_seconds(),
                                         accepted: false,
                                         message: Some("Missing racer_id".to_string()),
                                         racer_id: None,
@@ -1135,6 +1198,7 @@ async fn command_handler_task(hw: Arc<HardwareComm>, app: Arc<Mutex<App>>) -> Re
                                 let _ = hw.send_message(&OutMessage::RaceControl {
                                     command: "add_penalty".to_string(),
                                     command_id: command_id.clone(),
+                                    recorded_at: now_epoch_seconds(),
                                     accepted: false,
                                     message: Some(
                                         "Penalty must be a positive 5-second increment".to_string(),
@@ -1150,6 +1214,7 @@ async fn command_handler_task(hw: Arc<HardwareComm>, app: Arc<Mutex<App>>) -> Re
                             let _ = hw.send_message(&OutMessage::RaceControl {
                                 command: "add_penalty".to_string(),
                                 command_id: command_id.clone(),
+                                recorded_at: now_epoch_seconds(),
                                 accepted: true,
                                 message: Some("Penalty accepted".to_string()),
                                 racer_id: Some(rid),
@@ -1166,6 +1231,7 @@ async fn command_handler_task(hw: Arc<HardwareComm>, app: Arc<Mutex<App>>) -> Re
                                     let _ = hw.send_message(&OutMessage::RaceControl {
                                         command: "remove_lap".to_string(),
                                         command_id: command_id.clone(),
+                                        recorded_at: now_epoch_seconds(),
                                         accepted: false,
                                         message: Some("Missing racer_id".to_string()),
                                         racer_id: None,
@@ -1182,6 +1248,7 @@ async fn command_handler_task(hw: Arc<HardwareComm>, app: Arc<Mutex<App>>) -> Re
                                     let _ = hw.send_message(&OutMessage::RaceControl {
                                         command: "remove_lap".to_string(),
                                         command_id: command_id.clone(),
+                                        recorded_at: now_epoch_seconds(),
                                         accepted: false,
                                         message: Some("lap_number must be > 0".to_string()),
                                         racer_id: Some(rid),
@@ -1196,6 +1263,7 @@ async fn command_handler_task(hw: Arc<HardwareComm>, app: Arc<Mutex<App>>) -> Re
                             let _ = hw.send_message(&OutMessage::RaceControl {
                                 command: "remove_lap".to_string(),
                                 command_id: command_id.clone(),
+                                recorded_at: now_epoch_seconds(),
                                 accepted: true,
                                 message: Some("Lap removal accepted".to_string()),
                                 racer_id: Some(rid),
@@ -1215,6 +1283,7 @@ async fn command_handler_task(hw: Arc<HardwareComm>, app: Arc<Mutex<App>>) -> Re
                                     let _ = hw.send_message(&OutMessage::RaceControl {
                                         command: "disqualify_racer".to_string(),
                                         command_id: command_id.clone(),
+                                        recorded_at: now_epoch_seconds(),
                                         accepted: false,
                                         message: Some("Missing racer_id".to_string()),
                                         racer_id: None,
@@ -1229,6 +1298,7 @@ async fn command_handler_task(hw: Arc<HardwareComm>, app: Arc<Mutex<App>>) -> Re
                             let _ = hw.send_message(&OutMessage::RaceControl {
                                 command: "disqualify_racer".to_string(),
                                 command_id: command_id.clone(),
+                                recorded_at: now_epoch_seconds(),
                                 accepted: true,
                                 message: Some("Racer disqualified".to_string()),
                                 racer_id: Some(rid),

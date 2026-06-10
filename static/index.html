@@ -714,7 +714,18 @@
                 let dataStr = "";
                 if (eventType === "lap") {
                     const driverName = getDriverName(eventData.racer_id);
-                    dataStr = `${driverName} completed a lap (Sensor ${eventData.sensor_id}) - Time: ${formatTime(eventData.race_time)}${eventData.simulated ? " [SIM]" : ""}`;
+                    let rel = Number(eventData.race_time);
+                    if (!Number.isFinite(rel)) {
+                        const lapAt = Number(eventData.lap_at);
+                        const raceStartAt = Number(eventData.race_start_at);
+                        if (
+                            Number.isFinite(lapAt) &&
+                            Number.isFinite(raceStartAt)
+                        ) {
+                            rel = lapAt - raceStartAt;
+                        }
+                    }
+                    dataStr = `${driverName} completed lap ${eventData.lap_number ?? "?"} (Sensor ${eventData.sensor_id}) - Time: ${Number.isFinite(rel) ? formatTime(rel) : "n/a"}${eventData.simulated ? " [SIM]" : ""}`;
                 } else if (eventType === "status") {
                     dataStr =
                         eventData.message ||

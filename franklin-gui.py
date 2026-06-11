@@ -18,6 +18,7 @@ import argparse
 import json
 import logging
 import queue
+import re
 import socket
 import subprocess
 import threading
@@ -31,6 +32,7 @@ import redis
 from database import LapDatabase
 from gui_config import load_initial_config, write_config
 from race.contestant import Contestant
+from race.lap import EpochSeconds, Lap, LapTime
 from race.race import (
     Race,
     RaceEndMode,
@@ -187,8 +189,135 @@ class FranklinGuiApp(Gtk.Application):
 
         in_progress = self.db.get_in_progress_race()
         if in_progress:
-            logging.info("Resuming in-progress race: %s", in_progress["id"])
-            self.current_race_id = int(in_progress["id"])
+            self._restore_race_from_db(in_progress)
+
+    def _restore_race_from_db(self, race_row: dict[str, Any]) -> None:
+        """Rebuild the live race from a persisted in-progress race.
+
+        Restores laps, active contestants, race state, the running clock, and
+        referee adjustments (penalties / disqualifications) so the GUI shows
+        correct data after a restart mid-race.
+        """
+        race_id = int(race_row["id"])
+        self.current_race_id = race_id
+        notes = str(race_row.get("notes") or "")
+
+        # Recover the mode/laps the race was actually created with.
+        restored_mode = self._race_mode_from_notes(notes)
+        if restored_mode is not None:
+            self.race_mode = restored_mode
+        laps_match = re.search(r"Total Laps:\s*(\d+)", notes)
+        if laps_match:
+            self.total_laps = int(laps_match.group(1))
+
+        race = Race(previous_race=self.previous_race)
+        if self.race_mode == RaceMode.TRAINING:
+            race.total_laps = TRAINING_LAP_TARGET
+            race.race_end_mode = RaceEndMode.MANUAL
+        else:
+            race.total_laps = self.total_laps
+            race.race_end_mode = self.race_end_mode
+
+        race_start_epoch = race_row.get("start_at")
+        restored_laps: list[Lap] = []
+        for lap_row in self.db.get_race_laps(race_id):
+            lap = self._lap_from_db_row(lap_row, race_start_epoch)
+            if lap is not None:
+                restored_laps.append(lap)
+
+        race.laps = restored_laps
+        race.active_contestants = {
+            lap.racer_id for lap in restored_laps if lap.lap_number > 0
+        }
+
+        # Resume the clock: anchor monotonic start so elapsed continues from the
+        # original epoch start time.
+        race.state = RaceState.RUNNING
+        if isinstance(race_start_epoch, (int, float)) and race_start_epoch > 0:
+            elapsed = max(0.0, time.time() - float(race_start_epoch))
+            race.start_time = time.monotonic() - elapsed
+            race.elapsed_time = elapsed
+        else:
+            race.start_time = time.monotonic()
+            race.elapsed_time = 0.0
+
+        self.race = race
+        self._restore_referee_adjustments(race_id)
+
+        logging.info(
+            "Resumed in-progress race %s: %s laps, %s racers, mode=%s",
+            race_id,
+            len(restored_laps),
+            len(race.active_contestants),
+            self.race_mode,
+        )
+
+    def _sync_controls_with_race_state(self) -> None:
+        running = is_race_going(self.race)
+        if self.start_btn:
+            self.start_btn.set_sensitive(not running)
+        if self.stop_btn:
+            self.stop_btn.set_sensitive(running)
+        if self.reset_btn:
+            self.reset_btn.set_sensitive(self.race.state == RaceState.FINISHED)
+
+    def _race_mode_from_notes(self, notes: str) -> RaceMode | None:
+        for mode in RaceMode:
+            if mode.value in notes:
+                return mode
+        return None
+
+    def _lap_from_db_row(
+        self, lap_row: dict[str, Any], race_start_epoch: Any
+    ) -> Lap | None:
+        race_start = lap_row.get("race_start_at")
+        if not isinstance(race_start, (int, float)) or race_start <= 0:
+            race_start = race_start_epoch
+        lap_at = lap_row.get("lap_at")
+        recorded_at = lap_row.get("recorded_at")
+        lap_number = int(lap_row.get("lap_number", 0))
+        lap_time = lap_row.get("lap_time")
+
+        if not isinstance(race_start, (int, float)) or race_start <= 0:
+            return None
+        if not isinstance(lap_at, (int, float)) or lap_at <= 0:
+            return None
+        if not isinstance(recorded_at, (int, float)) or recorded_at <= 0:
+            recorded_at = lap_at
+        if not isinstance(lap_time, (int, float)):
+            lap_time = float(lap_at) - float(race_start)
+
+        try:
+            return Lap(
+                racer_id=int(lap_row["racer_id"]),
+                lap_number=lap_number,
+                race_start_at=EpochSeconds(float(race_start)),
+                lap_at=EpochSeconds(float(lap_at)),
+                recorded_at=EpochSeconds(float(recorded_at)),
+                lap_time=LapTime(float(lap_time)),
+            )
+        except (ValueError, KeyError, TypeError) as exc:
+            logging.warning("Skipping unrestorable lap row %s: %s", lap_row, exc)
+            return None
+
+    def _restore_referee_adjustments(self, race_id: int) -> None:
+        actions = self.db.get_race_control_actions(race_id=race_id)
+        for action in actions:
+            if not action.get("accepted"):
+                continue
+            command = action.get("command")
+            racer_id_raw = action.get("racer_id")
+            if racer_id_raw is None:
+                continue
+            racer_id = int(racer_id_raw)
+            if command == "add_penalty":
+                penalty_seconds = int(action.get("penalty_seconds") or 0)
+                if penalty_seconds > 0:
+                    self.racer_penalties_seconds[racer_id] = (
+                        self.racer_penalties_seconds.get(racer_id, 0) + penalty_seconds
+                    )
+            elif command == "disqualify_racer":
+                self.disqualified_racers.add(racer_id)
 
     def _register_actions_and_shortcuts(self) -> None:
         action_defs: list[tuple[str, Any, list[str]]] = [
@@ -431,6 +560,13 @@ class FranklinGuiApp(Gtk.Application):
 
         self.toggle_event_log_visibility(show=False)
         self._start_system_status_updater()
+
+        if is_race_going(self.race) and self.current_race_id is not None:
+            self.append_event(
+                f"Resumed in-progress race (#{self.current_race_id}, "
+                f"{len(self.race.laps)} laps)"
+            )
+        self._sync_controls_with_race_state()
 
         self.append_event("GUI ready")
         self.refresh_views()

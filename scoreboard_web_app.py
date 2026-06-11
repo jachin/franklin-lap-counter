@@ -25,6 +25,8 @@ from database import LapDatabase
 REDIS_SOCKET_PATH = "./redis.sock"
 REDIS_OUT_CHANNEL = "hardware:out"
 REDIS_EVENTS_CHANNEL = "franklin:events"
+RACE_STATE_CHANNEL = "franklin:race_state"
+RACE_STATE_LATEST_KEY = "franklin:race_state:latest"
 WEB_PORT = 8080
 WEB_HOST = "0.0.0.0"  # Bind to all network interfaces
 STATIC_DIR = Path(__file__).parent / "static"
@@ -167,6 +169,15 @@ class ScoreboardWebAppServer:
             # Send initial connection confirmation
             await ws.send_json({"type": "connected", "message": "WebSocket connected"})
 
+            # Send latest snapshot for late joiners
+            try:
+                latest = await self.redis_client.get(RACE_STATE_LATEST_KEY)
+                if latest:
+                    snapshot = json.loads(latest)
+                    await ws.send_json(snapshot)
+            except Exception:
+                logger.exception("Failed to send latest snapshot to new client")
+
             # Keep connection alive and handle incoming messages (if any)
             async for msg in ws:
                 if msg.type == web.WSMsgType.TEXT:
@@ -197,12 +208,8 @@ class ScoreboardWebAppServer:
                 return web.json_response(default_config)
         except Exception as e:
             logger.error(f"Error reading config file: {e}")
-            # Return a default configuration on error
             default_config = {"total_laps": 10, "contestants": [], "error": str(e)}
             return web.json_response(default_config)
-            return web.json_response(
-                {"error": f"Error reading configuration: {str(e)}"}, status=500
-            )
 
     async def debug_simulate(self, request: web.Request) -> web.Response:
         """Debug endpoint to simulate events for testing"""
@@ -268,10 +275,12 @@ class ScoreboardWebAppServer:
                 unix_socket_path=self.redis_socket, decode_responses=True
             )
             self.redis_pubsub = self.redis_client.pubsub()
-            await self.redis_pubsub.subscribe(REDIS_OUT_CHANNEL, REDIS_EVENTS_CHANNEL)
+            await self.redis_pubsub.subscribe(
+                REDIS_OUT_CHANNEL, REDIS_EVENTS_CHANNEL, RACE_STATE_CHANNEL
+            )
 
             logger.info(
-                f"Subscribed to Redis channels: {REDIS_OUT_CHANNEL}, {REDIS_EVENTS_CHANNEL}"
+                f"Subscribed to Redis channels: {REDIS_OUT_CHANNEL}, {REDIS_EVENTS_CHANNEL}, {RACE_STATE_CHANNEL}"
             )
 
             while True:
@@ -281,8 +290,12 @@ class ScoreboardWebAppServer:
                 if message and message["type"] == "message":
                     try:
                         data = json.loads(message["data"])
+                        channel = message.get("channel", "")
+                        # Tag snapshot messages with channel so frontend can dispatch
+                        if channel == RACE_STATE_CHANNEL:
+                            data["_channel"] = RACE_STATE_CHANNEL
                         logger.debug(
-                            f"Broadcasting to {len(self.websockets)} clients: {data.get('type', 'unknown')}"
+                            f"Broadcasting to {len(self.websockets)} clients: ch={channel} keys={list(data.keys())[:5]}"
                         )
                         await self.broadcast_to_websockets(data)
                     except json.JSONDecodeError:

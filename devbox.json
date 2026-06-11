@@ -88,6 +88,7 @@
       ],
       "vnc:connect": ["open vnc://127.0.0.1:5901"],
       "ansible:deploy": [
+        "devbox run build:pi",
         "ansible-playbook -i playbooks/inventory.ini playbooks/deploy-franklin.yml"
       ],
       "ansible:deploy-gui": [

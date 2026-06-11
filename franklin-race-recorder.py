@@ -85,6 +85,7 @@ class RaceRecorder:
         # pure renderer.
         self._fake_schedule: list[tuple[float, dict[str, Any]]] = []
         self._pending_start_event: tuple[float, dict[str, Any]] | None = None
+        self._pending_command_start_event: tuple[float, dict[str, Any]] | None = None
 
         self._lock_value = f"{socket.gethostname()}:{os.getpid()}:{uuid4().hex}"
         self._running = True
@@ -124,6 +125,8 @@ class RaceRecorder:
                     self._process_fake_schedule(time.time())
                 if self._pending_start_event:
                     self._process_pending_start(time.time())
+                if self._pending_command_start_event:
+                    self._process_pending_command_start(time.time())
 
                 now = time.monotonic()
                 if now - last_lock_refresh >= LOCK_REFRESH_SECONDS:
@@ -233,11 +236,24 @@ class RaceRecorder:
         self._pending_start_event = None
         self._start_race_from_event(msg, start_at)
 
+    def _process_pending_command_start(self, now_epoch: float) -> None:
+        if self._pending_command_start_event is None:
+            return
+        start_at, msg = self._pending_command_start_event
+        if start_at > now_epoch:
+            return
+        self._pending_command_start_event = None
+        if is_race_going_state(self.engine.race.state):
+            return
+        logging.info("Starting race from command fallback for %.3f", start_at)
+        self._start_race_from_event(msg, start_at)
+
     def _start_race_from_event(self, msg: dict[str, Any], start_at: float) -> None:
         if is_race_going_state(self.engine.race.state):
             logging.warning("Ignoring start_race: race already in progress")
             return
         self._pending_start_event = None
+        self._pending_command_start_event = None
 
         command_id = msg.get("command_id")
         config: dict[str, Any] | None = None

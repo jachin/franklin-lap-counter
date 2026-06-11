@@ -30,6 +30,16 @@ fi
 
 touch gui.log hardware_redis.log redis.log web.log
 
+if [ ! -f "gui_config.py" ]; then
+  log "❌ Missing gui_config.py in $(pwd)"
+  exit 1
+fi
+
+if [ ! -f "redis_commands.py" ]; then
+  log "❌ Missing redis_commands.py in $(pwd)"
+  exit 1
+fi
+
 if ! command -v tmux >/dev/null 2>&1; then
   log "❌ tmux not found"
   exit 1
@@ -49,7 +59,9 @@ if tmux has-session -t "${TMUX_SESSION_NAME}" 2>/dev/null; then
   log "Tmux session '${TMUX_SESSION_NAME}' already running; reusing it"
 else
   log "Starting tmux services via ${TMUXINATOR_CONFIG}"
-  tmuxinator start -p "${TMUXINATOR_CONFIG}" --no-attach
+  if ! tmuxinator start -p "${TMUXINATOR_CONFIG}" --no-attach; then
+    log "⚠️ tmux services failed to start cleanly; continuing to launch GUI"
+  fi
 fi
 
 log "Starting Franklin GTK GUI (using saved mode preference unless CLI override is provided)..."

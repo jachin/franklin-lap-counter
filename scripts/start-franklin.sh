@@ -62,6 +62,14 @@ check_files() {
         missing_files+=("franklin-tui.py")
     fi
 
+    if [ ! -f "gui_config.py" ]; then
+        missing_files+=("gui_config.py")
+    fi
+
+    if [ ! -f "redis_commands.py" ]; then
+        missing_files+=("redis_commands.py")
+    fi
+
     if [ ! -f "scoreboard_web_app.py" ]; then
         missing_files+=("scoreboard_web_app.py")
     fi

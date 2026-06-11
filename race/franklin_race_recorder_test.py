@@ -149,6 +149,15 @@ class TestRaceRecorderRedisScenarios(RaceRecorderTestBase):
         self.assertEqual(snapshot["race_end_mode"], RaceEndMode.WINNER.value)
         self.assertEqual(self.redis.values[recorder_module.RACE_STATE_LATEST_KEY], json.dumps(snapshot))
 
+    def test_shutdown_finishes_running_race_and_publishes_snapshot(self):
+        self.send_start_command(total_laps=5, race_end_mode=RaceEndMode.MANUAL)
+        self.send_start_event()
+
+        self.recorder._finish_running_race_on_shutdown()
+
+        self.assertEqual(self.recorder.engine.race.state, RaceState.FINISHED)
+        self.assertEqual(self.snapshots()[-1]["state"], "finished")
+
     def test_winner_mode_publishes_end_race_once_when_leader_hits_target(self):
         self.send_start_command(total_laps=2, race_end_mode=RaceEndMode.WINNER)
         self.send_start_event()

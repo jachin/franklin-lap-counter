@@ -138,6 +138,7 @@ class RaceRecorder:
                         self._publish_snapshot()
                     last_tick = now
         finally:
+            self._finish_running_race_on_shutdown()
             try:
                 pubsub.close()
             except Exception:
@@ -149,6 +150,14 @@ class RaceRecorder:
 
     def stop(self, *_args: Any) -> None:
         self._running = False
+
+    def _finish_running_race_on_shutdown(self) -> None:
+        if not is_race_going_state(self.engine.race.state):
+            return
+        result = self.engine.end_race()
+        if result.changed:
+            logging.info("Ended running race during recorder shutdown")
+            self._publish_snapshot()
 
     # ------------------------------------------------------------------ #
     # Message handling

@@ -130,7 +130,7 @@ class FranklinGuiApp(Gtk.Application):
 
         # UI refs
         self.window: Gtk.ApplicationWindow | None = None
-        self.mode_combo: Gtk.ComboBoxText | None = None
+        self.mode_combo: Gtk.DropDown | None = None
         self.start_btn: Gtk.Button | None = None
         self.stop_btn: Gtk.Button | None = None
         self.reset_btn: Gtk.Button | None = None
@@ -154,6 +154,7 @@ class FranklinGuiApp(Gtk.Application):
         # changes with the window; everything else is static ``em``-based CSS.
         self._css_provider = Gtk.CssProvider()
         self._base_font_pt: int | None = None
+        self._swatch_css_classes: dict[tuple[str, str], str] = {}
 
         # Start light UI (mirrored on both sides of the timer)
         self._start_light_count = 4
@@ -262,7 +263,7 @@ class FranklinGuiApp(Gtk.Application):
         next_mode = modes[(idx + 1) % len(modes)]
         self.race_mode = next_mode
         if self.mode_combo:
-            self.mode_combo.set_active(modes.index(next_mode))
+            self.mode_combo.set_selected(modes.index(next_mode))
         self.append_event(f"Mode changed to {self.race_mode}")
         self.refresh_views()
 
@@ -308,22 +309,19 @@ class FranklinGuiApp(Gtk.Application):
         clock_row.append(time_label)
         clock_row.append(self._wrap_start_light_stack(right_lights))
 
-        # Keep the clock + start-light cluster proportional and centred rather
-        # than letting it stretch oddly on very wide or tall windows.
-        clock_frame = Gtk.AspectFrame(
-            xalign=0.5, yalign=0.5, ratio=1.0, obey_child=True
-        )
+        # Keep the clock + start-light cluster centred rather than stretching
+        # oddly on very wide windows.
+        clock_frame = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
+        clock_frame.set_halign(Gtk.Align.CENTER)
         clock_frame.set_hexpand(True)
         clock_frame.set_margin_bottom(10)
-        clock_frame.set_child(clock_row)
+        clock_frame.append(clock_row)
 
         controls = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        mode_combo = Gtk.ComboBoxText()
         mode_options = [RaceMode.REAL, RaceMode.FAKE, RaceMode.TRAINING]
-        for mode in mode_options:
-            mode_combo.append_text(mode.value)
-        mode_combo.set_active(mode_options.index(self.race_mode))
-        mode_combo.connect("changed", self.on_mode_changed)
+        mode_combo = Gtk.DropDown.new_from_strings([mode.value for mode in mode_options])
+        mode_combo.set_selected(mode_options.index(self.race_mode))
+        mode_combo.connect("notify::selected", self.on_mode_changed)
         self.mode_combo = mode_combo
 
         start_btn = Gtk.Button(label="Start Race (Ctrl+S)")
@@ -340,19 +338,19 @@ class FranklinGuiApp(Gtk.Application):
         reset_btn.connect("clicked", self.on_reset_clicked)
         self.reset_btn = reset_btn
 
-        manage_drivers_btn = Gtk.Button(label="Manage Drivers (Ctrl+R)")
-        manage_drivers_btn.connect("clicked", self.on_manage_drivers_clicked)
-
-        preferences_btn = Gtk.Button(label="Preferences (Ctrl+,)")
-        preferences_btn.connect("clicked", self.on_preferences_clicked)
+        actions_menu = Gio.Menu()
+        actions_menu.append("Manage Drivers", "app.manage_drivers")
+        actions_menu.append("Preferences", "app.preferences")
+        actions_menu.append("Toggle Event Log", "app.toggle_event_log")
+        actions_btn = Gtk.MenuButton(label="Actions")
+        actions_btn.set_menu_model(actions_menu)
 
         controls.append(Gtk.Label(label="Mode (Ctrl+T):"))
         controls.append(mode_combo)
         controls.append(start_btn)
         controls.append(stop_btn)
         controls.append(reset_btn)
-        controls.append(manage_drivers_btn)
-        controls.append(preferences_btn)
+        controls.append(actions_btn)
 
         status = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=16)
         state_label = Gtk.Label(
@@ -521,8 +519,8 @@ class FranklinGuiApp(Gtk.Application):
         """Current UI scale based on the live window size."""
         if not self.window:
             return self._initial_scale
-        width = self.window.get_allocated_width()
-        height = self.window.get_allocated_height()
+        width = self.window.get_width()
+        height = self.window.get_height()
         if width <= 0 or height <= 0:
             return self._initial_scale
         return self._scale_for_size(width, height)
@@ -543,8 +541,7 @@ class FranklinGuiApp(Gtk.Application):
         self._base_font_pt = base_pt
         self._css_provider.load_from_data(self._build_css(base_pt).encode("utf-8"))
 
-    @staticmethod
-    def _build_css(base_pt: int) -> str:
+    def _build_css(self, base_pt: int) -> str:
         """Whole-window stylesheet. Only the root font size is dynamic.
 
         ``pt`` units compose with the system text-scaling/DPI factor, and font
@@ -573,6 +570,8 @@ class FranklinGuiApp(Gtk.Application):
         .leaderboard-last-col {{ background-color: #fff9e8; }}
         .leaderboard-total-col {{ background-color: #ffecec; }}
 
+        {self._build_swatch_css()}
+
         .start-light {{
             border-radius: 999px;
             border: 2px solid #141414;
@@ -582,6 +581,13 @@ class FranklinGuiApp(Gtk.Application):
         .start-light-yellow {{ background-color: #f9a825; }}
         .start-light-green {{ background-color: #2e7d32; }}
         """
+
+    def _build_swatch_css(self) -> str:
+        return "\n".join(
+            f".{class_name}-primary {{ background-color: {primary_hex}; }}\n"
+            f".{class_name}-secondary {{ background-color: {secondary_hex}; }}"
+            for (primary_hex, secondary_hex), class_name in self._swatch_css_classes.items()
+        )
 
     def _create_start_light_stack(self) -> list[Gtk.Widget]:
         lights: list[Gtk.Widget] = []
@@ -656,9 +662,9 @@ class FranklinGuiApp(Gtk.Application):
         if not self.time_label or not self.window:
             return
 
-        timer_height = self.time_label.get_allocated_height()
-        timer_width = self.time_label.get_allocated_width()
-        window_width = self.window.get_allocated_width()
+        timer_height = self.time_label.get_height()
+        timer_width = self.time_label.get_width()
+        window_width = self.window.get_width()
         if timer_height <= 0 or timer_width <= 0 or window_width <= 0:
             return
 
@@ -1018,17 +1024,17 @@ class FranklinGuiApp(Gtk.Application):
         button.set_sensitive(False)
         return button
 
-    def _apply_widget_background(self, widget: Gtk.Widget, color_hex: str) -> None:
-        css_provider = Gtk.CssProvider()
-        css_provider.load_from_data(f"* {{ background-color: {color_hex}; }}".encode())
-        widget.get_style_context().add_provider(
-            css_provider,
-            Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION,
-        )
-
     def _new_color_swatch_for_colors(
         self, primary_hex: str, secondary_hex: str
     ) -> Gtk.Widget:
+        color_key = (primary_hex.lower(), secondary_hex.lower())
+        class_name = self._swatch_css_classes.get(color_key)
+        if class_name is None:
+            class_name = f"racer-swatch-{len(self._swatch_css_classes)}"
+            self._swatch_css_classes[color_key] = class_name
+            self._base_font_pt = None
+            self._apply_scale()
+
         swatch = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         swatch.set_size_request(34, 20)
         swatch.set_hexpand(False)
@@ -1037,15 +1043,14 @@ class FranklinGuiApp(Gtk.Application):
         swatch.set_valign(Gtk.Align.CENTER)
 
         top = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
+        top.add_css_class(f"{class_name}-primary")
         top.set_size_request(34, 7)
         middle = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
+        middle.add_css_class(f"{class_name}-secondary")
         middle.set_size_request(34, 6)
         bottom = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
+        bottom.add_css_class(f"{class_name}-primary")
         bottom.set_size_request(34, 7)
-
-        self._apply_widget_background(top, primary_hex)
-        self._apply_widget_background(middle, secondary_hex)
-        self._apply_widget_background(bottom, primary_hex)
 
         swatch.append(top)
         swatch.append(middle)
@@ -1268,9 +1273,9 @@ class FranklinGuiApp(Gtk.Application):
 
         return True
 
-    def on_mode_changed(self, combo: Gtk.ComboBoxText) -> None:
+    def on_mode_changed(self, combo: Gtk.DropDown, _param: Any) -> None:
         mode_options = [RaceMode.REAL, RaceMode.FAKE, RaceMode.TRAINING]
-        selected_idx = combo.get_active()
+        selected_idx = combo.get_selected()
         if selected_idx < 0 or selected_idx >= len(mode_options):
             selected_idx = mode_options.index(RaceMode.TRAINING)
         self.race_mode = mode_options[selected_idx]
@@ -1305,10 +1310,6 @@ class FranklinGuiApp(Gtk.Application):
             return
 
         dialog = Gtk.Dialog(title="Preferences", transient_for=self.window, modal=True)
-        dialog.add_button("Cancel", Gtk.ResponseType.CANCEL)
-        dialog.add_button("Save", Gtk.ResponseType.OK)
-
-        content = dialog.get_content_area()
         root = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
         root.set_margin_top(10)
         root.set_margin_bottom(10)
@@ -1330,14 +1331,11 @@ class FranklinGuiApp(Gtk.Application):
 
         end_mode_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         end_mode_row.append(Gtk.Label(label="Race Ends:"))
-        end_mode_combo = Gtk.ComboBoxText()
         end_mode_options: list[tuple[str, RaceEndMode]] = [
             ("When winner crosses finish line", RaceEndMode.WINNER),
             ("When last car crosses finish line", RaceEndMode.LAST_CAR),
             ("Only when user ends race", RaceEndMode.MANUAL),
         ]
-        for label, _mode in end_mode_options:
-            end_mode_combo.append_text(label)
         current_end_mode_index = next(
             (
                 idx
@@ -1346,16 +1344,27 @@ class FranklinGuiApp(Gtk.Application):
             ),
             1,
         )
-        end_mode_combo.set_active(current_end_mode_index)
+        end_mode_combo = Gtk.DropDown.new_from_strings(
+            [label for label, _mode in end_mode_options]
+        )
+        end_mode_combo.set_selected(current_end_mode_index)
         end_mode_row.append(end_mode_combo)
         root.append(end_mode_row)
 
-        content.append(root)
+        button_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        button_row.set_halign(Gtk.Align.END)
+        cancel_btn = Gtk.Button(label="Cancel")
+        save_btn = Gtk.Button(label="Save")
+        save_btn.add_css_class("suggested-action")
+        button_row.append(cancel_btn)
+        button_row.append(save_btn)
+        root.append(button_row)
+        dialog.set_child(root)
 
         def on_response(d: Gtk.Dialog, response: int) -> None:
             if response == Gtk.ResponseType.OK:
                 new_total_laps = int(laps_spin.get_value_as_int())
-                selected_idx = end_mode_combo.get_active()
+                selected_idx = end_mode_combo.get_selected()
                 if selected_idx < 0 or selected_idx >= len(end_mode_options):
                     selected_idx = 1
                 new_end_mode = end_mode_options[selected_idx][1]
@@ -1373,6 +1382,8 @@ class FranklinGuiApp(Gtk.Application):
             d.destroy()
 
         dialog.connect("response", on_response)
+        cancel_btn.connect("clicked", lambda _button: dialog.response(Gtk.ResponseType.CANCEL))
+        save_btn.connect("clicked", lambda _button: dialog.response(Gtk.ResponseType.OK))
         dialog.present()
 
     def on_manage_drivers_clicked(self, _button: Gtk.Button | None) -> None:
@@ -1382,10 +1393,6 @@ class FranklinGuiApp(Gtk.Application):
         dialog = Gtk.Dialog(
             title="Manage Drivers", transient_for=self.window, modal=True
         )
-        dialog.add_button("Cancel", Gtk.ResponseType.CANCEL)
-        dialog.add_button("Save", Gtk.ResponseType.OK)
-
-        content = dialog.get_content_area()
         root = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
         root.set_margin_top(8)
         root.set_margin_bottom(8)
@@ -1421,7 +1428,15 @@ class FranklinGuiApp(Gtk.Application):
         status_label.set_xalign(0)
         root.append(status_label)
 
-        content.append(root)
+        button_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        button_row.set_halign(Gtk.Align.END)
+        cancel_btn = Gtk.Button(label="Cancel")
+        save_btn = Gtk.Button(label="Save")
+        save_btn.add_css_class("suggested-action")
+        button_row.append(cancel_btn)
+        button_row.append(save_btn)
+        root.append(button_row)
+        dialog.set_child(root)
 
         staged: dict[int, str] = {
             c.transmitter_id: c.name for c in self.global_contestants.contestants
@@ -1610,6 +1625,8 @@ class FranklinGuiApp(Gtk.Application):
         key_controller = Gtk.EventControllerKey()
         key_controller.connect("key-pressed", on_key_pressed)
         dialog.add_controller(key_controller)
+        cancel_btn.connect("clicked", lambda _button: dialog.response(Gtk.ResponseType.CANCEL))
+        save_btn.connect("clicked", lambda _button: dialog.response(Gtk.ResponseType.OK))
 
         refresh_driver_rows()
         add_id_entry.grab_focus()

@@ -55,6 +55,7 @@ from gi.repository import (  # pyright: ignore[reportAttributeAccessIssue]  # no
     Gio,
     GLib,
     Gtk,
+    Pango,
 )
 
 # Training (practice) mode never auto-finishes; drivers keep lapping until the
@@ -64,11 +65,12 @@ TRAINING_LAP_TARGET = 1_000_000
 
 # Reference layout the UI was designed against. Fonts and the initial window
 # size scale relative to these so the GUI fits whatever screen it runs on.
-# GTK4 CSS has no viewport-relative units, so scaling is done programmatically.
+# GTK4 CSS has no viewport-relative units, so we set a single root font size
+# (in pt, which composes with the system text-scaling/DPI factor) and express
+# every other font size as an ``em`` multiple of it in static CSS.
 DESIGN_WIDTH = 1200
 DESIGN_HEIGHT = 760
-TIMER_BASE_SIZE = 48000  # Pango span size units for the race clock
-LEADERBOARD_TITLE_BASE_SIZE = 42000  # Pango span size units for the heading
+BASE_FONT_PT = 18  # root font size at scale 1.0; all other sizes are em multiples
 UI_SCALE_MIN = 0.4
 UI_SCALE_MAX = 1.6
 
@@ -161,7 +163,6 @@ class FranklinGuiApp(Gtk.Application):
         self.leaderboard_grid: Gtk.Grid | None = None
         self.leaderboard_title_label: Gtk.Label | None = None
         self.leaderboard_scroll: Gtk.ScrolledWindow | None = None
-        self._heading_scale_applied: float | None = None
         self._initial_scale: float = 1.0
         self.events_view: Gtk.TextView | None = None
         self.panes: Gtk.Paned | None = None
@@ -169,11 +170,12 @@ class FranklinGuiApp(Gtk.Application):
         self._events_visible = False
 
         self._system_status_thread: threading.Thread | None = None
-        self._leaderboard_css_provider = Gtk.CssProvider()
-        self._leaderboard_font_pt: int | None = None
+        # Single CSS provider for the whole window. Only the root font size
+        # changes with the window; everything else is static ``em``-based CSS.
+        self._css_provider = Gtk.CssProvider()
+        self._base_font_pt: int | None = None
 
         # Start light UI (mirrored on both sides of the timer)
-        self._start_lights_css_provider = Gtk.CssProvider()
         self._start_light_count = 4
         self._start_light_left_areas: list[Gtk.Widget] = []
         self._start_light_right_areas: list[Gtk.Widget] = []
@@ -375,16 +377,14 @@ class FranklinGuiApp(Gtk.Application):
         self.window = window
 
         root = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        root.add_css_class("franklin-root")
         root.set_margin_top(12)
         root.set_margin_bottom(12)
         root.set_margin_start(12)
         root.set_margin_end(12)
 
-        time_label = Gtk.Label()
-        time_label.set_markup(
-            f'<span size="{int(TIMER_BASE_SIZE * self._initial_scale)}" '
-            'weight="bold">00:00:00</span>'
-        )
+        time_label = Gtk.Label(label="00:00:00")
+        time_label.add_css_class("race-clock")
         time_label.set_xalign(0.5)
         time_label.set_halign(Gtk.Align.CENTER)
         time_label.set_hexpand(False)
@@ -393,7 +393,6 @@ class FranklinGuiApp(Gtk.Application):
         clock_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=24)
         clock_row.set_halign(Gtk.Align.CENTER)
         clock_row.set_hexpand(True)
-        clock_row.set_margin_bottom(10)
         left_lights = self._create_start_light_stack()
         right_lights = self._create_start_light_stack()
         self._start_light_left_areas = left_lights
@@ -402,6 +401,15 @@ class FranklinGuiApp(Gtk.Application):
         clock_row.append(self._wrap_start_light_stack(left_lights))
         clock_row.append(time_label)
         clock_row.append(self._wrap_start_light_stack(right_lights))
+
+        # Keep the clock + start-light cluster proportional and centred rather
+        # than letting it stretch oddly on very wide or tall windows.
+        clock_frame = Gtk.AspectFrame(
+            xalign=0.5, yalign=0.5, ratio=1.0, obey_child=True
+        )
+        clock_frame.set_hexpand(True)
+        clock_frame.set_margin_bottom(10)
+        clock_frame.set_child(clock_row)
 
         controls = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         mode_combo = Gtk.ComboBoxText()
@@ -457,11 +465,8 @@ class FranklinGuiApp(Gtk.Application):
         self.panes = panes
 
         leaderboard_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
-        leaderboard_label = Gtk.Label()
-        leaderboard_label.set_markup(
-            f'<span size="{int(LEADERBOARD_TITLE_BASE_SIZE * self._initial_scale)}" '
-            'weight="bold">Leaderboard</span>'
-        )
+        leaderboard_label = Gtk.Label(label="Leaderboard")
+        leaderboard_label.add_css_class("leaderboard-title")
         self.leaderboard_title_label = leaderboard_label
         leaderboard_box.append(leaderboard_label)
 
@@ -483,33 +488,9 @@ class FranklinGuiApp(Gtk.Application):
         if display is not None:
             Gtk.StyleContext.add_provider_for_display(
                 display,
-                self._leaderboard_css_provider,
+                self._css_provider,
                 Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION,
             )
-            Gtk.StyleContext.add_provider_for_display(
-                display,
-                self._start_lights_css_provider,
-                Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION,
-            )
-
-        self._start_lights_css_provider.load_from_data(
-            b"""
-            .start-light {
-                border-radius: 999px;
-                border: 2px solid #141414;
-                background-color: #c62828;
-            }
-            .start-light-red {
-                background-color: #c62828;
-            }
-            .start-light-yellow {
-                background-color: #f9a825;
-            }
-            .start-light-green {
-                background-color: #2e7d32;
-            }
-            """
-        )
 
         events_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
         events_box.append(Gtk.Label(label="Events"))
@@ -544,7 +525,7 @@ class FranklinGuiApp(Gtk.Application):
         status_bar.append(Gtk.Separator(orientation=Gtk.Orientation.VERTICAL))
         status_bar.append(wifi_label)
 
-        root.append(clock_row)
+        root.append(clock_frame)
         root.append(controls)
         root.append(status)
         root.append(panes)
@@ -552,7 +533,16 @@ class FranklinGuiApp(Gtk.Application):
         root.append(status_bar)
 
         window.set_child(root)
+
+        # Rescale fonts when the window size changes instead of polling on the
+        # timer. ``default-width``/``default-height`` track the live size of a
+        # resizable window in GTK4.
+        window.connect("notify::default-width", self._on_window_resize)
+        window.connect("notify::default-height", self._on_window_resize)
+        window.connect("map", self._on_window_resize)
+
         window.present()
+        self._apply_scale()
 
         self.connect_redis()
         GLib.timeout_add(100, self.update_time)
@@ -637,20 +627,61 @@ class FranklinGuiApp(Gtk.Application):
             return self._initial_scale
         return self._scale_for_size(width, height)
 
-    def _apply_heading_scale(self, scale: float) -> None:
-        """Scale the race clock and leaderboard heading to the window size."""
-        if (
-            self._heading_scale_applied is not None
-            and abs(scale - self._heading_scale_applied) < 0.02
-        ):
-            return
-        self._heading_scale_applied = scale
+    def _on_window_resize(self, *_args: Any) -> None:
+        self._apply_scale()
 
-        if self.leaderboard_title_label:
-            size = max(12000, int(LEADERBOARD_TITLE_BASE_SIZE * scale))
-            self.leaderboard_title_label.set_markup(
-                f'<span size="{size}" weight="bold">Leaderboard</span>'
-            )
+    def _apply_scale(self) -> None:
+        """Set the single root font size from the current window size.
+
+        Every other font size is an ``em`` multiple of this in the CSS built by
+        :meth:`_build_css`, so one provider reload rescales the whole window.
+        """
+        scale = self._ui_scale()
+        base_pt = max(8, round(BASE_FONT_PT * scale))
+        if base_pt == self._base_font_pt:
+            return
+        self._base_font_pt = base_pt
+        self._css_provider.load_from_data(self._build_css(base_pt).encode("utf-8"))
+
+    @staticmethod
+    def _build_css(base_pt: int) -> str:
+        """Whole-window stylesheet. Only the root font size is dynamic.
+
+        ``pt`` units compose with the system text-scaling/DPI factor, and font
+        size inherits down the widget tree, so the ``em`` multiples below all
+        resolve against the root size.
+        """
+        return f"""
+        .franklin-root {{ font-size: {base_pt}pt; }}
+
+        .race-clock {{ font-size: 2.6em; font-weight: bold; }}
+        .leaderboard-title {{ font-size: 2.3em; font-weight: bold; }}
+
+        .leaderboard-cell, .leaderboard-header-cell {{
+            font-size: 1em;
+            font-family: monospace;
+        }}
+        .leaderboard-status-cell {{
+            font-size: 1em;
+            font-family: 'Noto Color Emoji', monospace;
+        }}
+        .leaderboard-header-cell {{
+            font-weight: 700;
+            background-color: #ececec;
+        }}
+        .leaderboard-best-col {{ background-color: #eaf4ff; }}
+        .leaderboard-last-col {{ background-color: #fff9e8; }}
+        .leaderboard-total-col {{ background-color: #ffecec; }}
+
+        .start-light {{
+            border-radius: 999px;
+            border: 2px solid #141414;
+            background-color: #c62828;
+        }}
+        .start-light-red {{ background-color: #c62828; }}
+        .start-light-yellow {{ background-color: #f9a825; }}
+        .start-light-green {{ background-color: #2e7d32; }}
+        """
 
     def _create_start_light_stack(self) -> list[Gtk.Widget]:
         lights: list[Gtk.Widget] = []
@@ -1021,48 +1052,6 @@ class FranklinGuiApp(Gtk.Application):
         self._system_status_thread = threading.Thread(target=worker, daemon=True)
         self._system_status_thread.start()
 
-    def _set_leaderboard_font_size(self, point_size: int) -> None:
-        if point_size == self._leaderboard_font_pt:
-            return
-
-        css = (
-            ".leaderboard-cell, .leaderboard-header-cell { "
-            f"font-size: {point_size}pt; "
-            "font-family: monospace; "
-            "}"
-            ".leaderboard-status-cell {"
-            f"font-size: {point_size}pt; "
-            "font-family: 'Noto Color Emoji', monospace;"
-            "}"
-            ".leaderboard-header-cell {"
-            "font-weight: 700;"
-            "background-color: #ececec;"
-            "}"
-            ".leaderboard-best-col { background-color: #eaf4ff; }"
-            ".leaderboard-last-col { background-color: #fff9e8; }"
-            ".leaderboard-total-col { background-color: #ffecec; }"
-        )
-        self._leaderboard_css_provider.load_from_data(css.encode("utf-8"))
-        self._leaderboard_font_pt = point_size
-
-    def _update_leaderboard_font_size(self, racer_count: int) -> None:
-        if not self.leaderboard_scroll:
-            return
-
-        min_pt = 14
-        max_pt = 28
-        allocated_height = self.leaderboard_scroll.get_allocated_height()
-
-        # First render pass can be 0; keep a reasonable default.
-        if allocated_height <= 0:
-            self._set_leaderboard_font_size(20)
-            return
-
-        rows_to_fit = max(10, racer_count) + 1  # +1 for header line
-        estimated_pt = int(allocated_height / (rows_to_fit * 1.6))
-        target_pt = max(min_pt, min(max_pt, estimated_pt))
-        self._set_leaderboard_font_size(target_pt)
-
     def append_event(self, text: str) -> None:
         if not self.events_view:
             return
@@ -1080,27 +1069,6 @@ class FranklinGuiApp(Gtk.Application):
         seconds = (total_cs // 100) % 60
         centiseconds = total_cs % 100
         return f"{minutes:02}:{seconds:02}:{centiseconds:02}"
-
-    def _leaderboard_name_col_width(self) -> int:
-        # Non-name characters in:
-        # {pos:>3}  {status:^6} {name:<N} {laps:>4}  {best:>8}  {last:>8}  {total:>8}
-        non_name_chars = 48
-        min_name_chars = 12
-        max_name_chars = 48
-
-        if not self.leaderboard_scroll:
-            return 20
-
-        width_px = self.leaderboard_scroll.get_allocated_width()
-        if width_px <= 0:
-            return 20
-
-        # Approx monospace character width based on current leaderboard font size.
-        pt = self._leaderboard_font_pt or 20
-        approx_char_px = max(7.0, pt * 0.83)
-        total_chars = int((width_px - 12) / approx_char_px)
-        target = total_chars - non_name_chars
-        return max(min_name_chars, min(max_name_chars, target))
 
     def _humanize_race_state(self, state: RaceState) -> str:
         return state.name.replace("_", " ").title()
@@ -1291,6 +1259,7 @@ class FranklinGuiApp(Gtk.Application):
         css_class: str,
         hexpand: bool = False,
         extra_css_classes: list[str] | None = None,
+        ellipsize: bool = False,
     ) -> Gtk.Label:
         label = Gtk.Label(label=text)
         label.set_xalign(xalign)
@@ -1299,6 +1268,11 @@ class FranklinGuiApp(Gtk.Application):
             for extra_css_class in extra_css_classes:
                 label.add_css_class(extra_css_class)
         label.set_hexpand(hexpand)
+        if ellipsize:
+            # Let the name column shrink and tail-truncate instead of forcing
+            # the grid wider; GTK measures the rest of the columns to content.
+            label.set_ellipsize(Pango.EllipsizeMode.END)
+            label.set_width_chars(8)
         return label
 
     def _referee_adjusted_leaderboard(
@@ -1357,7 +1331,6 @@ class FranklinGuiApp(Gtk.Application):
             child = next_child
 
         leaderboard_data = self._referee_adjusted_leaderboard()
-        name_w = self._leaderboard_name_col_width()
 
         header_cells: list[tuple[str, float, bool]] = [
             ("Pos", 1.0, False),
@@ -1417,7 +1390,7 @@ class FranklinGuiApp(Gtk.Application):
                 (pos_label, 1.0, False, []),
                 (status_symbol, 0.5, False, ["leaderboard-status-cell"]),
                 ("", 0.5, False, []),
-                (name[:name_w], 0.0, True, []),
+                (name, 0.0, True, []),
                 (f"{lap_count}", 1.0, False, []),
                 (best_s, 1.0, False, ["leaderboard-best-col"]),
                 (last_s, 1.0, False, ["leaderboard-last-col"]),
@@ -1441,12 +1414,11 @@ class FranklinGuiApp(Gtk.Application):
                     css_class="leaderboard-cell",
                     hexpand=hexpand,
                     extra_css_classes=extra_classes,
+                    ellipsize=(col == 3),
                 )
                 if col == 1:
                     cell_label.set_size_request(status_col_width_px, -1)
                 self.leaderboard_grid.attach(cell_label, col, row_index, 1, 1)
-
-        self._update_leaderboard_font_size(len(leaderboard_data))
 
     def refresh_views(self) -> None:
         self._sync_start_lights_with_race_state()
@@ -1484,17 +1456,10 @@ class FranklinGuiApp(Gtk.Application):
     def update_time(self) -> bool:
         self._update_start_light_size()
 
-        scale = self._ui_scale()
-        self._apply_heading_scale(scale)
-
         if is_race_going(self.race) and self.race.start_time is not None:
             self.race.elapsed_time = time.monotonic() - self.race.start_time
         if self.time_label:
-            timer_size = max(12000, int(TIMER_BASE_SIZE * scale))
-            self.time_label.set_markup(
-                f'<span size="{timer_size}" weight="bold">'
-                f"{self._format_time_cs(self.race.elapsed_time)}</span>"
-            )
+            self.time_label.set_text(self._format_time_cs(self.race.elapsed_time))
 
         return True
 
@@ -1517,9 +1482,7 @@ class FranklinGuiApp(Gtk.Application):
         self.race.total_laps = self.total_laps
         self.race.race_end_mode = self.race_end_mode
         if self.time_label:
-            self.time_label.set_markup(
-                f'<span size="48000" weight="bold">{self._format_time_cs(self.race.elapsed_time)}</span>'
-            )
+            self.time_label.set_text(self._format_time_cs(self.race.elapsed_time))
 
         self._start_race_countdown()
         self.refresh_views()
@@ -1620,9 +1583,7 @@ class FranklinGuiApp(Gtk.Application):
             self.reset_btn.set_sensitive(False)
 
         if self.time_label:
-            self.time_label.set_markup(
-                f'<span size="48000" weight="bold">{self._format_time_cs(self.race.elapsed_time)}</span>'
-            )
+            self.time_label.set_text(self._format_time_cs(self.race.elapsed_time))
 
         self.append_event(f"Race reset ({source})")
         self.refresh_views()

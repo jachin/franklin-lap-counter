@@ -474,7 +474,7 @@ class FranklinGuiApp(Gtk.Application):
             pass
         if self._system_status_thread and self._system_status_thread.is_alive():
             self._system_status_thread.join(timeout=1.0)
-        super().do_shutdown()
+        Gtk.Application.do_shutdown(self)
 
     def toggle_event_log_visibility(self, show: bool | None = None) -> None:
         if not self.panes or not self.events_box:
@@ -1361,8 +1361,8 @@ class FranklinGuiApp(Gtk.Application):
         root.append(button_row)
         dialog.set_child(root)
 
-        def on_response(d: Gtk.Dialog, response: int) -> None:
-            if response == Gtk.ResponseType.OK:
+        def close_preferences(save: bool) -> None:
+            if save:
                 new_total_laps = int(laps_spin.get_value_as_int())
                 selected_idx = end_mode_combo.get_selected()
                 if selected_idx < 0 or selected_idx >= len(end_mode_options):
@@ -1379,11 +1379,10 @@ class FranklinGuiApp(Gtk.Application):
                 self.append_event(
                     f"Preferences saved: regular race laps = {new_total_laps}, end mode = {new_end_mode.value}"
                 )
-            d.destroy()
+            dialog.destroy()
 
-        dialog.connect("response", on_response)
-        cancel_btn.connect("clicked", lambda _button: dialog.response(Gtk.ResponseType.CANCEL))
-        save_btn.connect("clicked", lambda _button: dialog.response(Gtk.ResponseType.OK))
+        cancel_btn.connect("clicked", lambda _button: close_preferences(False))
+        save_btn.connect("clicked", lambda _button: close_preferences(True))
         dialog.present()
 
     def on_manage_drivers_clicked(self, _button: Gtk.Button | None) -> None:
@@ -1597,6 +1596,40 @@ class FranklinGuiApp(Gtk.Application):
         add_id_entry.connect("activate", lambda _entry: on_add_clicked(None))
         add_name_entry.connect("activate", lambda _entry: on_add_clicked(None))
 
+        def save_drivers() -> None:
+            cleaned = {
+                tid: name.strip() for tid, name in staged.items() if name.strip()
+            }
+
+            validated_colors: dict[int, RacerColorScheme] = {
+                tid: staged_colors.get(tid, ("#777777", "#bbbbbb"))
+                for tid in sorted(cleaned.keys())
+            }
+
+            self.global_contestants.contestants = [
+                Contestant(transmitter_id=tid, name=cleaned[tid])
+                for tid in sorted(cleaned.keys())
+            ]
+
+            # Keep colors for active/recent racers, and update edited driver colors.
+            kept_ids = set(cleaned.keys())
+            kept_ids.update(self._snapshot_racer_ids())
+            kept_ids.update(self.last_race_contestant_ids)
+
+            self.racer_color_assignments = {
+                tid: colors
+                for tid, colors in self.racer_color_assignments.items()
+                if tid in kept_ids
+            }
+            self.racer_color_assignments.update(validated_colors)
+
+            self.save_config()
+            self.refresh_views()
+            self.append_event(
+                f"Saved driver updates ({len(self.global_contestants.contestants)} total)"
+            )
+            dialog.destroy()
+
         def on_key_pressed(
             _controller: Gtk.EventControllerKey,
             keyval: int,
@@ -1606,7 +1639,7 @@ class FranklinGuiApp(Gtk.Application):
             if keyval in (Gdk.KEY_Return, Gdk.KEY_KP_Enter) and (
                 state & Gdk.ModifierType.CONTROL_MASK
             ):
-                dialog.response(Gtk.ResponseType.OK)
+                save_drivers()
                 return True
             if keyval in (Gdk.KEY_d, Gdk.KEY_D) and (
                 state & Gdk.ModifierType.CONTROL_MASK
@@ -1618,55 +1651,19 @@ class FranklinGuiApp(Gtk.Application):
                     set_status("Focused driver is no longer available")
                 return True
             if keyval == Gdk.KEY_Escape:
-                dialog.response(Gtk.ResponseType.CANCEL)
+                dialog.destroy()
                 return True
             return False
 
         key_controller = Gtk.EventControllerKey()
         key_controller.connect("key-pressed", on_key_pressed)
         dialog.add_controller(key_controller)
-        cancel_btn.connect("clicked", lambda _button: dialog.response(Gtk.ResponseType.CANCEL))
-        save_btn.connect("clicked", lambda _button: dialog.response(Gtk.ResponseType.OK))
+        cancel_btn.connect("clicked", lambda _button: dialog.destroy())
+        save_btn.connect("clicked", lambda _button: save_drivers())
 
         refresh_driver_rows()
         add_id_entry.grab_focus()
 
-        def on_response(d: Gtk.Dialog, response: int) -> None:
-            if response == Gtk.ResponseType.OK:
-                cleaned = {
-                    tid: name.strip() for tid, name in staged.items() if name.strip()
-                }
-
-                validated_colors: dict[int, RacerColorScheme] = {
-                    tid: staged_colors.get(tid, ("#777777", "#bbbbbb"))
-                    for tid in sorted(cleaned.keys())
-                }
-
-                self.global_contestants.contestants = [
-                    Contestant(transmitter_id=tid, name=cleaned[tid])
-                    for tid in sorted(cleaned.keys())
-                ]
-
-                # Keep colors for active/recent racers, and update edited driver colors.
-                kept_ids = set(cleaned.keys())
-                kept_ids.update(self._snapshot_racer_ids())
-                kept_ids.update(self.last_race_contestant_ids)
-
-                self.racer_color_assignments = {
-                    tid: colors
-                    for tid, colors in self.racer_color_assignments.items()
-                    if tid in kept_ids
-                }
-                self.racer_color_assignments.update(validated_colors)
-
-                self.save_config()
-                self.refresh_views()
-                self.append_event(
-                    f"Saved driver updates ({len(self.global_contestants.contestants)} total)"
-                )
-            d.destroy()
-
-        dialog.connect("response", on_response)
         dialog.present()
 
     def upsert_contestant(self, transmitter_id: int, name: str) -> None:

@@ -617,9 +617,51 @@ class FranklinGuiApp(Gtk.Application):
         )
         self.append_event(f"Scheduled countdown (go at {go_at:.3f})")
 
+        # Local visual countdown preview for GUI reliability. If Redis timeline
+        # events arrive, those handlers will keep this in sync.
+        def show_ready_local() -> bool:
+            if not self._start_sequence_running or is_race_going(self.race):
+                return False
+            self._set_start_sequence_phase("Ready")
+            self._set_start_light_pattern(
+                [
+                    "start-light-yellow",
+                    "start-light-red",
+                    "start-light-red",
+                    "start-light-yellow",
+                ]
+            )
+            self.refresh_views()
+            return False
+
+        def show_set_local() -> bool:
+            if not self._start_sequence_running or is_race_going(self.race):
+                return False
+            self._set_start_sequence_phase("Set")
+            self._set_start_lights("#f9a825")
+            self.refresh_views()
+            return False
+
+        def show_go_local() -> bool:
+            if not self._start_sequence_running or is_race_going(self.race):
+                return False
+            self._set_start_sequence_phase("Go")
+            self._set_start_lights("#2e7d32")
+            self.refresh_views()
+            return False
+
+        now_epoch = time.time()
+        ready_delay_ms = max(0, int((ready_at - now_epoch) * 1000))
+        set_delay_ms = max(0, int((set_at - now_epoch) * 1000))
+        go_delay_ms = max(0, int((go_at - now_epoch) * 1000))
+
+        GLib.timeout_add(ready_delay_ms, show_ready_local)
+        GLib.timeout_add(set_delay_ms, show_set_local)
+        GLib.timeout_add(go_delay_ms, show_go_local)
+
         # Fallback: if no start signal arrives from Redis timeline, start locally
         # so GUI operation is resilient to command-path issues.
-        fallback_delay_ms = max(0, int((go_at - time.time()) * 1000) + 250)
+        fallback_delay_ms = max(0, go_delay_ms + 250)
 
         def fallback_start_if_missing() -> bool:
             if self._start_sequence_running and not is_race_going(self.race):
@@ -1207,11 +1249,15 @@ class FranklinGuiApp(Gtk.Application):
             status = "Connected" if connected else "Waiting"
             self.detect_label.set_text(f"HW: {status}")
         if self.laps_remaining_label:
-            if self._start_sequence_running:
-                laps_remaining = self.total_laps
+            if self.race_mode == RaceMode.TRAINING:
+                self.laps_remaining_label.set_visible(False)
             else:
-                laps_remaining, _ = self.race.laps_remaining()
-            self.laps_remaining_label.set_text(f"Laps Remaining: {laps_remaining}")
+                self.laps_remaining_label.set_visible(True)
+                if self._start_sequence_running:
+                    laps_remaining = self.total_laps
+                else:
+                    laps_remaining, _ = self.race.laps_remaining()
+                self.laps_remaining_label.set_text(f"Laps Remaining: {laps_remaining}")
 
         self._render_leaderboard_grid()
 
@@ -2015,6 +2061,10 @@ class FranklinGuiApp(Gtk.Application):
                 self.redis_in_channel,
                 published_to,
             )
+            if published_to == 0:
+                self.append_event(
+                    f"Warning: command '{command}' had no hardware subscriber"
+                )
         except Exception as exc:
             logging.error("Failed to publish command '%s': %s", command, exc)
             self.append_event(f"Publish failed for {command}: {exc}")

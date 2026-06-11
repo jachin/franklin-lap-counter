@@ -11,6 +11,9 @@
       - "{{ project_root }}/racer_colors.py"
       - "{{ project_root }}/redis_commands.py"
       - "{{ project_root }}/database.py"
+    gui_startup_scripts_local:
+      - "{{ project_root }}/scripts/start-franklin.sh"
+      - "{{ project_root }}/scripts/start-franklin-gui-session.sh"
 
   pre_tasks:
     - name: Check required local GUI files exist
@@ -26,6 +29,20 @@
         msg: "Missing required GUI deployment file: {{ item.item }}"
       when: not item.stat.exists
       loop: "{{ local_gui_file_stats.results }}"
+
+    - name: Check required local GUI startup scripts exist
+      ansible.builtin.stat:
+        path: "{{ item }}"
+      delegate_to: localhost
+      become: false
+      register: local_gui_startup_script_stats
+      loop: "{{ gui_startup_scripts_local }}"
+
+    - name: Fail when required local GUI startup scripts are missing
+      ansible.builtin.fail:
+        msg: "Missing required GUI startup script: {{ item.item }}"
+      when: not item.stat.exists
+      loop: "{{ local_gui_startup_script_stats.results }}"
 
   tasks:
     - name: Ensure destination directory exists
@@ -53,9 +70,18 @@
         group: "{{ franklin_group }}"
         mode: preserve
 
+    - name: Deploy GUI startup scripts (ensure executable mode)
+      ansible.builtin.copy:
+        src: "{{ item }}"
+        dest: "{{ pi_dest_dir }}/{{ item | basename }}"
+        owner: "{{ franklin_user }}"
+        group: "{{ franklin_group }}"
+        mode: "0755"
+      loop: "{{ gui_startup_scripts_local }}"
+
     - name: Deployment summary
       ansible.builtin.debug:
         msg:
           - "Deployed GUI runtime files to {{ inventory_hostname }}:{{ pi_dest_dir }}"
-          - "Updated: franklin-gui.py, gui_config.py, racer_colors.py, redis_commands.py, database.py, race/"
+          - "Updated: franklin-gui.py, gui_config.py, racer_colors.py, redis_commands.py, database.py, race/, start-franklin.sh, start-franklin-gui-session.sh"
           - "Restart GUI session on Pi to pick up changes"

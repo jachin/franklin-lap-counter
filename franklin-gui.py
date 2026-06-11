@@ -57,7 +57,7 @@ from gi.repository import (  # pyright: ignore[reportAttributeAccessIssue]  # no
 # every other font size as an ``em`` multiple of it in static CSS.
 DESIGN_WIDTH = 1200
 DESIGN_HEIGHT = 760
-BASE_FONT_PT = 18  # root font size at scale 1.0; all other sizes are em multiples
+BASE_FONT_PT = 17  # root font size at scale 1.0; all other sizes are em multiples
 UI_SCALE_MIN = 0.4
 UI_SCALE_MAX = 1.6
 

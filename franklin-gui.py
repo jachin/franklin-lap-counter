@@ -60,6 +60,16 @@ from gi.repository import (  # pyright: ignore[reportAttributeAccessIssue]  # no
 # race engine from declaring a winner or capping laps.
 TRAINING_LAP_TARGET = 1_000_000
 
+# Reference layout the UI was designed against. Fonts and the initial window
+# size scale relative to these so the GUI fits whatever screen it runs on.
+# GTK4 CSS has no viewport-relative units, so scaling is done programmatically.
+DESIGN_WIDTH = 1200
+DESIGN_HEIGHT = 760
+TIMER_BASE_SIZE = 48000  # Pango span size units for the race clock
+LEADERBOARD_TITLE_BASE_SIZE = 42000  # Pango span size units for the heading
+UI_SCALE_MIN = 0.4
+UI_SCALE_MAX = 1.6
+
 
 class FranklinGuiApp(Gtk.Application):
     def __init__(
@@ -147,7 +157,10 @@ class FranklinGuiApp(Gtk.Application):
         self.ethernet_label: Gtk.Label | None = None
         self.wifi_label: Gtk.Label | None = None
         self.leaderboard_grid: Gtk.Grid | None = None
+        self.leaderboard_title_label: Gtk.Label | None = None
         self.leaderboard_scroll: Gtk.ScrolledWindow | None = None
+        self._heading_scale_applied: float | None = None
+        self._initial_scale: float = 1.0
         self.events_view: Gtk.TextView | None = None
         self.panes: Gtk.Paned | None = None
         self.events_box: Gtk.Box | None = None
@@ -228,7 +241,8 @@ class FranklinGuiApp(Gtk.Application):
     def do_activate(self) -> None:  # type: ignore[override]
         window = Gtk.ApplicationWindow(application=self)
         window.set_title("Franklin Lap Counter (GTK)")
-        window.set_default_size(1200, 760)
+        win_w, win_h = self._fit_size_to_monitor()
+        window.set_default_size(win_w, win_h)
         self.window = window
 
         root = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
@@ -238,7 +252,10 @@ class FranklinGuiApp(Gtk.Application):
         root.set_margin_end(12)
 
         time_label = Gtk.Label()
-        time_label.set_markup('<span size="48000" weight="bold">00:00:00</span>')
+        time_label.set_markup(
+            f'<span size="{int(TIMER_BASE_SIZE * self._initial_scale)}" '
+            'weight="bold">00:00:00</span>'
+        )
         time_label.set_xalign(0.5)
         time_label.set_halign(Gtk.Align.CENTER)
         time_label.set_hexpand(False)
@@ -313,8 +330,10 @@ class FranklinGuiApp(Gtk.Application):
         leaderboard_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
         leaderboard_label = Gtk.Label()
         leaderboard_label.set_markup(
-            '<span size="42000" weight="bold">Leaderboard</span>'
+            f'<span size="{int(LEADERBOARD_TITLE_BASE_SIZE * self._initial_scale)}" '
+            'weight="bold">Leaderboard</span>'
         )
+        self.leaderboard_title_label = leaderboard_label
         leaderboard_box.append(leaderboard_label)
 
         leaderboard_grid = Gtk.Grid()
@@ -445,6 +464,57 @@ class FranklinGuiApp(Gtk.Application):
         else:
             self.panes.set_end_child(None)
             self._events_visible = False
+
+    def _fit_size_to_monitor(self) -> tuple[int, int]:
+        """Return an initial window size that fits the current monitor.
+
+        Also records ``self._initial_scale`` so first-paint fonts match the
+        chosen window size (GTK has no viewport-relative CSS units).
+        """
+        win_w, win_h = DESIGN_WIDTH, DESIGN_HEIGHT
+        display = Gdk.Display.get_default()
+        monitors = display.get_monitors() if display is not None else None
+        if monitors is not None and monitors.get_n_items() > 0:
+            monitor = monitors.get_item(0)
+            geometry = monitor.get_geometry()  # type: ignore[union-attr]
+            if geometry.width > 0 and geometry.height > 0:
+                # Leave a margin so window decorations/panels still fit.
+                win_w = min(DESIGN_WIDTH, int(geometry.width * 0.95))
+                win_h = min(DESIGN_HEIGHT, int(geometry.height * 0.92))
+
+        self._initial_scale = self._scale_for_size(win_w, win_h)
+        return win_w, win_h
+
+    def _scale_for_size(self, width: int, height: int) -> float:
+        if width <= 0 or height <= 0:
+            return 1.0
+        scale = min(width / DESIGN_WIDTH, height / DESIGN_HEIGHT)
+        return max(UI_SCALE_MIN, min(UI_SCALE_MAX, scale))
+
+    def _ui_scale(self) -> float:
+        """Current UI scale based on the live window size."""
+        if not self.window:
+            return self._initial_scale
+        width = self.window.get_allocated_width()
+        height = self.window.get_allocated_height()
+        if width <= 0 or height <= 0:
+            return self._initial_scale
+        return self._scale_for_size(width, height)
+
+    def _apply_heading_scale(self, scale: float) -> None:
+        """Scale the race clock and leaderboard heading to the window size."""
+        if (
+            self._heading_scale_applied is not None
+            and abs(scale - self._heading_scale_applied) < 0.02
+        ):
+            return
+        self._heading_scale_applied = scale
+
+        if self.leaderboard_title_label:
+            size = max(12000, int(LEADERBOARD_TITLE_BASE_SIZE * scale))
+            self.leaderboard_title_label.set_markup(
+                f'<span size="{size}" weight="bold">Leaderboard</span>'
+            )
 
     def _create_start_light_stack(self) -> list[Gtk.Widget]:
         lights: list[Gtk.Widget] = []
@@ -1278,11 +1348,16 @@ class FranklinGuiApp(Gtk.Application):
     def update_time(self) -> bool:
         self._update_start_light_size()
 
+        scale = self._ui_scale()
+        self._apply_heading_scale(scale)
+
         if is_race_going(self.race) and self.race.start_time is not None:
             self.race.elapsed_time = time.monotonic() - self.race.start_time
         if self.time_label:
+            timer_size = max(12000, int(TIMER_BASE_SIZE * scale))
             self.time_label.set_markup(
-                f'<span size="48000" weight="bold">{self._format_time_cs(self.race.elapsed_time)}</span>'
+                f'<span size="{timer_size}" weight="bold">'
+                f"{self._format_time_cs(self.race.elapsed_time)}</span>"
             )
 
         return True

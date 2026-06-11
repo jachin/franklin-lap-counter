@@ -29,6 +29,8 @@ REDIS_SOCKET_PATH = "./redis.sock"
 REDIS_IN_CHANNEL = "hardware:in"
 REDIS_OUT_CHANNEL = "hardware:out"
 REDIS_EVENTS_CHANNEL = "franklin:events"
+RACE_STATE_CHANNEL = "franklin:race_state"
+RACE_STATE_LATEST_KEY = "franklin:race_state:latest"
 WEB_PORT = 8081
 WEB_HOST = "0.0.0.0"
 STATIC_DIR = Path(__file__).parent / "static"
@@ -86,6 +88,15 @@ class RefereeWebAppServer:
                 "message": "Referee WebSocket connected",
             }
         )
+
+        try:
+            latest = await self.redis_client.get(RACE_STATE_LATEST_KEY)
+            if latest:
+                snapshot = json.loads(latest)
+                snapshot["_channel"] = RACE_STATE_CHANNEL
+                await ws.send_json(snapshot)
+        except Exception:
+            logger.exception("Failed to send latest snapshot to new referee client")
 
         try:
             async for _msg in ws:
@@ -299,12 +310,15 @@ class RefereeWebAppServer:
                 decode_responses=True,
             )
             self.redis_pubsub = self.redis_client.pubsub()
-            await self.redis_pubsub.subscribe(REDIS_EVENTS_CHANNEL, REDIS_OUT_CHANNEL)
+            await self.redis_pubsub.subscribe(
+                REDIS_EVENTS_CHANNEL, REDIS_OUT_CHANNEL, RACE_STATE_CHANNEL
+            )
 
             logger.info(
-                "Referee app subscribed to Redis channels: %s, %s",
+                "Referee app subscribed to Redis channels: %s, %s, %s",
                 REDIS_EVENTS_CHANNEL,
                 REDIS_OUT_CHANNEL,
+                RACE_STATE_CHANNEL,
             )
 
             while True:
@@ -318,6 +332,9 @@ class RefereeWebAppServer:
                         try:
                             parsed = json.loads(data)
                             if isinstance(parsed, dict):
+                                ch = message.get("channel", "")
+                                if ch == RACE_STATE_CHANNEL:
+                                    parsed["_channel"] = RACE_STATE_CHANNEL
                                 if parsed.get("type") == "race_control":
                                     self._audit_race_control_event(parsed)
                                 await self.broadcast_to_websockets(parsed)

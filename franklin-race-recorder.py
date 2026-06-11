@@ -190,7 +190,15 @@ class RaceRecorder:
         # heartbeat/status/countdown_phase/debug/error are display-only here.
 
     def _handle_command(self, msg: dict[str, Any]) -> None:
-        """Cache race-config carried on ``start_race`` commands."""
+        """Cache race-config and start the race directly from a command.
+
+        Previously the recorder only cached the config and waited for the Rust
+        hardware monitor to echo a ``start_race`` event on ``hardware:out``.
+        Now it also starts the race immediately so that the TUI/GUI/referee
+        buttons work without the Rust monitor.  When the Rust monitor *is*
+        running and echoes the event, that follow-up handler is skipped because
+        the race is already going.
+        """
         if msg.get("command") != "start_race":
             return
         config = self._config_from_command(msg)
@@ -199,20 +207,11 @@ class RaceRecorder:
         if isinstance(command_id, str) and command_id:
             self._pending_start_config[command_id] = config
 
-        # The hardware monitor normally echoes a start_race event on
-        # hardware:out after the countdown. Training mode should still work if
-        # that echo is unavailable/stale, so schedule a recorder-owned fallback
-        # from the command itself. A real hardware echo with the same command_id
-        # cancels this fallback in _start_race_from_event().
-        start_at_raw = msg.get("start_at") or msg.get("go_at")
-        if isinstance(start_at_raw, (int, float)):
-            fallback_msg = {
-                "type": "start_race",
-                "at": float(start_at_raw),
-                "command_id": command_id,
-                "source": msg.get("source"),
-            }
-            self._pending_command_start_event = (float(start_at_raw), fallback_msg)
+        if not is_race_going_state(self.engine.race.state):
+            start_at = msg.get("start_at")
+            if not isinstance(start_at, (int, float)):
+                start_at = time.time()
+            self._start_race_from_event(msg, float(start_at))
 
     def _handle_start_event(self, msg: dict[str, Any]) -> None:
         at_raw = msg.get("at")
@@ -250,6 +249,9 @@ class RaceRecorder:
         self._start_race_from_event(msg, start_at)
 
     def _start_race_from_event(self, msg: dict[str, Any], start_at: float) -> None:
+        if is_race_going_state(self.engine.race.state):
+            logging.warning("Ignoring start_race: race already in progress")
+            return
         self._pending_start_event = None
         self._pending_command_start_event = None
 

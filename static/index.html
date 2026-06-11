@@ -721,6 +721,113 @@
                 });
             }
 
+            function handleSnapshot(snapshot) {
+                console.log("Handling race state snapshot:", snapshot);
+
+                // Update race info directly from snapshot
+                const raceState = snapshot.state || "not_started";
+                elements.raceStateDisplay.textContent = raceState
+                    .replace(/_/g, " ")
+                    .replace(/\b\w/g, (c) => c.toUpperCase());
+
+                elements.raceStateDisplay.className = "";
+                elements.raceStateDisplay.classList.add("race-state", raceState);
+
+                elements.raceTimeDisplay.textContent = formatTime(
+                    snapshot.elapsed_seconds || 0,
+                );
+                elements.totalLapsDisplay.textContent =
+                    snapshot.total_laps || "?";
+
+                // Update state.currentRace so auto-refresh timer works
+                if (!state.currentRace) {
+                    state.currentRace = {};
+                }
+                state.currentRace.status = raceState;
+
+                // Update standings from snapshot leaderboard
+                if (snapshot.leaderboard && snapshot.leaderboard.length > 0) {
+                    elements.standingsBody.innerHTML = "";
+                    snapshot.leaderboard.forEach((entry) => {
+                        const driverName = getDriverName(entry.racer_id);
+                        const lapCount = entry.lap_count || 0;
+                        const lastLapTime = entry.last_lap_time
+                            ? formatTime(entry.last_lap_time)
+                            : "00:00:00";
+                        const bestLapTime = entry.best_lap_time
+                            ? formatTime(entry.best_lap_time)
+                            : "00:00:00";
+                        const totalTime = entry.adjusted_total_time
+                            ? formatTime(entry.adjusted_total_time)
+                            : "00:00:00";
+
+                        // Find overall best lap time for highlighting
+                        let overallBest = Infinity;
+                        snapshot.leaderboard.forEach((e) => {
+                            if (
+                                e.best_lap_time &&
+                                e.best_lap_time < overallBest
+                            ) {
+                                overallBest = e.best_lap_time;
+                            }
+                        });
+                        const hasBestLap =
+                            entry.best_lap_time &&
+                            Math.abs(entry.best_lap_time - overallBest) < 0.001;
+
+                        const pos = entry.position
+                            ? entry.position
+                            : entry.disqualified
+                              ? "DQ"
+                              : "-";
+                        const row = document.createElement("tr");
+                        row.innerHTML = `
+                            <td>${pos}</td>
+                            <td>
+                                <span class="driver-color" style="background-color: ${getDriverColor(entry.racer_id)}"></span>
+                                ${driverName}${entry.disqualified ? " (DQ)" : ""}
+                            </td>
+                            <td>${lapCount}</td>
+                            <td>${lastLapTime}</td>
+                            <td class="${hasBestLap ? "best-lap" : ""}">${bestLapTime}</td>
+                            <td>${totalTime}</td>
+                        `;
+                        elements.standingsBody.appendChild(row);
+                    });
+                }
+
+                state.lastUpdateTime = new Date();
+                elements.lastUpdateTime.textContent = formatTimestamp(
+                    state.lastUpdateTime,
+                );
+
+                // Add penalties / DQ info to event log
+                if (
+                    snapshot.penalties &&
+                    Object.keys(snapshot.penalties).length > 0
+                ) {
+                    Object.entries(snapshot.penalties).forEach(
+                        ([racerId, sec]) => {
+                            addEvent({
+                                type: "status",
+                                message: `Penalty ${sec}s applied to ${getDriverName(racerId)}`,
+                            });
+                        },
+                    );
+                }
+                if (
+                    snapshot.disqualified &&
+                    snapshot.disqualified.length > 0
+                ) {
+                    snapshot.disqualified.forEach((racerId) => {
+                        addEvent({
+                            type: "status",
+                            message: `${getDriverName(racerId)} has been DISQUALIFIED`,
+                        });
+                    });
+                }
+            }
+
             function addEvent(eventData) {
                 const eventType = eventData.type || "unknown";
 
@@ -947,21 +1054,24 @@
                         const data = JSON.parse(event.data);
                         console.log("WebSocket received:", data);
 
+                        // Handle race state snapshots from franklin:race_state
+                        if (data._channel === "franklin:race_state" || data.schema_version) {
+                            handleSnapshot(data);
+                            return;
+                        }
+
                         // For race start/end events, refresh immediately
                         if (data.type === "status" && data.message) {
                             console.log(
                                 "Status message received, checking for race state changes:",
                                 data.message,
                             );
-                            // For any status message, refresh after a short delay
-                            // This ensures we catch all race state changes
                             setTimeout(() => {
                                 fetchRaceData().catch((err) => {
                                     console.warn(
                                         "Refresh error after status message:",
                                         err,
                                     );
-                                    // Add error to event log
                                     addEvent({
                                         type: "error",
                                         message:

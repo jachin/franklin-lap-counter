@@ -31,11 +31,12 @@
     "cairo@latest",
     "gdk-pixbuf@latest"
   ],
-
+  "env": {
+    "GI_TYPELIB_PATH": "$GI_TYPELIB_PATH:$(${pkgs.lib.makeSearchPathOutput \"lib\" \"lib/girepository-1.0\" [ pkgs.gtk4 pkgs.pango pkgs.gdk-pixbuf pkgs.gobject-introspection ]})"
+  },
   "shell": {
     "init_hook": [
-      "export GI_TYPELIB_PATH=\"$DEVBOX_PACKAGES_DIR/lib/girepository-1.0${GI_TYPELIB_PATH:+:$GI_TYPELIB_PATH}\"",
-      "export XDG_DATA_DIRS=$DEVBOX_PACKAGES_DIR/share:$XDG_DATA_DIRS",
+      "export GI_TYPELIB_PATH=\"$DEVBOX_PACKAGES_DIR/lib/girepository-1.0:/nix/store/88695svqh0ii3c8ax51vgkv53rsdfnwn-pango-1.57.1/lib/girepository-1.0:/nix/store/f5q5qhflsijx1drbsanwcjx0m9l717ix-gdk-pixbuf-2.44.6/lib/girepository-1.0:$GI_TYPELIB_PATH\"",
       "redis-server --daemonize yes --unixsocket ./redis.sock --unixsocketperm 700"
     ],
     "scripts": {
@@ -43,11 +44,11 @@
       "start:franklin-simulator": [
         "tmuxinator start -p tmuxinator/franklin-simulator.yml"
       ],
-      "web_scoreboard":      ["python scoreboard_web_app.py"],
-      "web_referee":         ["python referee_web_app.py"],
-      "web_healthcheck":     ["python healthcheck_web_app.py"],
-      "web_driver":          ["python driver_web_app.py"],
-      "race_recorder":        ["python franklin-race-recorder.py"],
+      "web_scoreboard": ["python scoreboard_web_app.py"],
+      "web_referee": ["python referee_web_app.py"],
+      "web_healthcheck": ["python healthcheck_web_app.py"],
+      "web_driver": ["python driver_web_app.py"],
+      "race_recorder": ["python franklin-race-recorder.py"],
       "race_recorder:shadow": ["python franklin-race-recorder.py --shadow"],
       "db:end-all-races": ["python scripts/db_end_all_races.py"],
       "lint": [
@@ -59,15 +60,15 @@
         "ruff check franklin-tui.py franklin-gui.py franklin-race-recorder.py scoreboard_web_app.py referee_web_app.py healthcheck_web_app.py driver_web_app.py database.py race",
         "basedpyright franklin-tui.py franklin-gui.py franklin-race-recorder.py scoreboard_web_app.py referee_web_app.py healthcheck_web_app.py driver_web_app.py database.py race"
       ],
-      "lint:web":  ["biome check --files-ignore-unknown=true static"],
+      "lint:web": ["biome check --files-ignore-unknown=true static"],
       "lint:rust": ["cargo check --manifest-path rust/Cargo.toml"],
-      "test":      ["devbox run test:python", "devbox run test:rust"],
+      "test": ["devbox run test:python", "devbox run test:rust"],
       "test:python": [
         "python -m unittest discover -s race -t . -p '*_test.py'"
       ],
       "test:rust": ["cargo test --manifest-path rust/Cargo.toml"],
-      "build":     ["devbox run build:pi", "devbox run build:release"],
-      "build:pi":  ["./scripts/rust-pi-build.sh"],
+      "build": ["devbox run build:pi", "devbox run build:release"],
+      "build:pi": ["./scripts/rust-pi-build.sh"],
       "build:release": [
         "cargo build --release --manifest-path rust/Cargo.toml"
       ],

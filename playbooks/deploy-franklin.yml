@@ -12,6 +12,7 @@
     app_files_local:
       - "{{ project_root }}/franklin-tui.py"
       - "{{ project_root }}/franklin-gui.py"
+      - "{{ project_root }}/franklin-race-recorder.py"
       - "{{ project_root }}/gui_config.py"
       - "{{ project_root }}/scoreboard_web_app.py"
       - "{{ project_root }}/referee_web_app.py"
@@ -43,6 +44,10 @@
         - {
             path: "{{ project_root }}/franklin-gui.py",
             description: "Franklin GTK GUI script",
+          }
+        - {
+            path: "{{ project_root }}/franklin-race-recorder.py",
+            description: "Franklin race recorder script",
           }
         - {
             path: "{{ project_root }}/gui_config.py",
@@ -178,6 +183,7 @@
         - "{{ pi_dest_dir }}/franklin-hardware-monitor"
         - "{{ pi_dest_dir }}/franklin-tui.py"
         - "{{ pi_dest_dir }}/franklin-gui.py"
+        - "{{ pi_dest_dir }}/franklin-race-recorder.py"
         - "{{ pi_dest_dir }}/gui_config.py"
         - "{{ pi_dest_dir }}/scoreboard_web_app.py"
         - "{{ pi_dest_dir }}/referee_web_app.py"

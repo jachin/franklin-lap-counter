@@ -55,6 +55,11 @@ from gi.repository import (  # pyright: ignore[reportAttributeAccessIssue]  # no
     Gtk,
 )
 
+# Training (practice) mode never auto-finishes; drivers keep lapping until the
+# session is ended manually. This effectively-unlimited target prevents the
+# race engine from declaring a winner or capping laps.
+TRAINING_LAP_TARGET = 1_000_000
+
 
 class FranklinGuiApp(Gtk.Application):
     def __init__(
@@ -683,14 +688,23 @@ class FranklinGuiApp(Gtk.Application):
         self.disqualified_racers.clear()
 
         self.race = Race(previous_race=self.previous_race)
-        self.race.total_laps = self.total_laps
-        self.race.race_end_mode = self.race_end_mode
+        if self.race_mode == RaceMode.TRAINING:
+            # Practice session: never auto-finish so drivers keep lapping until
+            # the session is ended manually. "Laps remaining" is hidden in this
+            # mode (see refresh_views).
+            self.race.total_laps = TRAINING_LAP_TARGET
+            self.race.race_end_mode = RaceEndMode.MANUAL
+        else:
+            self.race.total_laps = self.total_laps
+            self.race.race_end_mode = self.race_end_mode
         self.race.start(start_time=time.monotonic())
 
         self.current_race_id = self.db.create_race(
             notes=f"Mode: {self.race_mode}, Total Laps: {self.total_laps}"
         )
 
+        if self.start_btn:
+            self.start_btn.set_sensitive(False)
         if self.stop_btn:
             self.stop_btn.set_sensitive(True)
         if self.reset_btn:

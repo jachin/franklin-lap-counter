@@ -78,6 +78,13 @@
       "ansible:deploy": [
         "ansible-playbook -i playbooks/inventory.ini playbooks/deploy-franklin.yml"
       ],
+      "ansible:deploy-gui": [
+        "ansible-playbook -i playbooks/inventory.ini playbooks/deploy-franklin-gui.yml"
+      ],
+      "deploy-gui": [
+        "devbox run ansible:deploy-gui",
+        "devbox run ansible:web-bounce"
+      ],
 
       "ansible:health-check": [
         "ansible-playbook -i playbooks/inventory.ini playbooks/61-health-check.yml"

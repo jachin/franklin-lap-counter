@@ -9,6 +9,7 @@
       - "{{ project_root }}/franklin-gui.py"
       - "{{ project_root }}/gui_config.py"
       - "{{ project_root }}/racer_colors.py"
+      - "{{ project_root }}/redis_commands.py"
       - "{{ project_root }}/database.py"
 
   pre_tasks:
@@ -56,5 +57,5 @@
       ansible.builtin.debug:
         msg:
           - "Deployed GUI runtime files to {{ inventory_hostname }}:{{ pi_dest_dir }}"
-          - "Updated: franklin-gui.py, gui_config.py, racer_colors.py, database.py, race/"
+          - "Updated: franklin-gui.py, gui_config.py, racer_colors.py, redis_commands.py, database.py, race/"
           - "Restart GUI session on Pi to pick up changes"

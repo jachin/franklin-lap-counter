@@ -93,8 +93,10 @@ All activity is logged to: `hardware_redis.log`
 
 **Core Ansible workflow:**
 - `ansible:setup` - Full machine setup (packages/services/network/caddy/etc.)
-- `ansible:deploy` - Deploy app artifacts to target host
-- `ansible:web-bounce` - Ensure tmux web windows are created/running (`web_scoreboard`, `web_referee`, `web_healthcheck`)
+- `ansible:deploy` - Deploy full app artifacts to target host
+- `ansible:deploy-gui` - Deploy GUI-focused runtime files only (fast path)
+- `deploy-gui` - Fast GUI deploy + web bounce (`ansible:deploy-gui` then `ansible:web-bounce`)
+- `ansible:web-bounce` - Ensure tmux web windows are created/running (`web_scoreboard`, `web_referee`, `web_healthcheck`, `web_driver`)
 - `ansible:health-check` - Run runtime health check through the health-check web app
 - `ansible:reboot` - Reboot target host via Ansible
 

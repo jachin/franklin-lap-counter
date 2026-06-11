@@ -617,6 +617,22 @@ class FranklinGuiApp(Gtk.Application):
         )
         self.append_event(f"Scheduled countdown (go at {go_at:.3f})")
 
+        # Fallback: if no start signal arrives from Redis timeline, start locally
+        # so GUI operation is resilient to command-path issues.
+        fallback_delay_ms = max(0, int((go_at - time.time()) * 1000) + 250)
+
+        def fallback_start_if_missing() -> bool:
+            if self._start_sequence_running and not is_race_going(self.race):
+                logging.warning(
+                    "Start fallback triggered: no start_race timeline received in time"
+                )
+                self.append_event("Start fallback triggered (local start)")
+                self._start_sequence_running = False
+                self._start_race_now()
+            return False
+
+        GLib.timeout_add(fallback_delay_ms, fallback_start_if_missing)
+
     def _start_race_now(self) -> None:
         if is_race_going(self.race):
             return
@@ -1982,10 +1998,26 @@ class FranklinGuiApp(Gtk.Application):
     def publish_command(self, command: str, **kwargs: Any) -> None:
         if not self._redis_client:
             self.append_event("Redis client not initialized")
+            logging.error(
+                "Cannot publish command '%s': redis client not initialized", command
+            )
             return
-        payload = build_command_envelope(command, source="franklin_gui", **kwargs)
-        validated = parse_command_envelope(payload)
-        self._redis_client.publish(self.redis_in_channel, json.dumps(validated))
+
+        try:
+            payload = build_command_envelope(command, source="franklin_gui", **kwargs)
+            validated = parse_command_envelope(payload)
+            published_to = self._redis_client.publish(
+                self.redis_in_channel, json.dumps(validated)
+            )
+            logging.info(
+                "Published command '%s' to %s (subscribers=%s)",
+                command,
+                self.redis_in_channel,
+                published_to,
+            )
+        except Exception as exc:
+            logging.error("Failed to publish command '%s': %s", command, exc)
+            self.append_event(f"Publish failed for {command}: {exc}")
 
     def start_fake_playback(self) -> None:
         fake_race = generate_fake_race()

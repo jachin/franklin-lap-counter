@@ -70,6 +70,7 @@ class RaceRecorderTestBase(unittest.TestCase):
                     "race_mode": race_mode.value,
                     "total_laps": total_laps,
                     "race_end_mode": race_end_mode.value,
+                    "start_at": START_AT,
                 }
             ),
         )
@@ -148,6 +149,24 @@ class TestRaceRecorderRedisScenarios(RaceRecorderTestBase):
         self.assertEqual(snapshot["total_laps"], 5)
         self.assertEqual(snapshot["race_end_mode"], RaceEndMode.WINNER.value)
         self.assertEqual(self.redis.values[recorder_module.RACE_STATE_LATEST_KEY], json.dumps(snapshot))
+
+    def test_start_command_fallback_starts_race_without_hardware_echo(self):
+        self.send_start_command(
+            total_laps=5,
+            race_end_mode=RaceEndMode.WINNER,
+            race_mode=RaceMode.TRAINING,
+        )
+
+        self.recorder._process_pending_command_start(START_AT - 0.1)
+        self.assertEqual(self.recorder.engine.race.state, RaceState.NOT_STARTED)
+
+        self.recorder._process_pending_command_start(START_AT)
+
+        self.assertEqual(self.recorder.engine.race.state, RaceState.RUNNING)
+        snapshot = self.snapshots()[-1]
+        self.assertEqual(snapshot["state"], "running")
+        self.assertEqual(snapshot["race_mode"], RaceMode.TRAINING.value)
+        self.assertEqual(snapshot["start_at"], START_AT)
 
     def test_shutdown_finishes_running_race_and_publishes_snapshot(self):
         self.send_start_command(total_laps=5, race_end_mode=RaceEndMode.MANUAL)

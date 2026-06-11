@@ -85,6 +85,7 @@ class RaceRecorder:
         # pure renderer.
         self._fake_schedule: list[tuple[float, dict[str, Any]]] = []
         self._pending_start_event: tuple[float, dict[str, Any]] | None = None
+        self._pending_command_start_event: tuple[float, dict[str, Any]] | None = None
 
         self._lock_value = f"{socket.gethostname()}:{os.getpid()}:{uuid4().hex}"
         self._running = True
@@ -124,6 +125,8 @@ class RaceRecorder:
                     self._process_fake_schedule(time.time())
                 if self._pending_start_event:
                     self._process_pending_start(time.time())
+                if self._pending_command_start_event:
+                    self._process_pending_command_start(time.time())
 
                 now = time.monotonic()
                 if now - last_lock_refresh >= LOCK_REFRESH_SECONDS:
@@ -196,6 +199,21 @@ class RaceRecorder:
         if isinstance(command_id, str) and command_id:
             self._pending_start_config[command_id] = config
 
+        # The hardware monitor normally echoes a start_race event on
+        # hardware:out after the countdown. Training mode should still work if
+        # that echo is unavailable/stale, so schedule a recorder-owned fallback
+        # from the command itself. A real hardware echo with the same command_id
+        # cancels this fallback in _start_race_from_event().
+        start_at_raw = msg.get("start_at") or msg.get("go_at")
+        if isinstance(start_at_raw, (int, float)):
+            fallback_msg = {
+                "type": "start_race",
+                "at": float(start_at_raw),
+                "command_id": command_id,
+                "source": msg.get("source"),
+            }
+            self._pending_command_start_event = (float(start_at_raw), fallback_msg)
+
     def _handle_start_event(self, msg: dict[str, Any]) -> None:
         at_raw = msg.get("at")
         if not isinstance(at_raw, (int, float)):
@@ -219,8 +237,21 @@ class RaceRecorder:
         self._pending_start_event = None
         self._start_race_from_event(msg, start_at)
 
+    def _process_pending_command_start(self, now_epoch: float) -> None:
+        if self._pending_command_start_event is None:
+            return
+        start_at, msg = self._pending_command_start_event
+        if start_at > now_epoch:
+            return
+        self._pending_command_start_event = None
+        if is_race_going_state(self.engine.race.state):
+            return
+        logging.info("Starting race from command fallback for %.3f", start_at)
+        self._start_race_from_event(msg, start_at)
+
     def _start_race_from_event(self, msg: dict[str, Any], start_at: float) -> None:
         self._pending_start_event = None
+        self._pending_command_start_event = None
 
         command_id = msg.get("command_id")
         config: dict[str, Any] | None = None

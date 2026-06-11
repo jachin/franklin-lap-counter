@@ -76,3 +76,19 @@
               export TERM="xterm-256color"
             fi
           fi
+
+    - name: Configure persistent zsh history for franklin
+      ansible.builtin.blockinfile:
+        path: "{{ franklin_home }}/.zshrc"
+        create: true
+        owner: "{{ franklin_user }}"
+        group: "{{ franklin_group }}"
+        mode: "0644"
+        marker: "# {mark} ANSIBLE MANAGED ZSH HISTORY"
+        block: |
+          HISTFILE="${HOME}/.zsh_history"
+          HISTSIZE=50000
+          SAVEHIST=50000
+          setopt APPEND_HISTORY
+          setopt INC_APPEND_HISTORY
+          setopt SHARE_HISTORY

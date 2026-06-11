@@ -112,6 +112,29 @@ class RaceRecorderTestBase(unittest.TestCase):
 
 
 class TestRaceRecorderRedisScenarios(RaceRecorderTestBase):
+    def test_future_start_event_waits_until_scheduled_go_time(self):
+        self.send_start_command(total_laps=5, race_end_mode=RaceEndMode.WINNER)
+        start_at = 2000.0
+
+        with patch.object(recorder_module.time, "time", return_value=start_at - 2.0):
+            self.recorder._handle(
+                recorder_module.HARDWARE_OUT_CHANNEL,
+                json.dumps(
+                    {"type": "start_race", "command_id": "cmd-1", "at": start_at}
+                ),
+            )
+
+        self.assertEqual(self.recorder.engine.race.state, RaceState.NOT_STARTED)
+        self.assertEqual(self.snapshots(), [])
+
+        self.recorder._process_pending_start(start_at - 0.1)
+        self.assertEqual(self.recorder.engine.race.state, RaceState.NOT_STARTED)
+
+        self.recorder._process_pending_start(start_at)
+
+        self.assertEqual(self.recorder.engine.race.state, RaceState.RUNNING)
+        self.assertEqual(self.snapshots()[-1]["start_at"], start_at)
+
     def test_start_command_config_is_applied_when_hardware_start_echo_arrives(self):
         self.send_start_command(total_laps=5, race_end_mode=RaceEndMode.WINNER)
         self.send_start_event()

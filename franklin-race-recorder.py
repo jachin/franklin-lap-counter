@@ -84,6 +84,7 @@ class RaceRecorder:
         # main loop ingests on time. Owning fake races here keeps every client a
         # pure renderer.
         self._fake_schedule: list[tuple[float, dict[str, Any]]] = []
+        self._pending_start_event: tuple[float, dict[str, Any]] | None = None
 
         self._lock_value = f"{socket.gethostname()}:{os.getpid()}:{uuid4().hex}"
         self._running = True
@@ -121,6 +122,8 @@ class RaceRecorder:
 
                 if self._fake_schedule:
                     self._process_fake_schedule(time.time())
+                if self._pending_start_event:
+                    self._process_pending_start(time.time())
 
                 now = time.monotonic()
                 if now - last_lock_refresh >= LOCK_REFRESH_SECONDS:
@@ -190,6 +193,26 @@ class RaceRecorder:
             logging.warning("start_race event missing 'at'; ignoring")
             return
 
+        start_at = float(at_raw)
+        if start_at > time.time():
+            self._pending_start_event = (start_at, msg)
+            logging.info("Queued start_race for %.3f", start_at)
+            return
+
+        self._start_race_from_event(msg, start_at)
+
+    def _process_pending_start(self, now_epoch: float) -> None:
+        if self._pending_start_event is None:
+            return
+        start_at, msg = self._pending_start_event
+        if start_at > now_epoch:
+            return
+        self._pending_start_event = None
+        self._start_race_from_event(msg, start_at)
+
+    def _start_race_from_event(self, msg: dict[str, Any], start_at: float) -> None:
+        self._pending_start_event = None
+
         command_id = msg.get("command_id")
         config: dict[str, Any] | None = None
         if isinstance(command_id, str):
@@ -208,7 +231,7 @@ class RaceRecorder:
             )
 
         result = self.engine.start(
-            start_at=float(at_raw),
+            start_at=start_at,
             race_mode=race_mode,
             total_laps=int(total_laps),
             race_end_mode=race_end_mode,
@@ -217,7 +240,7 @@ class RaceRecorder:
         # Fake races have no hardware; synthesize their laps here so clients stay
         # pure renderers.
         if race_mode == RaceMode.FAKE:
-            self._build_fake_schedule(float(at_raw))
+            self._build_fake_schedule(start_at)
         else:
             self._fake_schedule.clear()
 

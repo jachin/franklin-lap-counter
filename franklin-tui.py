@@ -83,12 +83,15 @@ class RaceStatusDisplay(Static):
     race_state: reactive[str] = reactive("not_started")  # type: ignore[valid-type]
     leader_laps_remaining: reactive[int] = reactive(10)  # type: ignore[valid-type]
     last_place_laps_remaining: reactive[int] = reactive(10)  # type: ignore[valid-type]
+    effective_total_laps: reactive[int] = reactive(10)  # type: ignore[valid-type]
 
     def render(self) -> str:
         status = []
         if self.race_state == "running":
+            leader_lap = max(0, self.effective_total_laps - self.leader_laps_remaining)
             status.append("Race in progress")
             status.append("(Lap 0 = Race Start Trigger)")
+            status.append(f"Lap {leader_lap} of {self.effective_total_laps}")
             status.append(f"Leader: {self.leader_laps_remaining} laps remaining")
             status.append(
                 f"Last Place: {self.last_place_laps_remaining} laps remaining"
@@ -559,6 +562,7 @@ class Franklin(App[Any]):  # type: ignore[type-arg]
             )
             race_status_display.leader_laps_remaining = snapshot.laps_remaining_leader
             race_status_display.last_place_laps_remaining = snapshot.laps_remaining_last
+            race_status_display.effective_total_laps = snapshot.effective_total_laps
             race_status_display.race_state = snapshot.state
 
             running = snapshot.is_going

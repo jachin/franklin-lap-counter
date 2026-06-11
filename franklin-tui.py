@@ -490,10 +490,28 @@ class Franklin(App[Any]):  # type: ignore[type-arg]
 
         elif msg_type == "countdown_phase":
             phase = str(msg.get("phase", "")).lower()
-            self.notify(f"Countdown: {phase.title()}", severity="information")
+            at_raw = msg.get("at")
+            if isinstance(at_raw, (int, float)):
+                delay = max(0.0, float(at_raw) - time.time())
+                self.set_timer(
+                    delay,
+                    lambda phase=phase: self.notify(
+                        f"Countdown: {phase.title()}", severity="information"
+                    ),
+                )
+            else:
+                self.notify(f"Countdown: {phase.title()}", severity="information")
 
         elif msg_type == "start_race":
-            self.notify("Race started", severity="information")
+            at_raw = msg.get("at")
+            if isinstance(at_raw, (int, float)):
+                delay = max(0.0, float(at_raw) - time.time())
+                self.set_timer(
+                    delay,
+                    lambda: self.notify("Race started", severity="information"),
+                )
+            else:
+                self.notify("Race started", severity="information")
 
         elif msg_type == "lap":
             logging.info(

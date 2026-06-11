@@ -49,6 +49,7 @@
       "web_driver":          ["python driver_web_app.py"],
       "race_recorder":        ["python franklin-race-recorder.py"],
       "race_recorder:shadow": ["python franklin-race-recorder.py --shadow"],
+      "db:end-all-races": ["python scripts/db_end_all_races.py"],
       "lint": [
         "devbox run lint:python",
         "devbox run lint:web",

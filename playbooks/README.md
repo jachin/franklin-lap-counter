@@ -20,6 +20,7 @@ These playbooks provide modular, idempotent infrastructure/setup and deployment 
 - `61-health-check.yml` - verifies Caddy + health-check app and fetches the health report JSON
 - `62-bounce-web-apps.yml` - respawn/create tmux web windows (`web_scoreboard`, `web_referee`, `web_healthcheck`)
 - `63-reboot.yml` - reboot target host and wait for reconnect
+- `64-reset-database.yml` - stop Franklin tmux sessions and remove the SQLite database so it is recreated empty
 - `site.yml` - runs setup playbooks in order
 - `deploy-franklin.yml` - deploy app artifacts (`franklin-hardware-monitor`, Python apps, static/, tmuxinator/, etc.)
 

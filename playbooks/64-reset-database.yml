@@ -1,0 +1,26 @@
+---
+- name: Reset Franklin SQLite database on Raspberry Pi
+  hosts: all
+  become: true
+  vars:
+    franklin_db_path: "{{ pi_dest_dir }}/lap_counter.db"
+  tasks:
+    - name: Stop Franklin tmux sessions before deleting database
+      ansible.builtin.command: "tmux kill-session -t {{ item }}"
+      become_user: "{{ franklin_user }}"
+      register: kill_tmux_session
+      failed_when: kill_tmux_session.rc not in [0, 1]
+      changed_when: kill_tmux_session.rc == 0
+      loop:
+        - franklin
+        - franklin-services
+        - franklin-simulator
+
+    - name: Remove Franklin SQLite database
+      ansible.builtin.file:
+        path: "{{ franklin_db_path }}"
+        state: absent
+
+    - name: Reset database summary
+      ansible.builtin.debug:
+        msg: "Removed {{ franklin_db_path }}. Restart Franklin to recreate an empty database."

@@ -93,6 +93,9 @@
       "ansible:deploy-gui": [
         "ansible-playbook -i playbooks/inventory.ini playbooks/deploy-franklin-gui.yml"
       ],
+      "ansible:reset-db": [
+        "ansible-playbook -i playbooks/inventory.ini playbooks/64-reset-database.yml"
+      ],
       "deploy-gui": [
         "devbox run ansible:deploy-gui",
         "devbox run ansible:web-bounce"

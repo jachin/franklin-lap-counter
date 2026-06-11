@@ -23,6 +23,14 @@ windows:
             - sleep 2
             - echo "Starting Hardware Monitor (simulator mode)..."
             - cargo run --manifest-path rust/Cargo.toml --bin franklin-hardware-monitor -- --sim
+  - race_recorder:
+      layout: main-horizontal
+      panes:
+        - recorder:
+            - echo "Waiting for services to be ready..."
+            - sleep 3
+            - echo "Starting Race Recorder (authoritative; owns recording + DB)..."
+            - python franklin-race-recorder.py
   - lap-counter:
       layout: main-horizontal
       panes:

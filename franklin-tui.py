@@ -2,7 +2,6 @@ import argparse
 import asyncio
 import json
 import logging
-import pprint
 import time
 from pathlib import Path
 from typing import Any
@@ -28,19 +27,10 @@ from textual.widgets import (
     TabPane,
 )
 
-from database import LapDatabase
 from gui_config import load_initial_config, write_config
-from race.race import (
-    Race,
-    RaceState,
-    generate_fake_race,
-    is_race_going,
-    make_fake_lap,
-    make_lap_from_sensor_event_and_race,
-    order_laps_by_occurrence,
-)
 from race.race_contestants import RaceContestants
 from race.race_mode import RaceMode
+from race.race_snapshot import RaceSnapshot, SnapshotLap, idle_snapshot
 from race.race_state import RaceEndMode
 from racer_colors import RacerColorScheme, assign_random_scheme
 from redis_commands import build_command_envelope, parse_command_envelope
@@ -60,10 +50,9 @@ def format_time_cs(seconds_value: float | None) -> str:
 class LapDataDisplay(Static):
     laps: reactive[list[Any]] = reactive([])  # type: ignore[valid-type]
 
-    def __init__(self, contestants: RaceContestants, race: Race, **kwargs: Any) -> None:
+    def __init__(self, contestants: RaceContestants, **kwargs: Any) -> None:
         super().__init__(**kwargs)
         self.contestants: RaceContestants = contestants
-        self.race: Race = race
 
     def render(self) -> str:
         if not self.laps:
@@ -74,11 +63,11 @@ class LapDataDisplay(Static):
             # Replace racer ID with contestant name if available
             if lap.lap_number == 0:
                 lines.append(
-                    f"Racer {display_name} START TRIGGER | Time: {format_time_cs(lap.seconds_from_race_start)}"
+                    f"Racer {display_name} START TRIGGER | Time: {format_time_cs(lap.race_time)}"
                 )
             else:
                 lines.append(
-                    f"Racer {display_name} Lap {lap.lap_number} | Hardware: {format_time_cs(lap.seconds_from_race_start)}, Internal: {format_time_cs(lap.internal_lap_time)}, Lap Time: {format_time_cs(lap.lap_time)}"
+                    f"Racer {display_name} Lap {lap.lap_number} | Race Time: {format_time_cs(lap.race_time)}, Lap Time: {format_time_cs(lap.lap_time)}"
                 )
         return "\n".join(lines)
 
@@ -89,24 +78,26 @@ class LapDataDisplay(Static):
 
 class RaceStatusDisplay(Static):
     BORDER_TITLE = "Race Status"
-    race_state: reactive[RaceState] = reactive(RaceState.NOT_STARTED)  # type: ignore[valid-type]
+    # Snapshot state string (see race.race_snapshot): not_started/running/
+    # paused/winner_declared/finished.
+    race_state: reactive[str] = reactive("not_started")  # type: ignore[valid-type]
     leader_laps_remaining: reactive[int] = reactive(10)  # type: ignore[valid-type]
     last_place_laps_remaining: reactive[int] = reactive(10)  # type: ignore[valid-type]
 
     def render(self) -> str:
         status = []
-        if self.race_state == RaceState.RUNNING:
+        if self.race_state == "running":
             status.append("Race in progress")
             status.append("(Lap 0 = Race Start Trigger)")
             status.append(f"Leader: {self.leader_laps_remaining} laps remaining")
             status.append(
                 f"Last Place: {self.last_place_laps_remaining} laps remaining"
             )
-        elif self.race_state == RaceState.PAUSED:
+        elif self.race_state == "paused":
             status.append("Race paused")
-        elif self.race_state == RaceState.WINNER_DECLARED:
+        elif self.race_state == "winner_declared":
             status.append("Race won, wrapping up")
-        elif self.race_state == RaceState.FINISHED:
+        elif self.race_state == "finished":
             status.append("Race finished")
         else:
             status.append("Race not started")
@@ -116,10 +107,9 @@ class RaceStatusDisplay(Static):
 class LeaderboardDisplay(DataTable[Any]):  # type: ignore[type-arg]
     leaderboard: reactive[list[Any]] = reactive([])  # type: ignore[valid-type]
 
-    def __init__(self, contestants: RaceContestants, race: Race, **kwargs: Any) -> None:
+    def __init__(self, contestants: RaceContestants, **kwargs: Any) -> None:
         super().__init__(**kwargs)
         self.contestants: RaceContestants = contestants
-        self.race: Race = race
 
     def on_leaderboard_changed(self) -> None:
         self.clear(columns=True)
@@ -238,32 +228,21 @@ class Franklin(App[Any]):  # type: ignore[type-arg]
         last_race_contestant_ids: list[int],
         racer_color_assignments: dict[int, RacerColorScheme],
         redis_socket: str = "./redis.sock",
-        db_path: str = "lap_counter.db",
         **kwargs,
     ):
         super().__init__(**kwargs)
-        self.lap_queue: asyncio.Queue[Any] = asyncio.Queue()
 
         self.total_laps = total_laps
         self.race_mode = initial_mode
         self.race_end_mode = race_end_mode
         self.global_contestants = RaceContestants(contestants_data)
         self.racer_color_assignments = dict(racer_color_assignments)
-        self.previous_race: Race | None = None
-        if last_race_contestant_ids:
-            seeded_previous_race = Race(previous_race=None)
-            seeded_previous_race.active_contestants = set(last_race_contestant_ids)
-            seeded_previous_race.total_laps = total_laps
-            seeded_previous_race.race_end_mode = race_end_mode
-            self.previous_race = seeded_previous_race
+        self.last_race_contestant_ids: set[int] = set(last_race_contestant_ids)
 
-        self.race = Race(previous_race=self.previous_race)
-        self.race.total_laps = self.total_laps
-        self.race.race_end_mode = self.race_end_mode
-
-        # Referee adjustments (applied from franklin:events)
-        self.racer_penalties_seconds: dict[int, int] = {}
-        self.disqualified_racers: set[int] = set()
+        # Authoritative render state from the recorder's franklin:race_state.
+        # The TUI never mutates race state; it renders this and publishes
+        # commands (see docs/redis-message-reference.md).
+        self.snapshot: RaceSnapshot = idle_snapshot()
 
         known_racer_ids = {
             c.transmitter_id for c in self.global_contestants.contestants
@@ -272,8 +251,6 @@ class Franklin(App[Any]):  # type: ignore[type-arg]
 
         self.lap_counter_detected = reactive(False)
         self._last_lap_counter_signal_time = None
-        self._playback_task = None
-        self._pending_start_task: asyncio.Task[None] | None = None
 
         # Setup logging
         logging.basicConfig(
@@ -286,37 +263,17 @@ class Franklin(App[Any]):  # type: ignore[type-arg]
         logging.info("Franklin initialized")
         logging.info(f"Franklin initialized: {self.race_mode}")
 
-        # Database setup
-        self.db = LapDatabase(db_path)
-        self.current_race_id = None
-
-        # Check for in-progress race and resume if found
-        in_progress = self.db.get_in_progress_race()
-        if in_progress:
-            logging.info(f"Resuming in-progress race: {in_progress['id']}")
-            self.current_race_id = in_progress["id"]
-            # Load laps from database and restore race state
-            self._restore_race_from_db(in_progress["id"])
-
         # Redis communication setup (see docs/redis-message-reference.md)
         self.redis_socket = redis_socket
         self.redis_in_channel = "hardware:in"
         self.redis_out_channel = "hardware:out"
         self.redis_events_channel = "franklin:events"
+        self.redis_race_state_channel = "franklin:race_state"
+        self.redis_race_state_latest_key = "franklin:race_state:latest"
         self._redis_client = None
         self._redis_pubsub = None
         self.config_path = Path("franklin.config.json")
         self.update_subtitle()
-
-    def _restore_race_from_db(self, race_id: int) -> None:
-        """Restore race state from database"""
-        try:
-            laps = self.db.get_race_laps(race_id)
-            logging.info(f"Restored {len(laps)} laps from database for race {race_id}")
-            # Note: We don't automatically start the race, just load the data
-            # The user can decide whether to continue or start fresh
-        except Exception as e:
-            logging.error(f"Failed to restore race from database: {e}")
 
     def update_subtitle(self) -> None:
         mode_str = f"RC Lap Counter - {self.race_mode}"
@@ -351,10 +308,7 @@ class Franklin(App[Any]):  # type: ignore[type-arg]
             for c in self.global_contestants.contestants
         ]
 
-        if self.previous_race is not None:
-            last_race_contestant_ids = sorted(self.previous_race.active_contestants)
-        else:
-            last_race_contestant_ids = sorted(self.race.active_contestants)
+        last_race_contestant_ids = sorted(self.last_race_contestant_ids)
 
         write_config(
             self.config_path,
@@ -367,7 +321,7 @@ class Franklin(App[Any]):  # type: ignore[type-arg]
         )
 
     def action_toggle_mode(self) -> None:
-        if self.race.state == RaceState.RUNNING:
+        if self.snapshot.is_going:
             logging.info("Cannot change race mode while race is running")
             self.notify(
                 "Cannot change race mode while race is running", severity="error"
@@ -386,47 +340,27 @@ class Franklin(App[Any]):  # type: ignore[type-arg]
         self.save_config()
 
     def _referee_adjusted_leaderboard_data(self) -> list[tuple[Any, ...]]:
-        base = self.race.leaderboard()
-        active_rows: list[tuple[int, int, float, float, float]] = []
-        dq_rows: list[tuple[int, int, float, float, float]] = []
+        """Display rows from the authoritative snapshot.
 
-        for _pos, racer_id, lap_count, best, last, total in base:
-            adjusted_total = total + float(
-                self.racer_penalties_seconds.get(racer_id, 0)
-            )
-            if racer_id in self.disqualified_racers:
-                dq_rows.append((racer_id, lap_count, best, last, adjusted_total))
-            else:
-                active_rows.append((racer_id, lap_count, best, last, adjusted_total))
-
-        active_rows.sort(key=lambda row: (-row[1], row[4], row[2], row[0]))
-
+        The recorder already applies penalties/DQ and orders rows. ``inf`` keeps
+        missing best/last times rendering as ``00:00:00`` via ``format_time_cs``.
+        """
         rows: list[tuple[Any, ...]] = []
-        for idx, (racer_id, lap_count, best, last, adjusted_total) in enumerate(
-            active_rows, start=1
-        ):
-            rows.append((idx, racer_id, lap_count, best, last, adjusted_total))
-
-        for racer_id, lap_count, best, last, adjusted_total in sorted(
-            dq_rows, key=lambda row: row[0]
-        ):
-            rows.append(("DQ", racer_id, lap_count, best, last, adjusted_total))
-
+        for row in self.snapshot.leaderboard:
+            position: Any = "DQ" if row.disqualified else row.position
+            best = row.best_lap_time if row.best_lap_time is not None else float("inf")
+            last = row.last_lap_time if row.last_lap_time is not None else float("inf")
+            rows.append(
+                (
+                    position,
+                    row.racer_id,
+                    row.lap_count,
+                    best,
+                    last,
+                    row.adjusted_total_time,
+                )
+            )
         return rows
-
-    async def update_race_time(self):
-        # TODO this works for now but we should probably use the time that's coming
-        # from the lap counter it self
-        while True:
-            current_time = asyncio.get_event_loop().time()
-
-            if (
-                self.race.state == RaceState.RUNNING
-                and self.race.start_time is not None
-            ):
-                self.race.elapsed_time = current_time - self.race.start_time
-
-            await asyncio.sleep(0.1)
 
     async def hardware_monitor_task(self):
         """
@@ -450,13 +384,20 @@ class Franklin(App[Any]):  # type: ignore[type-arg]
 
         # Create pub/sub instance
         self._redis_pubsub = self._redis_client.pubsub()
-        self._redis_pubsub.subscribe(self.redis_out_channel, self.redis_events_channel)
-        logging.info(
-            f"Subscribed to Redis channels: {self.redis_out_channel}, {self.redis_events_channel}"
+        channels = (
+            self.redis_out_channel,
+            self.redis_events_channel,
+            self.redis_race_state_channel,
         )
+        self._redis_pubsub.subscribe(*channels)
+        logging.info("Subscribed to Redis channels: %s", ", ".join(channels))
 
         self.lap_counter_detected = False
         self._last_lap_counter_signal_time = None
+
+        # Render the retained snapshot so a freshly-started TUI shows current
+        # state without waiting for the next publish.
+        self._load_latest_snapshot()
 
         try:
             while True:
@@ -465,182 +406,16 @@ class Franklin(App[Any]):  # type: ignore[type-arg]
 
                 if message and message["type"] == "message":
                     try:
+                        channel = message.get("channel")
                         data = message["data"]
                         msg: dict[str, Any] = (
                             json.loads(data) if isinstance(data, (str, bytes)) else {}
                         )
-                        msg_type = msg.get("type")
 
-                        logging.debug(
-                            f"Received hardware message of type '{msg_type}': {msg}"
-                        )
-
-                        simulated = bool(msg.get("simulated", False))
-
-                        # Rely only on heartbeat message to update detection
-                        if msg_type == "heartbeat":
-                            if simulated:
-                                logging.debug("Simulated heartbeat received")
-                            if not self.lap_counter_detected:
-                                logging.info("Lap counter detected (heartbeat)")
-                            self.lap_counter_detected = True
-                            self._last_lap_counter_signal_time = (
-                                asyncio.get_event_loop().time()
-                            )
-
-                        elif msg_type == "countdown_phase":
-                            phase = str(msg.get("phase", "")).lower()
-                            at_epoch_raw = msg.get("at")
-                            at_epoch = (
-                                float(at_epoch_raw)
-                                if isinstance(at_epoch_raw, (int, float))
-                                else time.time()
-                            )
-                            logging.info(
-                                "Countdown phase received: phase=%s at=%.3f",
-                                phase,
-                                at_epoch,
-                            )
-                            self.notify(
-                                f"Countdown: {phase.title()}",
-                                severity="information",
-                            )
-
-                        elif msg_type == "start_race":
-                            at_raw = msg.get("at")
-                            start_at_epoch = (
-                                float(at_raw)
-                                if isinstance(at_raw, (int, float))
-                                else time.time()
-                            )
-                            if (
-                                self._pending_start_task is not None
-                                and not self._pending_start_task.done()
-                            ):
-                                self._pending_start_task.cancel()
-                            self._pending_start_task = asyncio.create_task(
-                                self._start_race_at_epoch(start_at_epoch)
-                            )
-                            logging.info(
-                                "Scheduled local race start at epoch %.3f",
-                                start_at_epoch,
-                            )
-
-                        elif msg_type == "lap":
-                            logging.info(
-                                "%s lap message received: %s",
-                                "Simulated" if simulated else "Hardware",
-                                msg,
-                            )
-                            if self.race.state == self.race.state.RUNNING:
-                                racer_id = msg.get("racer_id")
-                                lap_at = msg.get("lap_at")
-                                race_start_at = msg.get("race_start_at")
-                                recorded_at = msg.get("recorded_at")
-
-                                if racer_id is not None:
-                                    racer_id_i = int(racer_id)
-                                    self._ensure_racer_color_assignments(
-                                        {racer_id_i}, persist=True
-                                    )
-                                    if racer_id_i in self.disqualified_racers:
-                                        logging.info(
-                                            "Ignored lap for disqualified racer %s",
-                                            racer_id,
-                                        )
-                                        continue
-
-                                    if not (
-                                        isinstance(lap_at, (int, float))
-                                        and isinstance(race_start_at, (int, float))
-                                    ):
-                                        logging.error("Invalid lap data received")
-                                        continue
-
-                                    lap_at_epoch = float(lap_at)
-                                    race_start_epoch = float(race_start_at)
-                                    recorded_epoch = (
-                                        float(recorded_at)
-                                        if isinstance(recorded_at, (int, float))
-                                        else lap_at_epoch
-                                    )
-                                    lap = make_lap_from_sensor_event_and_race(
-                                        racer_id_i,
-                                        race_start_at=race_start_epoch,
-                                        lap_at=lap_at_epoch,
-                                        recorded_at=recorded_epoch,
-                                        race=self.race,
-                                    )
-
-                                    logging.info("new lap %s", pprint.pformat(lap))
-                                    await self.lap_queue.put(lap)
-                                else:
-                                    logging.error("Invalid lap data received")
-                            else:
-                                logging.error("Cannot add lap - race is not running")
-
-                        elif msg_type == "new_msg":
-                            # Handle your new message type here
-                            logging.info(f"New message received: {msg}")
-
-                        elif msg_type == "status":
-                            logging.info(
-                                "%s status message: %s",
-                                "Simulated" if simulated else "Hardware",
-                                msg.get("message", ""),
-                            )
-
-                        elif msg_type == "race_control":
-                            command = msg.get("command")
-                            accepted = bool(msg.get("accepted", True))
-                            racer_id_raw = msg.get("racer_id")
-                            racer_id_i = (
-                                int(racer_id_raw) if racer_id_raw is not None else None
-                            )
-                            logging.info(
-                                "Race control event: command=%s accepted=%s racer_id=%s message=%s",
-                                command,
-                                accepted,
-                                racer_id_i,
-                                msg.get("message", ""),
-                            )
-                            if accepted and command == "reset_race":
-                                self._apply_race_reset_from_redis()
-                            elif (
-                                accepted
-                                and command == "add_penalty"
-                                and racer_id_i is not None
-                            ):
-                                penalty_seconds = int(
-                                    msg.get("penalty_seconds", 0) or 0
-                                )
-                                if penalty_seconds > 0:
-                                    self.racer_penalties_seconds[racer_id_i] = (
-                                        self.racer_penalties_seconds.get(racer_id_i, 0)
-                                        + penalty_seconds
-                                    )
-                            elif (
-                                accepted
-                                and command == "disqualify_racer"
-                                and racer_id_i is not None
-                            ):
-                                self.disqualified_racers.add(racer_id_i)
-                            elif (
-                                accepted
-                                and command == "remove_lap"
-                                and racer_id_i is not None
-                            ):
-                                lap_no_raw = msg.get("lap_number")
-                                lap_no = (
-                                    int(lap_no_raw) if lap_no_raw is not None else None
-                                )
-                                self._apply_remove_lap_from_redis(racer_id_i, lap_no)
-
-                        elif msg_type == "raw":
-                            logging.debug(f"Raw message: {msg.get('line', '')}")
-
+                        if channel == self.redis_race_state_channel:
+                            self.handle_snapshot(msg)
                         else:
-                            logging.debug(f"Unknown message type: {msg}")
+                            self._handle_hardware_message(msg)
                     except json.JSONDecodeError as e:
                         logging.error(f"Failed to parse Redis message: {e}")
 
@@ -659,65 +434,118 @@ class Franklin(App[Any]):  # type: ignore[type-arg]
                 self._redis_client.close()
             logging.info("Redis connections closed")
 
+    def _load_latest_snapshot(self) -> None:
+        """Fetch the retained snapshot so late joiners render current state."""
+        if not self._redis_client:
+            return
+        try:
+            payload = self._redis_client.get(self.redis_race_state_latest_key)
+        except Exception as exc:
+            logging.error("Failed to read latest snapshot: %s", exc)
+            return
+        if not isinstance(payload, str):
+            return
+        try:
+            data = json.loads(payload)
+        except json.JSONDecodeError:
+            logging.error("Retained snapshot is not valid JSON")
+            return
+        if isinstance(data, dict):
+            self.handle_snapshot(data)
+
+    def handle_snapshot(self, data: dict[str, Any]) -> None:
+        """Apply an authoritative race-state snapshot from the recorder."""
+        try:
+            snapshot = RaceSnapshot.from_dict(data)
+        except Exception as exc:
+            logging.error("Invalid race snapshot: %s", exc)
+            return
+
+        if not snapshot.supersedes(self.snapshot):
+            return
+
+        self.snapshot = snapshot
+
+        racer_ids = {row.racer_id for row in snapshot.leaderboard}
+        if not racer_ids:
+            racer_ids = {lap.racer_id for lap in snapshot.laps}
+        if racer_ids:
+            self.last_race_contestant_ids = set(racer_ids)
+            self._ensure_racer_color_assignments(racer_ids, persist=True)
+
+    def _handle_hardware_message(self, msg: dict[str, Any]) -> None:
+        """Display-only handling of hardware/event traffic.
+
+        The recorder owns the race model; here we only surface heartbeat,
+        countdown, status and accepted commands to the operator.
+        """
+        msg_type = msg.get("type")
+        simulated = bool(msg.get("simulated", False))
+
+        if msg_type == "heartbeat":
+            if not self.lap_counter_detected:
+                logging.info("Lap counter detected (heartbeat)")
+            self.lap_counter_detected = True
+            self._last_lap_counter_signal_time = asyncio.get_event_loop().time()
+
+        elif msg_type == "countdown_phase":
+            phase = str(msg.get("phase", "")).lower()
+            self.notify(f"Countdown: {phase.title()}", severity="information")
+
+        elif msg_type == "start_race":
+            self.notify("Race started", severity="information")
+
+        elif msg_type == "lap":
+            logging.info(
+                "%s lap message received: %s",
+                "Simulated" if simulated else "Hardware",
+                msg,
+            )
+
+        elif msg_type == "status":
+            logging.info(
+                "%s status message: %s",
+                "Simulated" if simulated else "Hardware",
+                msg.get("message", ""),
+            )
+
+        elif msg_type == "race_control":
+            logging.info(
+                "Race control event: command=%s accepted=%s racer_id=%s message=%s",
+                msg.get("command"),
+                bool(msg.get("accepted", True)),
+                msg.get("racer_id"),
+                msg.get("message", ""),
+            )
+
+        elif msg_type == "raw":
+            logging.debug(f"Raw message: {msg.get('line', '')}")
+
+        else:
+            logging.debug(f"Unknown message type: {msg}")
+
     async def refresh_lap_data(self):
+        """Render the authoritative snapshot into the widgets on a timer."""
         lap_display_events = self.query_one(LapDataDisplay)
         lap_display_leaderboard = self.query_one(LeaderboardDisplay)
         race_time_display = self.query_one(RaceTimeDisplay)
         race_status_display = self.query_one(RaceStatusDisplay)
+        start_btn = self.query_one("#start_btn", Button)
+        stop_btn = self.query_one("#stop_btn", Button)
         while True:
-            race_time_display.elapsed_time = self.race.elapsed_time
-            try:
-                lap = await asyncio.wait_for(self.lap_queue.get(), timeout=0.1)
-                logging.info("adding lap: %s", self.race.state)
-                lap_accepted = self.race.add_lap(lap)
+            snapshot = self.snapshot
+            race_time_display.elapsed_time = snapshot.current_elapsed()
+            lap_display_events.laps = list(snapshot.laps)
+            lap_display_leaderboard.leaderboard = (
+                self._referee_adjusted_leaderboard_data()
+            )
+            race_status_display.leader_laps_remaining = snapshot.laps_remaining_leader
+            race_status_display.last_place_laps_remaining = snapshot.laps_remaining_last
+            race_status_display.race_state = snapshot.state
 
-                if not lap_accepted:
-                    logging.info(
-                        "Ignored lap for racer %s: already completed %s laps in manual mode",
-                        lap.racer_id,
-                        self.total_laps,
-                    )
-                    continue
-
-                # Save lap to database
-                if self.current_race_id:
-                    try:
-                        self.db.add_lap(
-                            race_id=self.current_race_id,
-                            racer_id=lap.racer_id,
-                            sensor_id=getattr(
-                                lap, "sensor_id", lap.racer_id
-                            ),  # Use racer_id as fallback
-                            lap_number=lap.lap_number,
-                            lap_time=lap.lap_time if lap.lap_number > 0 else None,
-                            race_start_at=float(lap.race_start_at),
-                            lap_at=float(lap.lap_at),
-                            recorded_at=float(lap.recorded_at),
-                        )
-                        logging.debug(
-                            f"Saved lap to database: racer={lap.racer_id}, lap={lap.lap_number}"
-                        )
-                    except Exception as e:
-                        logging.error(f"Failed to save lap to database: {e}")
-
-                lap_display_events.laps = self.race.laps.copy()
-                lap_display_leaderboard.leaderboard = (
-                    self._referee_adjusted_leaderboard_data()
-                )
-                leader_remaining, last_remaining = self.race.laps_remaining()
-                race_status_display.leader_laps_remaining = leader_remaining
-                race_status_display.last_place_laps_remaining = last_remaining
-                race_status_display.race_state = self.race.state
-            except asyncio.TimeoutError:
-                # No new lap data, just refresh displays
-                lap_display_events.laps = self.race.laps.copy()
-                lap_display_leaderboard.leaderboard = (
-                    self._referee_adjusted_leaderboard_data()
-                )
-                leader_remaining, last_remaining = self.race.laps_remaining()
-                race_status_display.leader_laps_remaining = leader_remaining
-                race_status_display.last_place_laps_remaining = last_remaining
-                race_status_display.race_state = self.race.state
+            running = snapshot.is_going
+            start_btn.disabled = running
+            stop_btn.disabled = not running
 
             await asyncio.sleep(0.1)
 
@@ -736,129 +564,32 @@ class Franklin(App[Any]):  # type: ignore[type-arg]
                     yield LeaderboardDisplay(
                         id="leaderboard",
                         contestants=self.global_contestants,
-                        race=self.race,
                     )
                 with TabPane("Events", id="events_tab"):
                     yield LapDataDisplay(
                         id="lap_data",
                         contestants=self.global_contestants,
-                        race=self.race,
                     )
         yield Footer()
 
-    def _apply_remove_lap_from_redis(
-        self, racer_id: int, lap_number: int | None = None
-    ) -> None:
-        target_index: int | None = None
-
-        for idx in range(len(self.race.laps) - 1, -1, -1):
-            lap = self.race.laps[idx]
-            if lap.racer_id != racer_id or lap.lap_number <= 0:
-                continue
-            if lap_number is not None and lap.lap_number != lap_number:
-                continue
-            target_index = idx
-            break
-
-        if target_index is None:
-            logging.info(
-                "REMOVE LAP ignored: racer=%s lap=%s not found",
-                racer_id,
-                lap_number,
-            )
-            return
-
-        removed = self.race.laps.pop(target_index)
-
-        if self.current_race_id:
-            try:
-                _ = self.db.remove_lap(self.current_race_id, racer_id, lap_number)
-            except Exception as e:
-                logging.error(f"Failed to remove lap in database: {e}")
-
-        logging.info(
-            "REMOVE LAP applied: racer=%s removed_lap=%s",
-            racer_id,
-            removed.lap_number,
-        )
-
-    def _apply_race_reset_from_redis(self) -> None:
-        logging.info("Applying race reset from Redis")
-
-        self.racer_penalties_seconds.clear()
-        self.disqualified_racers.clear()
-
-        if self.current_race_id:
-            try:
-                self.db.end_race(self.current_race_id)
-            except Exception as e:
-                logging.error(f"Failed to end race during reset: {e}")
-            self.current_race_id = None
-
-        self.race = Race(previous_race=self.previous_race)
-        self.race.total_laps = self.total_laps
-        self.race.race_end_mode = self.race_end_mode
-
-        status_display = self.query_one(RaceStatusDisplay)
-        start_btn = self.query_one("#start_btn", Button)
-        stop_btn = self.query_one("#stop_btn", Button)
-        status_display.race_state = self.race.state
-        start_btn.disabled = False
-        stop_btn.disabled = True
-
-    def _start_race_locally(self) -> None:
-        if self.race.state == RaceState.RUNNING:
-            return
-
-        status_display = self.query_one(RaceStatusDisplay)
-        start_btn = self.query_one("#start_btn", Button)
-        stop_btn = self.query_one("#stop_btn", Button)
-
-        self.racer_penalties_seconds.clear()
-        self.disqualified_racers.clear()
-        self.race = Race(previous_race=self.previous_race)
-        self.race.total_laps = self.total_laps
-        self.race.race_end_mode = self.race_end_mode
-
-        current_time = asyncio.get_event_loop().time()
-        self.race.start(start_time=current_time)
-
-        self.current_race_id = self.db.create_race(
-            notes=f"Mode: {self.race_mode}, Total Laps: {self.total_laps}"
-        )
-        logging.info("Created database race record: %s", self.current_race_id)
-
-        status_display.race_state = self.race.state
-        start_btn.disabled = True
-        stop_btn.disabled = False
-
-    async def _start_race_at_epoch(self, start_at_epoch: float) -> None:
-        delay_seconds = max(0.0, start_at_epoch - time.time())
-        if delay_seconds > 0:
-            await asyncio.sleep(delay_seconds)
-
-        if self.race.state != RaceState.RUNNING:
-            self._start_race_locally()
-            logging.info("Started race at scheduled epoch %.3f", start_at_epoch)
-
-    def action_start_race(self) -> None:
-        status_display = self.query_one(RaceStatusDisplay)
-        start_btn = self.query_one("#start_btn", Button)
-        stop_btn = self.query_one("#stop_btn", Button)
-
-        if self.race_mode == RaceMode.FAKE:
-            self._start_race_locally()
-
-            if self._playback_task is not None and not self._playback_task.done():
-                self._playback_task.cancel()
-
-            fake_race = generate_fake_race()
-            logging.info("Starting fake race")
-            self._playback_task = asyncio.create_task(self.play_fake_race(fake_race))
-            return
-
+    def _publish_command(self, command: str, **kwargs: Any) -> bool:
+        """Publish a race-control command; the recorder owns the effect."""
         if not self._redis_client:
             self.notify("Redis not connected", severity="error")
+            return False
+        try:
+            cmd = build_command_envelope(command, source="franklin_tui", **kwargs)
+            validated = parse_command_envelope(cmd)
+            self._redis_client.publish(self.redis_in_channel, json.dumps(validated))
+            logging.info("Sent %s command: %s", command, validated)
+            return True
+        except Exception as e:
+            logging.error("Failed to send %s command: %s", command, e)
+            self.notify(f"Failed to send {command}: {e}", severity="error")
+            return False
+
+    def action_start_race(self) -> None:
+        if self.snapshot.is_going:
             return
 
         base = time.time() + 0.25
@@ -866,67 +597,27 @@ class Franklin(App[Any]):  # type: ignore[type-arg]
         set_at = base + 1.0
         go_at = base + 2.0
 
-        cmd = build_command_envelope(
+        # Publishes a start_race command (with config) for the recorder; the
+        # authoritative race appears via the snapshot.
+        if self._publish_command(
             "start_race",
-            source="franklin_tui",
             ready_at=ready_at,
             set_at=set_at,
             go_at=go_at,
             start_at=go_at,
-        )
-
-        try:
-            validated = parse_command_envelope(cmd)
-            self._redis_client.publish(self.redis_in_channel, json.dumps(validated))
-            logging.info("Sent scheduled start_race command: %s", validated)
-            status_display.race_state = RaceState.NOT_STARTED
-            start_btn.disabled = True
-            stop_btn.disabled = True
+            # Race config for the headless recorder (ignored by the Rust owner).
+            race_mode=self.race_mode.value,
+            total_laps=self.total_laps,
+            race_end_mode=self.race_end_mode.value,
+        ):
+            self.query_one("#start_btn", Button).disabled = True
             self.notify("Start countdown scheduled", severity="information")
-        except Exception as e:
-            logging.error("Failed to send start command to Redis: %s", e)
-            self.notify(f"Failed to start race: {e}", severity="error")
 
     def action_end_race(self) -> None:
-        status_display = self.query_one(RaceStatusDisplay)
-        start_btn = self.query_one("#start_btn", Button)
-        stop_btn = self.query_one("#stop_btn", Button)
-        if is_race_going(self.race):
-            if (
-                self._pending_start_task is not None
-                and not self._pending_start_task.done()
-            ):
-                self._pending_start_task.cancel()
-            # Stop playback and reset race state
-            if (
-                hasattr(self, "_playback_task")
-                and self._playback_task is not None
-                and not self._playback_task.done()
-            ):
-                self._playback_task.cancel()
-            self.race.state = RaceState.FINISHED
-            status_display.race_state = self.race.state
-            start_btn.disabled = False
-            stop_btn.disabled = True
-            # Store this race for the next one
-            self.previous_race = self.race
-            self.save_config()
-
-            # Publish end_race command to Redis
-            if self._redis_client:
-                cmd = build_command_envelope("end_race", source="franklin_tui")
-                validated = parse_command_envelope(cmd)
-                self._redis_client.publish(
-                    self.redis_in_channel,
-                    json.dumps(validated),
-                )
-                logging.info("Sent end_race command to Redis: %s", validated)
-
-            # Mark race as completed in database
-            if self.current_race_id:
-                self.db.end_race(self.current_race_id)
-                logging.info(f"Ended database race record: {self.current_race_id}")
-                self.current_race_id = None
+        if not self.snapshot.is_going:
+            return
+        if self._publish_command("end_race"):
+            self.notify("Requested race end", severity="information")
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         button_id = event.button.id
@@ -938,7 +629,7 @@ class Franklin(App[Any]):  # type: ignore[type-arg]
     def action_rename_driver(self) -> None:
         """Action to open the rename driver dialog."""
         self.push_screen(
-            RenameDriverScreen(self.global_contestants, self.race),
+            RenameDriverScreen(self.global_contestants, self.snapshot.laps),
             self._handle_driver_rename_result,
         )
 
@@ -965,46 +656,8 @@ class Franklin(App[Any]):  # type: ignore[type-arg]
             display.refresh_display()
 
     async def on_mount(self) -> None:
-        asyncio.create_task(self.update_race_time())
         asyncio.create_task(self.refresh_lap_data())
         asyncio.create_task(self.hardware_monitor_task())
-
-    async def play_fake_race(self, fake_race):
-        """
-        Asynchronously plays back the fake race laps in real time based on lap completion times.
-        Emits lap events to lap_queue so UI updates as if real.
-        """
-        if not fake_race.laps:
-            logging.error("Fake race has no laps")
-            return
-
-        # Verify race is running before proceeding
-        if self.race.state != RaceState.RUNNING:
-            logging.error("Race not in running state, cannot play fake race")
-            return
-
-        start_time = self.race.start_time
-        if start_time is None:
-            logging.error("Race start time not set")
-            return
-
-        sorted_laps = order_laps_by_occurrence(fake_race.laps)
-        logging.info("Sorted laps:\n%s", pprint.pformat(sorted_laps))
-
-        try:
-            for ts, lap in sorted_laps:
-                elapsed_time = asyncio.get_event_loop().time() - start_time
-                wait_time = ts - elapsed_time
-                if wait_time > 0:
-                    await asyncio.sleep(wait_time)
-
-                lap_event = make_fake_lap(
-                    lap.racer_id, lap.lap_number, lap.lap_time, ts
-                )
-                logging.info("fake lap %s", lap_event)
-                await self.lap_queue.put(lap_event)
-        except asyncio.CancelledError:
-            logging.info("Fake race playback cancelled")
 
 
 class RenameDriverScreen(ModalScreen[bool]):
@@ -1059,10 +712,10 @@ class RenameDriverScreen(ModalScreen[bool]):
     }
     """
 
-    def __init__(self, contestants, race):
+    def __init__(self, contestants, laps: list[SnapshotLap]):
         super().__init__()
         self.contestants = contestants
-        self.race = race
+        self.laps = laps
         self.selected_driver_id = None
         self.driver_name_input = None
 
@@ -1088,7 +741,7 @@ class RenameDriverScreen(ModalScreen[bool]):
 
         # Track which IDs have been seen in the race but don't have names yet
         unknown_ids = set()
-        for lap in self.race.laps:
+        for lap in self.laps:
             racer_id = lap.racer_id
             name = self.contestants.get_contestant_name(racer_id)
             if name.startswith("Unknown"):

@@ -22,12 +22,20 @@
     "gtk4@latest",
     "python313Packages.pygobject3@latest",
     "biome@latest",
-    "watchexec@latest"
+    "watchexec@latest",
+    "gobject-introspection@latest",
+    "pango@latest",
+    "graphene@latest",
+    "harfbuzz@latest",
+    "pango.dev",
+    "cairo@latest",
+    "gdk-pixbuf@latest"
   ],
 
   "shell": {
     "init_hook": [
-      ". $VENV_DIR/bin/activate",
+      "export GI_TYPELIB_PATH=\"$DEVBOX_PACKAGES_DIR/lib/girepository-1.0${GI_TYPELIB_PATH:+:$GI_TYPELIB_PATH}\"",
+      "export XDG_DATA_DIRS=$DEVBOX_PACKAGES_DIR/share:$XDG_DATA_DIRS",
       "redis-server --daemonize yes --unixsocket ./redis.sock --unixsocketperm 700"
     ],
     "scripts": {
@@ -35,28 +43,30 @@
       "start:franklin-simulator": [
         "tmuxinator start -p tmuxinator/franklin-simulator.yml"
       ],
-      "web_scoreboard": ["python scoreboard_web_app.py"],
-      "web_referee": ["python referee_web_app.py"],
-      "web_healthcheck": ["python healthcheck_web_app.py"],
-      "web_driver": ["python driver_web_app.py"],
+      "web_scoreboard":      ["python scoreboard_web_app.py"],
+      "web_referee":         ["python referee_web_app.py"],
+      "web_healthcheck":     ["python healthcheck_web_app.py"],
+      "web_driver":          ["python driver_web_app.py"],
+      "race_recorder":        ["python franklin-race-recorder.py"],
+      "race_recorder:shadow": ["python franklin-race-recorder.py --shadow"],
       "lint": [
         "devbox run lint:python",
         "devbox run lint:web",
         "devbox run lint:rust"
       ],
       "lint:python": [
-        "ruff check franklin-tui.py franklin-gui.py scoreboard_web_app.py referee_web_app.py healthcheck_web_app.py driver_web_app.py database.py race",
-        "basedpyright franklin-tui.py franklin-gui.py scoreboard_web_app.py referee_web_app.py healthcheck_web_app.py driver_web_app.py database.py race"
+        "ruff check franklin-tui.py franklin-gui.py franklin-race-recorder.py scoreboard_web_app.py referee_web_app.py healthcheck_web_app.py driver_web_app.py database.py race",
+        "basedpyright franklin-tui.py franklin-gui.py franklin-race-recorder.py scoreboard_web_app.py referee_web_app.py healthcheck_web_app.py driver_web_app.py database.py race"
       ],
-      "lint:web": ["biome check --files-ignore-unknown=true static"],
+      "lint:web":  ["biome check --files-ignore-unknown=true static"],
       "lint:rust": ["cargo check --manifest-path rust/Cargo.toml"],
-      "test": ["devbox run test:python", "devbox run test:rust"],
+      "test":      ["devbox run test:python", "devbox run test:rust"],
       "test:python": [
         "python -m unittest discover -s race -t . -p '*_test.py'"
       ],
       "test:rust": ["cargo test --manifest-path rust/Cargo.toml"],
-      "build": ["devbox run build:pi", "devbox run build:release"],
-      "build:pi": ["./scripts/rust-pi-build.sh"],
+      "build":     ["devbox run build:pi", "devbox run build:release"],
+      "build:pi":  ["./scripts/rust-pi-build.sh"],
       "build:release": [
         "cargo build --release --manifest-path rust/Cargo.toml"
       ],
@@ -72,7 +82,7 @@
       ],
       "vnc:open-tunnel": [
         "echo 'Opening SSH tunnel localhost:5901 -> 127.0.0.1:5900 on Pi (Ctrl+C to stop)'",
-        "ssh -N -L 5901:127.0.0.1:5900 jachin@10.27.1.64"
+        "ssh -N -L 5901:127.0.0.1:5900 jachin@10.210.1.1"
       ],
       "vnc:connect": ["open vnc://127.0.0.1:5901"],
       "ansible:deploy": [

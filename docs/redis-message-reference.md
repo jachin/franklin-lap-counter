@@ -8,9 +8,10 @@ If another document or code comment conflicts with this one, treat this file as 
 
 | Channel | Direction / Purpose | Primary Publishers | Primary Subscribers |
 |---|---|---|---|
-| `hardware:in` | Commands to the race-control owner (hardware monitor) | `franklin-tui.py`, `franklin-gui.py`, `referee_web_app.py` | `rust/franklin-hardware-monitor` (`command_handler_task`) |
-| `hardware:out` | **Hardware-only** telemetry/events (or simulation of those same hardware events) | `rust/franklin-hardware-monitor` | `franklin-tui.py`, `franklin-gui.py`, `scoreboard_web_app.py`, `referee_web_app.py`, `healthcheck_web_app.py` (heartbeat sampling), rust local monitor TUI |
-| `franklin:events` | Race-control + countdown timeline events (`race_control`, `countdown_phase`) | `rust/franklin-hardware-monitor` | `franklin-tui.py`, `franklin-gui.py`, `scoreboard_web_app.py`, `referee_web_app.py`, rust local monitor TUI |
+| `hardware:in` | Commands to the race-control owner (hardware monitor) | `franklin-tui.py`, `franklin-gui.py`, `referee_web_app.py` | `rust/franklin-hardware-monitor` (`command_handler_task`), `franklin-race-recorder.py` (caches `start_race` config only) |
+| `hardware:out` | **Hardware-only** telemetry/events (or simulation of those same hardware events) | `rust/franklin-hardware-monitor` | `franklin-tui.py`, `franklin-gui.py`, `franklin-race-recorder.py`, `scoreboard_web_app.py`, `referee_web_app.py`, `healthcheck_web_app.py` (heartbeat sampling), rust local monitor TUI |
+| `franklin:events` | Race-control + countdown timeline events (`race_control`, `countdown_phase`) | `rust/franklin-hardware-monitor` | `franklin-tui.py`, `franklin-gui.py`, `franklin-race-recorder.py`, `scoreboard_web_app.py`, `referee_web_app.py`, rust local monitor TUI |
+| `franklin:race_state` | Authoritative full race-state snapshots (model + leaderboard + persistence-derived state); retained latest at key `franklin:race_state:latest` | `franklin-race-recorder.py` | `franklin-gui.py`, `franklin-tui.py`, other read-only views |
 
 ---
 
@@ -40,6 +41,7 @@ Supported commands:
 - `start_race`
   - supports synchronized schedule fields: `ready_at`, `set_at`, `go_at`, `start_at` (epoch seconds, float)
   - if omitted, owner falls back to immediate start timing
+  - optional race-config fields consumed by the headless recorder (ignored by the Rust owner): `race_mode` (RaceMode value string), `total_laps` (int), `race_end_mode` (RaceEndMode value string). The recorder caches these (keyed by `command_id`/`start_at`) and applies them when it sees the authoritative `hardware:out` `start_race` event.
 - `end_race`
 - `reset_race`
 - `simulate_lap` *(simulation/harness use)*
@@ -160,11 +162,88 @@ Fields:
 - Required: `type`, `command`, `recorded_at`, `accepted`
 - Optional: `command_id`, `message`, `racer_id`, `penalty_seconds`, `reason`, `lap_number`
 
-## 4) Race snapshots on `franklin:race_state` *(retired)*
+## 4) Race snapshots on `franklin:race_state`
 
-`franklin:race_state` is currently retired and has no active publishers/subscribers in-repo.
+Authoritative, full race-state snapshots published by the headless race recorder
+(`franklin-race-recorder.py`, owner of the `Race` model + SQLite writes). GUI/TUI
+and other read-only views render these instead of maintaining their own model.
 
-If this channel is reintroduced later, define the schema here before adding publishers.
+Publishing pattern (recorder):
+
+1. `SET franklin:race_state:latest <json>` — retained "latest" snapshot for late joiners.
+2. `PUBLISH franklin:race_state <json>` — live update.
+
+Subscriber pattern (GUI/TUI/views):
+
+1. Subscribe to `franklin:race_state`.
+2. `GET franklin:race_state:latest` once on startup and render it.
+3. Ignore any snapshot whose `snapshot_seq` is `<=` the last applied one.
+
+Snapshot envelope (`schema_version: 1`):
+
+```json
+{
+  "schema_version": 1,
+  "snapshot_seq": 42,
+  "snapshot_at": 1736200012.600,
+  "recorder_id": "9f2c…",
+
+  "state": "running",
+  "race_id": 12,
+  "start_at": 1736200000.250,
+  "end_at": null,
+  "elapsed_seconds": 12.350,
+
+  "race_mode": "Real Race Mode",
+  "total_laps": 10,
+  "effective_total_laps": 10,
+  "race_end_mode": "last_car",
+
+  "leaderboard": [
+    {
+      "position": 1,
+      "racer_id": 3,
+      "lap_count": 5,
+      "best_lap_time": 4.92,
+      "last_lap_time": 5.10,
+      "raw_total_time": 25.7,
+      "penalty_seconds": 0,
+      "adjusted_total_time": 25.7,
+      "disqualified": false
+    }
+  ],
+  "laps_remaining": { "leader": 5, "last_place": 7 },
+
+  "penalties": { "2": 5 },
+  "disqualified": [4],
+
+  "laps": [
+    {
+      "racer_id": 3,
+      "lap_number": 5,
+      "lap_time": 5.10,
+      "race_time": 25.7,
+      "race_start_at": 1736200000.250,
+      "lap_at": 1736200025.950,
+      "recorded_at": 1736200025.960
+    }
+  ]
+}
+```
+
+Field semantics:
+
+- `state`: lowercased `RaceState` name — `not_started`, `running`, `winner_declared`, `finished`, `paused`.
+- `snapshot_seq`: monotonically increasing per recorder run; clients drop stale/out-of-order snapshots.
+- `recorder_id`: opaque id unique to each recorder run. When it changes (recorder restart, where `snapshot_seq` resets to 1) clients fall back to the newer `snapshot_at` instead of treating the fresh run's low sequence number as stale.
+- Clock: `start_at`/`end_at` are epoch seconds; `elapsed_seconds` is authoritative render state. Clients should render `elapsed_seconds` and, while `state` is `running`/`winner_declared`, advance it locally using their own monotonic clock between snapshots; freeze it otherwise.
+- `total_laps` is the user-facing setting; `effective_total_laps` is what the model uses (e.g. Training maps to a very large target). Clients hide "laps remaining" when `race_mode` is Training.
+- `race_end_mode`: effective `RaceEndMode` value (`winner`, `last_car`, `manual`).
+- `leaderboard` rows are display-ready and already sorted (active rows first by `adjusted_total_time`, then DQ rows). Missing best/last lap times are `null` (never `Infinity`).
+- `penalties` keys are racer IDs as strings (JSON object keys).
+- Names and colors are **not** in the snapshot; views look those up locally by `racer_id`.
+
+If `franklin:race_state:latest` is absent (recorder not yet running), views fall back to a neutral idle state.
 
 ---
 
@@ -178,17 +257,28 @@ If this channel is reintroduced later, define the schema here before adding publ
   - `hardware:out` (`heartbeat`, `status`, `lap`, `error`, `debug`, `start_race`)
   - `franklin:events` (`race_control`, `countdown_phase`)
 
-## `franklin-tui.py`
+## `franklin-tui.py` *(pure renderer — no DB writes)*
 
-- **Subscribes:** `hardware:out`, `franklin:events`
+- **Subscribes:** `hardware:out`, `franklin:events`, `franklin:race_state` (and reads `franklin:race_state:latest` on connect)
 - **Publishes:**
   - `hardware:in` (`start_race` with schedule fields, `end_race`)
+- Renders the authoritative `franklin:race_state` snapshot; it never owns a `Race` model or writes SQLite. `hardware:out`/`franklin:events` are used display-only (heartbeat, countdown notifications, log lines).
 
-## `franklin-gui.py`
+## `franklin-gui.py` *(pure renderer — no DB writes)*
 
-- **Subscribes:** `hardware:out`, `franklin:events`
+- **Subscribes:** `hardware:out`, `franklin:events`, `franklin:race_state` (and reads `franklin:race_state:latest` on connect)
 - **Publishes:**
   - `hardware:in` (`start_race` with schedule fields, `end_race`, `reset_race`)
+- Renders the authoritative `franklin:race_state` snapshot; it never owns a `Race` model or writes SQLite. `hardware:out`/`franklin:events` are used display-only (heartbeat, countdown/start lights, log lines).
+
+## `franklin-race-recorder.py` *(headless recorder — sole race-model owner & DB writer)*
+
+- **Subscribes:** `hardware:out`, `franklin:events`, `hardware:in` (the latter only to cache `start_race` race-config)
+- **Publishes:**
+  - `franklin:race_state` (full snapshots) and sets `franklin:race_state:latest`
+  - `hardware:in` (`end_race`) when it detects automatic race finish
+- Owns the in-memory `Race` model and is the only writer to SQLite (`laps`, `races`).
+- Core model/persistence logic lives in `race/race_engine.py` (`RaceEngine`); the daemon is a thin Redis transport around it.
 
 ## `referee_web_app.py`
 

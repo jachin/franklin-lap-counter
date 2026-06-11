@@ -5,20 +5,22 @@
 """
 Franklin GTK GUI (Wayland-friendly) implementation.
 
-This is the first pass of the GUI app that mirrors the core Franklin TUI flow:
-- race mode selection (Real/Fake/Training)
-- start/end race controls
-- Redis pub/sub integration (channels/messages documented in docs/redis-message-reference.md)
-- lap/event log and leaderboard rendering
-- race persistence via SQLite
-- basic driver management (add/rename/delete) via dialog
+This is a pure-renderer GUI: the headless recorder (franklin-race-recorder.py)
+owns the authoritative race model and SQLite writes. The GUI:
+- selects the next race's mode (Real/Fake/Training) and config
+- publishes race-control commands (start/end/reset/penalty/DQ/remove-lap)
+- renders the authoritative ``franklin:race_state`` snapshot it receives
+- shows a lap/event log and the leaderboard from that snapshot
+- manages drivers (add/rename/delete) via dialog
+
+It never mutates race state locally. See docs/redis-message-reference.md for the
+Redis channels/messages and the snapshot schema.
 """
 
 import argparse
 import json
 import logging
 import queue
-import re
 import socket
 import subprocess
 import threading
@@ -29,22 +31,12 @@ from typing import Any
 import gi
 import redis
 
-from database import LapDatabase
 from gui_config import load_initial_config, write_config
 from race.contestant import Contestant
-from race.lap import EpochSeconds, Lap, LapTime
-from race.race import (
-    Race,
-    RaceEndMode,
-    RaceState,
-    generate_fake_race,
-    is_race_going,
-    make_fake_lap,
-    make_lap_from_sensor_event_and_race,
-    order_laps_by_occurrence,
-)
+from race.race import RaceEndMode
 from race.race_contestants import RaceContestants
 from race.race_mode import RaceMode
+from race.race_snapshot import RaceSnapshot, idle_snapshot
 from racer_colors import RacerColorScheme, assign_random_scheme
 from redis_commands import build_command_envelope, parse_command_envelope
 
@@ -57,11 +49,6 @@ from gi.repository import (  # pyright: ignore[reportAttributeAccessIssue]  # no
     Gtk,
     Pango,
 )
-
-# Training (practice) mode never auto-finishes; drivers keep lapping until the
-# session is ended manually. This effectively-unlimited target prevents the
-# race engine from declaring a winner or capping laps.
-TRAINING_LAP_TARGET = 1_000_000
 
 # Reference layout the UI was designed against. Fonts and the initial window
 # size scale relative to these so the GUI fits whatever screen it runs on.
@@ -86,7 +73,6 @@ class FranklinGuiApp(Gtk.Application):
         last_race_contestant_ids: list[int],
         racer_color_assignments: dict[int, RacerColorScheme],
         redis_socket: str = "./redis.sock",
-        db_path: str = "lap_counter.db",
     ) -> None:
         super().__init__(application_id="com.franklin.lapcounter.gui")
 
@@ -100,27 +86,19 @@ class FranklinGuiApp(Gtk.Application):
         )
         logging.info("Franklin GUI initialized")
 
-        # Core state
+        # Next-race configuration (used only to build start commands and the
+        # pre-race UI; the running race is owned by the recorder).
         self.total_laps = total_laps
         self.race_mode = initial_mode
         self.race_end_mode = race_end_mode
         self.global_contestants = RaceContestants(contestants_data)
         self.racer_color_assignments = dict(racer_color_assignments)
-        self.previous_race: Race | None = None
-        if last_race_contestant_ids:
-            seeded_previous_race = Race(previous_race=None)
-            seeded_previous_race.active_contestants = set(last_race_contestant_ids)
-            seeded_previous_race.total_laps = total_laps
-            seeded_previous_race.race_end_mode = race_end_mode
-            self.previous_race = seeded_previous_race
+        self.last_race_contestant_ids: set[int] = set(last_race_contestant_ids)
 
-        self.race = Race(previous_race=self.previous_race)
-        self.race.total_laps = total_laps
-        self.race.race_end_mode = race_end_mode
-
-        # Referee adjustments (applied from franklin:events)
-        self.racer_penalties_seconds: dict[int, int] = {}
-        self.disqualified_racers: set[int] = set()
+        # Authoritative render state: the latest race snapshot from the recorder.
+        # The GUI never mutates race state; it only renders this and publishes
+        # commands (see docs/redis-message-reference.md, franklin:race_state).
+        self.snapshot: RaceSnapshot = idle_snapshot()
 
         known_racer_ids = {
             c.transmitter_id for c in self.global_contestants.contestants
@@ -132,21 +110,23 @@ class FranklinGuiApp(Gtk.Application):
         self.redis_in_channel = "hardware:in"
         self.redis_out_channel = "hardware:out"
         self.redis_events_channel = "franklin:events"
+        self.redis_race_state_channel = "franklin:race_state"
+        self.redis_race_state_latest_key = "franklin:race_state:latest"
         self._redis_client: redis.Redis | None = None
         self._redis_pubsub = None
 
         self.config_path = Path("franklin.config.json")
-        self.db = LapDatabase(db_path)
-        self.current_race_id: int | None = None
 
         self.lap_counter_detected = False
         self._last_lap_counter_signal_time: float | None = None
 
-        # Threaded message processing
-        self._incoming_messages: queue.Queue[dict[str, Any]] = queue.Queue()
+        # Threaded message processing. Each item is (channel, message) so the
+        # drain loop can route snapshots vs hardware/event traffic.
+        self._incoming_messages: queue.Queue[tuple[str, dict[str, Any]]] = (
+            queue.Queue()
+        )
         self._shutdown = threading.Event()
         self._redis_thread: threading.Thread | None = None
-        self._fake_thread: threading.Thread | None = None
 
         # UI refs
         self.window: Gtk.ApplicationWindow | None = None
@@ -189,137 +169,63 @@ class FranklinGuiApp(Gtk.Application):
 
         self._register_actions_and_shortcuts()
 
-        in_progress = self.db.get_in_progress_race()
-        if in_progress:
-            self._restore_race_from_db(in_progress)
+    def _snapshot_racer_ids(self) -> set[int]:
+        """Racer IDs present in the current snapshot (leaderboard or laps)."""
+        ids = {row.racer_id for row in self.snapshot.leaderboard}
+        if not ids:
+            ids = {lap.racer_id for lap in self.snapshot.laps}
+        return ids
 
-    def _restore_race_from_db(self, race_row: dict[str, Any]) -> None:
-        """Rebuild the live race from a persisted in-progress race.
+    def _humanize_snapshot_state(self, state: str) -> str:
+        return state.replace("_", " ").title()
 
-        Restores laps, active contestants, race state, the running clock, and
-        referee adjustments (penalties / disqualifications) so the GUI shows
-        correct data after a restart mid-race.
-        """
-        race_id = int(race_row["id"])
-        self.current_race_id = race_id
-        notes = str(race_row.get("notes") or "")
+    def handle_snapshot(self, data: dict[str, Any]) -> None:
+        """Apply an authoritative race-state snapshot from the recorder."""
+        try:
+            snapshot = RaceSnapshot.from_dict(data)
+        except Exception as exc:
+            logging.error("Invalid race snapshot: %s", exc)
+            self.append_event(f"Ignored invalid race snapshot: {exc}")
+            return
 
-        # Recover the mode/laps the race was actually created with.
-        restored_mode = self._race_mode_from_notes(notes)
-        if restored_mode is not None:
-            self.race_mode = restored_mode
-        laps_match = re.search(r"Total Laps:\s*(\d+)", notes)
-        if laps_match:
-            self.total_laps = int(laps_match.group(1))
+        if not snapshot.supersedes(self.snapshot):
+            return
 
-        race = Race(previous_race=self.previous_race)
-        if self.race_mode == RaceMode.TRAINING:
-            race.total_laps = TRAINING_LAP_TARGET
-            race.race_end_mode = RaceEndMode.MANUAL
-        else:
-            race.total_laps = self.total_laps
-            race.race_end_mode = self.race_end_mode
+        previous_state = self.snapshot.state
+        self.snapshot = snapshot
 
-        race_start_epoch = race_row.get("start_at")
-        restored_laps: list[Lap] = []
-        for lap_row in self.db.get_race_laps(race_id):
-            lap = self._lap_from_db_row(lap_row, race_start_epoch)
-            if lap is not None:
-                restored_laps.append(lap)
+        racer_ids = self._snapshot_racer_ids()
+        if racer_ids:
+            self.last_race_contestant_ids = set(racer_ids)
+            self._ensure_racer_color_assignments(racer_ids, persist=True)
 
-        race.laps = restored_laps
-        race.active_contestants = {
-            lap.racer_id for lap in restored_laps if lap.lap_number > 0
-        }
+        # An authoritative running/finished state ends any local countdown visuals.
+        if self.snapshot.is_going:
+            self._start_sequence_running = False
+            self._set_start_sequence_phase(None)
+            self._set_start_lights("#2e7d32")
+        elif self.snapshot.state in {"finished", "not_started"}:
+            self._start_sequence_running = False
+            self._set_start_sequence_phase(None)
 
-        # Resume the clock: anchor monotonic start so elapsed continues from the
-        # original epoch start time.
-        race.state = RaceState.RUNNING
-        if isinstance(race_start_epoch, (int, float)) and race_start_epoch > 0:
-            elapsed = max(0.0, time.time() - float(race_start_epoch))
-            race.start_time = time.monotonic() - elapsed
-            race.elapsed_time = elapsed
-        else:
-            race.start_time = time.monotonic()
-            race.elapsed_time = 0.0
+        if previous_state != "finished" and self.snapshot.state == "finished":
+            self.save_config()
 
-        self.race = race
-        self._restore_referee_adjustments(race_id)
-
-        logging.info(
-            "Resumed in-progress race %s: %s laps, %s racers, mode=%s",
-            race_id,
-            len(restored_laps),
-            len(race.active_contestants),
-            self.race_mode,
-        )
+        self.refresh_views()
 
     def _sync_controls_with_race_state(self) -> None:
-        running = is_race_going(self.race)
+        running = self.snapshot.is_going
+        starting = self._start_sequence_running
         if self.start_btn:
-            self.start_btn.set_sensitive(not running)
+            self.start_btn.set_sensitive(not running and not starting)
         if self.stop_btn:
-            self.stop_btn.set_sensitive(running)
+            self.stop_btn.set_sensitive(running and not starting)
         if self.reset_btn:
-            self.reset_btn.set_sensitive(self.race.state == RaceState.FINISHED)
-
-    def _race_mode_from_notes(self, notes: str) -> RaceMode | None:
-        for mode in RaceMode:
-            if mode.value in notes:
-                return mode
-        return None
-
-    def _lap_from_db_row(
-        self, lap_row: dict[str, Any], race_start_epoch: Any
-    ) -> Lap | None:
-        race_start = lap_row.get("race_start_at")
-        if not isinstance(race_start, (int, float)) or race_start <= 0:
-            race_start = race_start_epoch
-        lap_at = lap_row.get("lap_at")
-        recorded_at = lap_row.get("recorded_at")
-        lap_number = int(lap_row.get("lap_number", 0))
-        lap_time = lap_row.get("lap_time")
-
-        if not isinstance(race_start, (int, float)) or race_start <= 0:
-            return None
-        if not isinstance(lap_at, (int, float)) or lap_at <= 0:
-            return None
-        if not isinstance(recorded_at, (int, float)) or recorded_at <= 0:
-            recorded_at = lap_at
-        if not isinstance(lap_time, (int, float)):
-            lap_time = float(lap_at) - float(race_start)
-
-        try:
-            return Lap(
-                racer_id=int(lap_row["racer_id"]),
-                lap_number=lap_number,
-                race_start_at=EpochSeconds(float(race_start)),
-                lap_at=EpochSeconds(float(lap_at)),
-                recorded_at=EpochSeconds(float(recorded_at)),
-                lap_time=LapTime(float(lap_time)),
+            self.reset_btn.set_sensitive(
+                self.snapshot.state == "finished" and not starting
             )
-        except (ValueError, KeyError, TypeError) as exc:
-            logging.warning("Skipping unrestorable lap row %s: %s", lap_row, exc)
-            return None
-
-    def _restore_referee_adjustments(self, race_id: int) -> None:
-        actions = self.db.get_race_control_actions(race_id=race_id)
-        for action in actions:
-            if not action.get("accepted"):
-                continue
-            command = action.get("command")
-            racer_id_raw = action.get("racer_id")
-            if racer_id_raw is None:
-                continue
-            racer_id = int(racer_id_raw)
-            if command == "add_penalty":
-                penalty_seconds = int(action.get("penalty_seconds") or 0)
-                if penalty_seconds > 0:
-                    self.racer_penalties_seconds[racer_id] = (
-                        self.racer_penalties_seconds.get(racer_id, 0) + penalty_seconds
-                    )
-            elif command == "disqualify_racer":
-                self.disqualified_racers.add(racer_id)
+        if self.mode_combo:
+            self.mode_combo.set_sensitive(not running and not starting)
 
     def _register_actions_and_shortcuts(self) -> None:
         action_defs: list[tuple[str, Any, list[str]]] = [
@@ -348,7 +254,7 @@ class FranklinGuiApp(Gtk.Application):
         self.on_reset_clicked(None)
 
     def _action_toggle_mode(self, _action: Gio.SimpleAction, _param: Any) -> None:
-        if is_race_going(self.race):
+        if self.snapshot.is_going:
             self.append_event("Cannot change mode while race is running")
             return
         modes = [RaceMode.REAL, RaceMode.FAKE, RaceMode.TRAINING]
@@ -450,7 +356,7 @@ class FranklinGuiApp(Gtk.Application):
 
         status = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=16)
         state_label = Gtk.Label(
-            label=f"State: {self._humanize_race_state(self.race.state)}"
+            label=f"State: {self._humanize_snapshot_state(self.snapshot.state)}"
         )
         laps_remaining_label = Gtk.Label(label=f"Laps Remaining: {self.total_laps}")
         self.state_label = state_label
@@ -551,11 +457,6 @@ class FranklinGuiApp(Gtk.Application):
         self.toggle_event_log_visibility(show=False)
         self._start_system_status_updater()
 
-        if is_race_going(self.race) and self.current_race_id is not None:
-            self.append_event(
-                f"Resumed in-progress race (#{self.current_race_id}, "
-                f"{len(self.race.laps)} laps)"
-            )
         self._sync_controls_with_race_state()
 
         self.append_event("GUI ready")
@@ -575,7 +476,6 @@ class FranklinGuiApp(Gtk.Application):
             pass
         if self._system_status_thread and self._system_status_thread.is_alive():
             self._system_status_thread.join(timeout=1.0)
-        self.db.close()
         super().do_shutdown()
 
     def toggle_event_log_visibility(self, show: bool | None = None) -> None:
@@ -733,7 +633,7 @@ class FranklinGuiApp(Gtk.Application):
     def _sync_start_lights_with_race_state(self) -> None:
         if self._start_sequence_running:
             return
-        if is_race_going(self.race):
+        if self.snapshot.is_going:
             self._set_start_lights("#2e7d32")
         else:
             self._set_start_lights("#c62828")
@@ -746,7 +646,7 @@ class FranklinGuiApp(Gtk.Application):
 
         if phase is None:
             self.state_label.set_text(
-                f"State: {self._humanize_race_state(self.race.state)}"
+                f"State: {self._humanize_snapshot_state(self.snapshot.state)}"
             )
             return
 
@@ -798,46 +698,6 @@ class FranklinGuiApp(Gtk.Application):
         if self.reset_btn:
             self.reset_btn.set_sensitive(False)
 
-        if self.race_mode == RaceMode.FAKE:
-
-            def set_yellow() -> bool:
-                if not self._start_sequence_running:
-                    return False
-                self._set_start_sequence_phase("Ready")
-                self._set_start_light_pattern(
-                    [
-                        "start-light-yellow",
-                        "start-light-red",
-                        "start-light-red",
-                        "start-light-yellow",
-                    ]
-                )
-                self.append_event("Ready")
-                return False
-
-            def set_all_yellow() -> bool:
-                if not self._start_sequence_running:
-                    return False
-                self._set_start_sequence_phase("Set")
-                self._set_start_lights("#f9a825")
-                self.append_event("Set")
-                return False
-
-            def set_green_and_start() -> bool:
-                if not self._start_sequence_running:
-                    return False
-                self._set_start_sequence_phase("Go")
-                self._set_start_lights("#2e7d32")
-                self.append_event("Go")
-                self._start_sequence_running = False
-                self._start_race_now()
-                return False
-
-            GLib.timeout_add(1000, set_yellow)
-            GLib.timeout_add(2000, set_all_yellow)
-            GLib.timeout_add(3000, set_green_and_start)
-            return
-
         if not self._redis_client:
             self.append_event("Redis not connected; cannot schedule race start")
             self._start_sequence_running = False
@@ -850,19 +710,27 @@ class FranklinGuiApp(Gtk.Application):
         set_at = base + 1.0
         go_at = base + 2.0
 
+        # The recorder owns the race; we only request a start (with config) and
+        # render the snapshot it publishes. The countdown visuals below are a
+        # local preview that the authoritative snapshot supersedes once running.
         self.publish_command(
             "start_race",
             ready_at=ready_at,
             set_at=set_at,
             go_at=go_at,
             start_at=go_at,
+            # Race config for the headless recorder (ignored by the Rust owner).
+            race_mode=self.race_mode.value,
+            total_laps=self.total_laps,
+            race_end_mode=self.race_end_mode.value,
         )
         self.append_event(f"Scheduled countdown (go at {go_at:.3f})")
 
-        # Local visual countdown preview for GUI reliability. If Redis timeline
-        # events arrive, those handlers will keep this in sync.
+        # Local visual countdown preview. If Redis timeline events arrive, those
+        # handlers keep this in sync; when the running snapshot arrives,
+        # handle_snapshot() clears the sequence.
         def show_ready_local() -> bool:
-            if not self._start_sequence_running or is_race_going(self.race):
+            if not self._start_sequence_running or self.snapshot.is_going:
                 return False
             self._set_start_sequence_phase("Ready")
             self._set_start_light_pattern(
@@ -877,7 +745,7 @@ class FranklinGuiApp(Gtk.Application):
             return False
 
         def show_set_local() -> bool:
-            if not self._start_sequence_running or is_race_going(self.race):
+            if not self._start_sequence_running or self.snapshot.is_going:
                 return False
             self._set_start_sequence_phase("Set")
             self._set_start_lights("#f9a825")
@@ -885,7 +753,7 @@ class FranklinGuiApp(Gtk.Application):
             return False
 
         def show_go_local() -> bool:
-            if not self._start_sequence_running or is_race_going(self.race):
+            if not self._start_sequence_running or self.snapshot.is_going:
                 return False
             self._set_start_sequence_phase("Go")
             self._set_start_lights("#2e7d32")
@@ -900,59 +768,6 @@ class FranklinGuiApp(Gtk.Application):
         GLib.timeout_add(ready_delay_ms, show_ready_local)
         GLib.timeout_add(set_delay_ms, show_set_local)
         GLib.timeout_add(go_delay_ms, show_go_local)
-
-        # Fallback: if no start signal arrives from Redis timeline, start locally
-        # so GUI operation is resilient to command-path issues.
-        fallback_delay_ms = max(0, go_delay_ms + 250)
-
-        def fallback_start_if_missing() -> bool:
-            if self._start_sequence_running and not is_race_going(self.race):
-                logging.warning(
-                    "Start fallback triggered: no start_race timeline received in time"
-                )
-                self.append_event("Start fallback triggered (local start)")
-                self._start_sequence_running = False
-                self._start_race_now()
-            return False
-
-        GLib.timeout_add(fallback_delay_ms, fallback_start_if_missing)
-
-    def _start_race_now(self) -> None:
-        if is_race_going(self.race):
-            return
-
-        self.racer_penalties_seconds.clear()
-        self.disqualified_racers.clear()
-
-        self.race = Race(previous_race=self.previous_race)
-        if self.race_mode == RaceMode.TRAINING:
-            # Practice session: never auto-finish so drivers keep lapping until
-            # the session is ended manually. "Laps remaining" is hidden in this
-            # mode (see refresh_views).
-            self.race.total_laps = TRAINING_LAP_TARGET
-            self.race.race_end_mode = RaceEndMode.MANUAL
-        else:
-            self.race.total_laps = self.total_laps
-            self.race.race_end_mode = self.race_end_mode
-        self.race.start(start_time=time.monotonic())
-
-        self.current_race_id = self.db.create_race(
-            notes=f"Mode: {self.race_mode}, Total Laps: {self.total_laps}"
-        )
-
-        if self.start_btn:
-            self.start_btn.set_sensitive(False)
-        if self.stop_btn:
-            self.stop_btn.set_sensitive(True)
-        if self.reset_btn:
-            self.reset_btn.set_sensitive(False)
-
-        self._set_start_sequence_phase(None)
-        self.append_event("Race started")
-        if self.race_mode == RaceMode.FAKE:
-            self.start_fake_playback()
-
-        self.refresh_views()
 
     def _run_command(self, args: list[str], timeout: float = 1.0) -> str:
         try:
@@ -1070,11 +885,8 @@ class FranklinGuiApp(Gtk.Application):
         centiseconds = total_cs % 100
         return f"{minutes:02}:{seconds:02}:{centiseconds:02}"
 
-    def _humanize_race_state(self, state: RaceState) -> str:
-        return state.name.replace("_", " ").title()
-
     def _leaderboard_status_symbol(self, position: int, lap_count: int) -> str:
-        if self.race.state == RaceState.FINISHED:
+        if self.snapshot.state == "finished":
             if position == 1:
                 return "🥇"
             if position == 2:
@@ -1083,10 +895,11 @@ class FranklinGuiApp(Gtk.Application):
                 return "🥉"
             return ""
 
-        if self.race.state == RaceState.WINNER_DECLARED and position == 1:
+        if self.snapshot.state == "winner_declared" and position == 1:
             return "🏁"
 
-        if lap_count == (self.total_laps - 1):
+        target_laps = self.snapshot.effective_total_laps or self.total_laps
+        if target_laps and lap_count == (target_laps - 1):
             return "🔔"
 
         if lap_count == 0:
@@ -1278,44 +1091,29 @@ class FranklinGuiApp(Gtk.Application):
     def _referee_adjusted_leaderboard(
         self,
     ) -> list[tuple[str, int, int, float, float, float, bool]]:
-        base = self.race.leaderboard()
-        active_rows: list[tuple[int, int, float, float, float]] = []
-        dq_rows: list[tuple[int, int, float, float, float]] = []
+        """Display rows from the authoritative snapshot.
 
-        for _pos, racer_id, lap_count, best, last, total in base:
-            adjusted_total = total + float(
-                self.racer_penalties_seconds.get(racer_id, 0)
+        The recorder already applies penalties/DQ and orders the rows, so we
+        just map them to the grid tuple shape. ``inf`` keeps missing best/last
+        times rendering as ``00:00:00`` via ``_format_time_cs``.
+        """
+        rows: list[tuple[str, int, int, float, float, float, bool]] = []
+        for row in self.snapshot.leaderboard:
+            pos_label = "DQ" if row.disqualified else str(row.position)
+            best = row.best_lap_time if row.best_lap_time is not None else float("inf")
+            last = row.last_lap_time if row.last_lap_time is not None else float("inf")
+            rows.append(
+                (
+                    pos_label,
+                    row.racer_id,
+                    row.lap_count,
+                    best,
+                    last,
+                    row.adjusted_total_time,
+                    row.disqualified,
+                )
             )
-            if racer_id in self.disqualified_racers:
-                dq_rows.append((racer_id, lap_count, best, last, adjusted_total))
-            else:
-                active_rows.append((racer_id, lap_count, best, last, adjusted_total))
-
-        active_rows.sort(
-            key=lambda row: (
-                -row[1],  # lap_count desc
-                row[4],  # adjusted total asc
-                row[2],  # best lap asc
-                row[0],  # stable tie-breaker
-            )
-        )
-
-        adjusted: list[tuple[str, int, int, float, float, float, bool]] = []
-        for idx, (racer_id, lap_count, best, last, adjusted_total) in enumerate(
-            active_rows, start=1
-        ):
-            adjusted.append(
-                (str(idx), racer_id, lap_count, best, last, adjusted_total, False)
-            )
-
-        for racer_id, lap_count, best, last, adjusted_total in sorted(
-            dq_rows, key=lambda row: row[0]
-        ):
-            adjusted.append(
-                ("DQ", racer_id, lap_count, best, last, adjusted_total, True)
-            )
-
-        return adjusted
+        return rows
 
     def _render_leaderboard_grid(self) -> None:
         if not self.leaderboard_grid:
@@ -1422,6 +1220,7 @@ class FranklinGuiApp(Gtk.Application):
 
     def refresh_views(self) -> None:
         self._sync_start_lights_with_race_state()
+        self._sync_controls_with_race_state()
 
         if self.state_label:
             if self._start_sequence_phase is not None:
@@ -1430,7 +1229,7 @@ class FranklinGuiApp(Gtk.Application):
                 )
             else:
                 self.state_label.set_text(
-                    f"State: {self._humanize_race_state(self.race.state)}"
+                    f"State: {self._humanize_snapshot_state(self.snapshot.state)}"
                 )
         if self.detect_label:
             now = time.monotonic()
@@ -1441,14 +1240,20 @@ class FranklinGuiApp(Gtk.Application):
             status = "Connected" if connected else "Waiting"
             self.detect_label.set_text(f"HW: {status}")
         if self.laps_remaining_label:
-            if self.race_mode == RaceMode.TRAINING:
+            # Show the running race's mode if one is active, otherwise the mode
+            # selected for the next race.
+            if self.snapshot.race_mode:
+                is_training = self.snapshot.race_mode == RaceMode.TRAINING.value
+            else:
+                is_training = self.race_mode == RaceMode.TRAINING
+            if is_training:
                 self.laps_remaining_label.set_visible(False)
             else:
                 self.laps_remaining_label.set_visible(True)
-                if self._start_sequence_running:
+                if self._start_sequence_running or self.snapshot.race_id is None:
                     laps_remaining = self.total_laps
                 else:
-                    laps_remaining, _ = self.race.laps_remaining()
+                    laps_remaining = self.snapshot.laps_remaining_leader
                 self.laps_remaining_label.set_text(f"Laps Remaining: {laps_remaining}")
 
         self._render_leaderboard_grid()
@@ -1456,10 +1261,10 @@ class FranklinGuiApp(Gtk.Application):
     def update_time(self) -> bool:
         self._update_start_light_size()
 
-        if is_race_going(self.race) and self.race.start_time is not None:
-            self.race.elapsed_time = time.monotonic() - self.race.start_time
         if self.time_label:
-            self.time_label.set_text(self._format_time_cs(self.race.elapsed_time))
+            self.time_label.set_text(
+                self._format_time_cs(self.snapshot.current_elapsed())
+            )
 
         return True
 
@@ -1473,127 +1278,23 @@ class FranklinGuiApp(Gtk.Application):
         self.append_event(f"Mode changed to {self.race_mode}")
 
     def on_start_clicked(self, _button: Gtk.Button | None) -> None:
-        if self._start_sequence_running or is_race_going(self.race):
+        if self._start_sequence_running or self.snapshot.is_going:
             return
 
-        # Build next-race lineup immediately from previous race contestants,
-        # with fresh stats/time for pre-race display.
-        self.race = Race(previous_race=self.previous_race)
-        self.race.total_laps = self.total_laps
-        self.race.race_end_mode = self.race_end_mode
-        if self.time_label:
-            self.time_label.set_text(self._format_time_cs(self.race.elapsed_time))
-
+        # Publishes a start_race command (with config) for the recorder; the
+        # authoritative race appears via the snapshot.
         self._start_race_countdown()
         self.refresh_views()
 
-    def _finalize_finished_race(
-        self,
-        *,
-        message: str,
-        publish_end_command: bool,
-    ) -> None:
-        self.previous_race = self.race
-
-        if self.current_race_id:
-            self.db.end_race(self.current_race_id)
-            self.current_race_id = None
-
-        if self.start_btn:
-            self.start_btn.set_sensitive(True)
-        if self.stop_btn:
-            self.stop_btn.set_sensitive(False)
-        if self.reset_btn:
-            self.reset_btn.set_sensitive(True)
-
-        if publish_end_command and self.race_mode != RaceMode.FAKE:
-            self.publish_command("end_race")
-
-        self.save_config()
-        self.append_event(message)
-        self.refresh_views()
-
     def on_end_clicked(self, _button: Gtk.Button | None) -> None:
-        if not is_race_going(self.race):
+        if not self.snapshot.is_going:
             return
 
-        self.race.state = RaceState.FINISHED
-        self._finalize_finished_race(
-            message="Race ended",
-            publish_end_command=True,
-        )
-
-    def _apply_remove_lap_from_redis(
-        self, racer_id: int, lap_number: int | None = None
-    ) -> None:
-        target_index: int | None = None
-        target_lap_label = (
-            f"lap {lap_number}" if lap_number is not None else "latest lap"
-        )
-
-        for idx in range(len(self.race.laps) - 1, -1, -1):
-            lap = self.race.laps[idx]
-            if lap.racer_id != racer_id or lap.lap_number <= 0:
-                continue
-            if lap_number is not None and lap.lap_number != lap_number:
-                continue
-            target_index = idx
-            break
-
-        if target_index is None:
-            self.append_event(
-                f"REMOVE LAP: racer {racer_id} {target_lap_label} not found"
-            )
-            return
-
-        removed = self.race.laps.pop(target_index)
-
-        if self.current_race_id:
-            try:
-                _ = self.db.remove_lap(self.current_race_id, racer_id, lap_number)
-            except Exception as exc:
-                logging.error("Failed to remove lap in DB: %s", exc)
-
-        self.append_event(
-            f"REMOVE LAP: racer {racer_id} removed lap {removed.lap_number}"
-        )
-        self.refresh_views()
-
-    def _apply_race_reset(self, source: str = "local") -> None:
-        self.racer_penalties_seconds.clear()
-        self.disqualified_racers.clear()
-
-        # Keep prior racers visible for the next race with reset stats.
-        self.race = Race(previous_race=self.previous_race)
-        self.race.total_laps = self.total_laps
-        self.race.race_end_mode = self.race_end_mode
-
-        if self.current_race_id:
-            try:
-                self.db.end_race(self.current_race_id)
-            except Exception as exc:
-                logging.error("Failed to end race during reset: %s", exc)
-            self.current_race_id = None
-
-        if self.start_btn:
-            self.start_btn.set_sensitive(True)
-        if self.stop_btn:
-            self.stop_btn.set_sensitive(False)
-        if self.reset_btn:
-            self.reset_btn.set_sensitive(False)
-
-        if self.time_label:
-            self.time_label.set_text(self._format_time_cs(self.race.elapsed_time))
-
-        self.append_event(f"Race reset ({source})")
-        self.refresh_views()
+        self.publish_command("end_race")
+        self.append_event("Requested race end")
 
     def on_reset_clicked(self, _button: Gtk.Button | None) -> None:
-        if self._start_sequence_running or self.race.state != RaceState.FINISHED:
-            return
-
-        if self.race_mode == RaceMode.FAKE:
-            self._apply_race_reset(source="local")
+        if self._start_sequence_running or self.snapshot.state != "finished":
             return
 
         self.publish_command("reset_race")
@@ -1659,11 +1360,10 @@ class FranklinGuiApp(Gtk.Application):
                     selected_idx = 1
                 new_end_mode = end_mode_options[selected_idx][1]
 
+                # Next-race config only; the running race is owned by the
+                # recorder and unaffected until the next start.
                 self.total_laps = new_total_laps
                 self.race_end_mode = new_end_mode
-                if not is_race_going(self.race):
-                    self.race.total_laps = new_total_laps
-                    self.race.race_end_mode = new_end_mode
 
                 self.save_config()
                 self.refresh_views()
@@ -1930,11 +1630,10 @@ class FranklinGuiApp(Gtk.Application):
                     for tid in sorted(cleaned.keys())
                 ]
 
-                # Keep colors for active/previous racers, and update edited driver colors.
+                # Keep colors for active/recent racers, and update edited driver colors.
                 kept_ids = set(cleaned.keys())
-                kept_ids.update(self.race.active_contestants)
-                if self.previous_race is not None:
-                    kept_ids.update(self.previous_race.active_contestants)
+                kept_ids.update(self._snapshot_racer_ids())
+                kept_ids.update(self.last_race_contestant_ids)
 
                 self.racer_color_assignments = {
                     tid: colors
@@ -1968,10 +1667,7 @@ class FranklinGuiApp(Gtk.Application):
             for c in self.global_contestants.contestants
         ]
 
-        if self.previous_race is not None:
-            last_race_contestant_ids = sorted(self.previous_race.active_contestants)
-        else:
-            last_race_contestant_ids = sorted(self.race.active_contestants)
+        last_race_contestant_ids = sorted(self.last_race_contestant_ids)
 
         write_config(
             self.config_path,
@@ -1990,19 +1686,19 @@ class FranklinGuiApp(Gtk.Application):
             )
             self._redis_client.ping()
             self._redis_pubsub = self._redis_client.pubsub()
-            self._redis_pubsub.subscribe(
-                self.redis_out_channel, self.redis_events_channel
-            )
-            self.append_event("Connected to Redis")
-            self.append_event(
-                f"Subscribed to Redis channels: {self.redis_out_channel}, {self.redis_events_channel}"
-            )
-            logging.info("Connected to Redis")
-            logging.info(
-                "Subscribed to Redis channels: %s, %s",
+            channels = (
                 self.redis_out_channel,
                 self.redis_events_channel,
+                self.redis_race_state_channel,
             )
+            self._redis_pubsub.subscribe(*channels)
+            self.append_event("Connected to Redis")
+            self.append_event(
+                f"Subscribed to Redis channels: {', '.join(channels)}"
+            )
+            logging.info("Connected to Redis")
+            logging.info("Subscribed to Redis channels: %s", ", ".join(channels))
+            self._load_latest_snapshot()
         except Exception as exc:
             self.append_event(f"Redis connect failed: {exc}")
             logging.error("Failed to connect to Redis: %s", exc)
@@ -2014,10 +1710,11 @@ class FranklinGuiApp(Gtk.Application):
                 try:
                     msg = self._redis_pubsub.get_message(timeout=0.1)
                     if msg and msg.get("type") == "message":
+                        channel = msg.get("channel")
                         data = msg.get("data")
                         parsed = json.loads(data) if isinstance(data, str) else {}
-                        if isinstance(parsed, dict):
-                            self._incoming_messages.put(parsed)
+                        if isinstance(parsed, dict) and isinstance(channel, str):
+                            self._incoming_messages.put((channel, parsed))
                 except Exception as exc:
                     logging.error("Redis listener error: %s", exc)
                     time.sleep(0.2)
@@ -2025,13 +1722,35 @@ class FranklinGuiApp(Gtk.Application):
         self._redis_thread = threading.Thread(target=reader, daemon=True)
         self._redis_thread.start()
 
+    def _load_latest_snapshot(self) -> None:
+        """Fetch the retained snapshot so late joiners render current state."""
+        if not self._redis_client:
+            return
+        try:
+            payload = self._redis_client.get(self.redis_race_state_latest_key)
+        except Exception as exc:
+            logging.error("Failed to read latest snapshot: %s", exc)
+            return
+        if not isinstance(payload, str):
+            return
+        try:
+            data = json.loads(payload)
+        except json.JSONDecodeError:
+            logging.error("Retained snapshot is not valid JSON")
+            return
+        if isinstance(data, dict):
+            self.handle_snapshot(data)
+
     def drain_incoming_messages(self) -> bool:
         while True:
             try:
-                msg = self._incoming_messages.get_nowait()
+                channel, msg = self._incoming_messages.get_nowait()
             except queue.Empty:
                 break
-            self.handle_hardware_message(msg)
+            if channel == self.redis_race_state_channel:
+                self.handle_snapshot(msg)
+            else:
+                self.handle_hardware_message(msg)
         return True
 
     def handle_hardware_message(self, msg: dict[str, Any]) -> None:
@@ -2092,9 +1811,13 @@ class FranklinGuiApp(Gtk.Application):
             )
             delay_ms = max(0, int((at_epoch - time.time()) * 1000))
 
+            # Visual only: the authoritative running race arrives via the
+            # snapshot, which clears the start sequence.
             def apply_start() -> bool:
-                self._start_sequence_running = False
-                self._start_race_now()
+                self._set_start_sequence_phase("Go")
+                self._set_start_lights("#2e7d32")
+                self.append_event("Go")
+                self.refresh_views()
                 return False
 
             GLib.timeout_add(delay_ms, apply_start)
@@ -2107,125 +1830,23 @@ class FranklinGuiApp(Gtk.Application):
             racer_id_raw = msg.get("racer_id")
             racer_id_i = int(racer_id_raw) if racer_id_raw is not None else None
 
+            # Display-only: the recorder applies race-control effects and the
+            # results are reflected in the next snapshot.
             self.append_event(
                 f"RACE_CONTROL: {command} accepted={accepted} racer={racer_id_i} {detail}"
             )
-
-            if accepted and command == "reset_race":
-                self._apply_race_reset(source="redis")
-            elif accepted and command == "add_penalty" and racer_id_i is not None:
-                penalty_seconds = int(msg.get("penalty_seconds", 0) or 0)
-                if penalty_seconds > 0:
-                    self.racer_penalties_seconds[racer_id_i] = (
-                        self.racer_penalties_seconds.get(racer_id_i, 0)
-                        + penalty_seconds
-                    )
-                    self.refresh_views()
-            elif accepted and command == "disqualify_racer" and racer_id_i is not None:
-                self.disqualified_racers.add(racer_id_i)
-                self.refresh_views()
-            elif accepted and command == "remove_lap" and racer_id_i is not None:
-                lap_no_raw = msg.get("lap_number")
-                lap_no = int(lap_no_raw) if lap_no_raw is not None else None
-                self._apply_remove_lap_from_redis(racer_id_i, lap_no)
             return
 
-        if msg_type != "lap":
-            return
-
-        if not is_race_going(self.race):
-            logging.error("Cannot add lap - race is not running")
-            self.append_event("Ignored lap: race is not running")
-            return
-
-        racer_id = msg.get("racer_id")
-        lap_at = msg.get("lap_at")
-        race_start_at = msg.get("race_start_at")
-        recorded_at = msg.get("recorded_at")
-
-        if racer_id is None:
-            self.append_event("Invalid lap data received")
-            return
-
-        racer_id_i = int(racer_id)
-        if racer_id_i in self.disqualified_racers:
+        if msg_type == "lap":
+            # Laps are applied by the recorder; we just log them for the operator.
+            racer_id_raw = msg.get("racer_id")
+            if racer_id_raw is None:
+                return
+            racer_id_i = int(racer_id_raw)
             name = self.global_contestants.get_contestant_name(racer_id_i)
-            self.append_event(f"Ignored lap: {name} (ID {racer_id_i}) is disqualified")
+            source = "SIM" if simulated else "HW"
+            self.append_event(f"LAP [{source}]: {name} (ID {racer_id_i})")
             return
-
-        self._ensure_racer_color_assignments({racer_id_i}, persist=True)
-
-        sensor_id_raw = msg.get("sensor_id", racer_id_i)
-        sensor_id_i = int(sensor_id_raw)
-
-        if not (
-            isinstance(lap_at, (int, float)) and isinstance(race_start_at, (int, float))
-        ):
-            self.append_event("Invalid lap data received")
-            return
-
-        lap_at_epoch = float(lap_at)
-        race_start_epoch = float(race_start_at)
-        recorded_epoch = (
-            float(recorded_at)
-            if isinstance(recorded_at, (int, float))
-            else lap_at_epoch
-        )
-        lap = make_lap_from_sensor_event_and_race(
-            racer_id_i,
-            race_start_at=race_start_epoch,
-            lap_at=lap_at_epoch,
-            recorded_at=recorded_epoch,
-            race=self.race,
-        )
-        previous_state = self.race.state
-        lap_accepted = self.race.add_lap(lap)
-        if not lap_accepted:
-            name = self.global_contestants.get_contestant_name(lap.racer_id)
-            self.append_event(
-                f"Ignored lap: {name} (ID {lap.racer_id}) already finished {self.total_laps} laps"
-            )
-            self.refresh_views()
-            return
-
-        finished_now = (
-            previous_state != RaceState.FINISHED
-            and self.race.state == RaceState.FINISHED
-        )
-
-        if self.current_race_id:
-            lap_at_epoch = (
-                float(lap_at) if isinstance(lap_at, (int, float)) else float(lap.lap_at)
-            )
-            race_start_epoch = (
-                float(race_start_at)
-                if isinstance(race_start_at, (int, float))
-                else float(lap.race_start_at)
-            )
-            recorded_epoch = float(msg.get("recorded_at", lap_at_epoch))
-            self.db.add_lap(
-                race_id=self.current_race_id,
-                racer_id=lap.racer_id,
-                sensor_id=sensor_id_i,
-                lap_number=lap.lap_number,
-                lap_time=lap.lap_time if lap.lap_number > 0 else None,
-                race_start_at=race_start_epoch,
-                lap_at=lap_at_epoch,
-                recorded_at=recorded_epoch,
-            )
-
-        if finished_now:
-            self._finalize_finished_race(
-                message="Race finished automatically",
-                publish_end_command=True,
-            )
-
-        name = self.global_contestants.get_contestant_name(lap.racer_id)
-        source = "SIM" if simulated else "HW"
-        self.append_event(
-            f"LAP [{source}]: {name} (ID {lap.racer_id}) lap {lap.lap_number} at {self._format_time_cs(lap.seconds_from_race_start)}"
-        )
-        self.refresh_views()
 
     def publish_command(self, command: str, **kwargs: Any) -> None:
         if not self._redis_client:
@@ -2254,40 +1875,6 @@ class FranklinGuiApp(Gtk.Application):
         except Exception as exc:
             logging.error("Failed to publish command '%s': %s", command, exc)
             self.append_event(f"Publish failed for {command}: {exc}")
-
-    def start_fake_playback(self) -> None:
-        fake_race = generate_fake_race()
-        sorted_laps = order_laps_by_occurrence(fake_race.laps)
-        race_start = self.race.start_time or time.monotonic()
-
-        def playback() -> None:
-            try:
-                for ts, lap in sorted_laps:
-                    if self._shutdown.is_set() or not is_race_going(self.race):
-                        return
-                    elapsed = time.monotonic() - race_start
-                    wait_time = ts - elapsed
-                    if wait_time > 0:
-                        time.sleep(wait_time)
-                    lap_event = make_fake_lap(
-                        lap.racer_id, lap.lap_number, lap.lap_time, ts
-                    )
-                    self._incoming_messages.put(
-                        {
-                            "type": "lap",
-                            "racer_id": lap_event.racer_id,
-                            "sensor_id": 1,
-                            "race_start_at": float(lap_event.race_start_at),
-                            "lap_at": float(lap_event.lap_at),
-                            "recorded_at": float(lap_event.recorded_at),
-                            "simulated": True,
-                        }
-                    )
-            except Exception as exc:
-                logging.error("Fake playback error: %s", exc)
-
-        self._fake_thread = threading.Thread(target=playback, daemon=True)
-        self._fake_thread.start()
 
 
 def parse_mode_override() -> RaceMode | None:

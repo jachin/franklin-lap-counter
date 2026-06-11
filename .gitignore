@@ -11,6 +11,8 @@ hardware.log
 hardware_redis.log
 .pytest_cache
 .ruff_cache
+gui.log
+race_recorder.log
 
 # Redis
 dump.rdb

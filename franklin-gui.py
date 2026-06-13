@@ -412,9 +412,10 @@ class FranklinGuiApp(Gtk.Application):
         laps_remaining_label = Gtk.Label(label=f"Laps Remaining: {self.total_laps}")
         self.state_label = state_label
         self.laps_remaining_label = laps_remaining_label
-        for lbl in [state_label, laps_remaining_label]:
-            lbl.set_xalign(0)
-            status.append(lbl)
+
+        state_label.set_xalign(0)
+        laps_remaining_label.set_xalign(0)
+        status.append(laps_remaining_label)
 
         panes = Gtk.Paned.new(Gtk.Orientation.HORIZONTAL)
         panes.set_vexpand(True)
@@ -476,6 +477,8 @@ class FranklinGuiApp(Gtk.Application):
         self.ethernet_label = ethernet_label
         self.wifi_label = wifi_label
 
+        status_bar.append(state_label)
+        status_bar.append(Gtk.Separator(orientation=Gtk.Orientation.VERTICAL))
         status_bar.append(detect_label)
         status_bar.append(Gtk.Separator(orientation=Gtk.Orientation.VERTICAL))
         status_bar.append(ethernet_label)

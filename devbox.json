@@ -72,6 +72,9 @@
       "build:release": [
         "cargo build --release --manifest-path rust/Cargo.toml"
       ],
+      "hardware-monitor:bump-version": [
+        "python scripts/bump-version.py \"$@\""
+      ],
       "ansible:setup": [
         "ansible-playbook -i playbooks/inventory.ini playbooks/site.yml"
       ],
@@ -88,7 +91,6 @@
       ],
       "vnc:connect": ["open vnc://127.0.0.1:5901"],
       "ansible:deploy": [
-        "devbox run build:pi",
         "ansible-playbook -i playbooks/inventory.ini playbooks/deploy-franklin.yml"
       ],
       "ansible:deploy-gui": [

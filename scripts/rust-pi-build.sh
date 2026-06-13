@@ -30,7 +30,25 @@ main() {
         rustup target add "$RUST_TARGET"
     fi
 
-    cargo build --release --manifest-path rust/Cargo.toml --target "$RUST_TARGET"
+    local build_cmd="cargo"
+    if command -v cross >/dev/null 2>&1; then
+        log "✓ 'cross' tool detected! Using containerized cross-compilation with 'cross'..."
+        build_cmd="cross"
+    fi
+
+    if ! $build_cmd build --release --manifest-path rust/Cargo.toml --target "$RUST_TARGET"; then
+        log "❌ Cross-build failed for $RUST_TARGET"
+        log "   The Rust hardware monitor depends on libudev, so compiling for Linux"
+        log "   on a Mac requires a sysroot/cross-linker setup or a container-based build tool."
+        if [ "$build_cmd" = "cargo" ]; then
+            log "   "
+            log "   💡 Recommendation: Install and use 'cross' to build seamlessly inside a Docker container:"
+            log "      1. Install cross:  cargo install cross --git https://github.com/cross-rs/cross"
+            log "      2. Start Docker"
+            log "      3. Run this build task again"
+        fi
+        exit 1
+    fi
 
     BINARY_PATH="rust/target/$RUST_TARGET/release/franklin-hardware-monitor"
     if [ -f "$BINARY_PATH" ]; then

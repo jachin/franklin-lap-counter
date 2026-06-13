@@ -5,8 +5,6 @@
   become: true
   vars:
     project_root: "{{ playbook_dir }}/.."
-    pi_arch: "{{ lookup('ansible.builtin.env', 'RUST_PI_TARGET') | default('aarch64-unknown-linux-gnu', true) }}"
-    rust_binary_local: "{{ project_root }}/rust/target/{{ pi_arch }}/release/franklin-hardware-monitor"
     startup_script_local: "{{ project_root }}/scripts/start-franklin.sh"
     startup_gui_script_local: "{{ project_root }}/scripts/start-franklin-gui-session.sh"
     app_files_local:
@@ -21,6 +19,8 @@
       - "{{ project_root }}/racer_colors.py"
       - "{{ project_root }}/redis_commands.py"
       - "{{ project_root }}/database.py"
+    rust_target: "aarch64-unknown-linux-gnu"
+    rust_binary_local: "{{ project_root }}/rust/target/{{ rust_target }}/release/franklin-hardware-monitor"
 
   pre_tasks:
     - name: Verify SSH connectivity
@@ -33,10 +33,6 @@
       become: false
       register: required_file_stats
       loop:
-        - {
-            path: "{{ rust_binary_local }}",
-            description: "Rust hardware monitor binary",
-          }
         - {
             path: "{{ project_root }}/franklin-tui.py",
             description: "Franklin TUI script",
@@ -82,15 +78,16 @@
             path: "{{ startup_gui_script_local }}",
             description: "GUI startup script",
           }
+        - {
+            path: "{{ rust_binary_local }}",
+            description: "Franklin hardware monitor compiled binary. (Please build it locally first using: devbox run build:pi)",
+          }
 
     - name: Fail when required local files are missing
       ansible.builtin.fail:
         msg: >-
           Missing required file: {{ item.item.description }}
           ({{ item.item.path }}).
-          {% if item.item.description == 'Rust hardware monitor binary' %}
-          Build it first with: devbox run build:pi
-          {% endif %}
       when: not item.stat.exists
       loop: "{{ required_file_stats.results }}"
 
@@ -114,7 +111,15 @@
         group: "{{ franklin_group }}"
         mode: "0755"
 
-    - name: Deploy Rust binary
+    - name: Ensure libudev-dev is installed on Pi (required at runtime)
+      ansible.builtin.apt:
+        name:
+          - libudev-dev
+        state: present
+        update_cache: true
+        cache_valid_time: 3600
+
+    - name: Deploy locally built Rust hardware monitor binary to Pi
       ansible.builtin.copy:
         src: "{{ rust_binary_local }}"
         dest: "{{ pi_dest_dir }}/franklin-hardware-monitor"

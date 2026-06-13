@@ -49,6 +49,7 @@ system_packages:
   - sway
   - xwayland
   - seatd
+  - libudev-dev
 
 # Python packages installed in the app venv
 python_packages:

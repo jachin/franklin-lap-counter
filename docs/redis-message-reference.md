@@ -144,7 +144,15 @@ Lap time semantics:
 
 ## 3) Control timeline events on `franklin:events`
 
-Produced by Rust owner (`OutMessage::RaceControl` and `OutMessage::CountdownPhase`).
+Produced by Rust owner (`OutMessage::RaceControl` and `OutMessage::CountdownPhase`) or by configuration utilities (`gui_config.py`).
+
+### `preferences_changed`
+
+```json
+{"type":"preferences_changed","recorded_at":1736200012.600}
+```
+
+Emitted by any client (such as `franklin-gui` or `franklin-tui` via `gui_config.py`) when preferences are updated and saved in SQLite, notifying all active components to refresh their configurations from the database.
 
 ### `countdown_phase`
 

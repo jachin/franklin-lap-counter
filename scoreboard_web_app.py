@@ -182,27 +182,41 @@ class ScoreboardWebAppServer:
         return ws
 
     async def get_config(self, request: web.Request) -> web.Response:
-        """Get the configuration from franklin.config.json"""
+        """Get the configuration from preferences database"""
         try:
-            if os.path.exists(CONFIG_PATH):
-                with open(CONFIG_PATH, "r") as f:
-                    config = json.load(f)
-                return web.json_response(config)
-            else:
-                logger.info(
-                    f"Config file not found: {CONFIG_PATH}, returning default config"
-                )
-                # Return a default configuration instead of an error
-                default_config = {"total_laps": 10, "contestants": []}
-                return web.json_response(default_config)
+            config = {}
+            for key in [
+                "race_mode",
+                "total_laps",
+                "race_end_mode",
+                "contestants",
+                "last_race_contestant_ids",
+                "racer_color_assignments",
+            ]:
+                val = self.db.get_preference(key)
+                if val is not None:
+                    config[key] = val
+
+            if not config:
+                if os.path.exists(CONFIG_PATH):
+                    with open(CONFIG_PATH, "r") as f:
+                        loaded = json.load(f)
+                    if isinstance(loaded, dict):
+                        for k, v in loaded.items():
+                            self.db.set_preference(k, v)
+                            config[k] = v
+                        return web.json_response(config)
+
+            if "total_laps" not in config:
+                config["total_laps"] = 10
+            if "contestants" not in config:
+                config["contestants"] = []
+            return web.json_response(config)
         except Exception as e:
-            logger.error(f"Error reading config file: {e}")
+            logger.error(f"Error reading config from database: {e}")
             # Return a default configuration on error
             default_config = {"total_laps": 10, "contestants": [], "error": str(e)}
             return web.json_response(default_config)
-            return web.json_response(
-                {"error": f"Error reading configuration: {str(e)}"}, status=500
-            )
 
     async def debug_simulate(self, request: web.Request) -> web.Response:
         """Debug endpoint to simulate events for testing"""

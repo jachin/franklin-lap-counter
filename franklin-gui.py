@@ -122,9 +122,7 @@ class FranklinGuiApp(Gtk.Application):
 
         # Threaded message processing. Each item is (channel, message) so the
         # drain loop can route snapshots vs hardware/event traffic.
-        self._incoming_messages: queue.Queue[tuple[str, dict[str, Any]]] = (
-            queue.Queue()
-        )
+        self._incoming_messages: queue.Queue[tuple[str, dict[str, Any]]] = queue.Queue()
         self._shutdown = threading.Event()
         self._redis_thread: threading.Thread | None = None
 
@@ -319,7 +317,9 @@ class FranklinGuiApp(Gtk.Application):
 
         controls = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         mode_options = [RaceMode.REAL, RaceMode.FAKE, RaceMode.TRAINING]
-        mode_combo = Gtk.DropDown.new_from_strings([mode.value for mode in mode_options])
+        mode_combo = Gtk.DropDown.new_from_strings(
+            [mode.value for mode in mode_options]
+        )
         mode_combo.set_selected(mode_options.index(self.race_mode))
         mode_combo.connect("notify::selected", self.on_mode_changed)
         self.mode_combo = mode_combo
@@ -586,7 +586,10 @@ class FranklinGuiApp(Gtk.Application):
         return "\n".join(
             f".{class_name}-primary {{ background-color: {primary_hex}; }}\n"
             f".{class_name}-secondary {{ background-color: {secondary_hex}; }}"
-            for (primary_hex, secondary_hex), class_name in self._swatch_css_classes.items()
+            for (
+                primary_hex,
+                secondary_hex,
+            ), class_name in self._swatch_css_classes.items()
         )
 
     def _create_start_light_stack(self) -> list[Gtk.Widget]:
@@ -1707,9 +1710,7 @@ class FranklinGuiApp(Gtk.Application):
             )
             self._redis_pubsub.subscribe(*channels)
             self.append_event("Connected to Redis")
-            self.append_event(
-                f"Subscribed to Redis channels: {', '.join(channels)}"
-            )
+            self.append_event(f"Subscribed to Redis channels: {', '.join(channels)}")
             logging.info("Connected to Redis")
             logging.info("Subscribed to Redis channels: %s", ", ".join(channels))
             self._load_latest_snapshot()
@@ -1775,6 +1776,32 @@ class FranklinGuiApp(Gtk.Application):
             self.lap_counter_detected = True
             self._last_lap_counter_signal_time = time.monotonic()
             self.refresh_views()
+            return
+
+        if msg_type == "preferences_changed":
+            logging.info("Preferences changed via Redis, reloading...")
+            (
+                configured_mode,
+                total_laps,
+                race_end_mode,
+                contestants_data,
+                last_race_contestant_ids,
+                racer_color_assignments,
+            ) = load_initial_config(self.config_path)
+
+            self.total_laps = total_laps
+            self.race_mode = configured_mode
+            self.race_end_mode = race_end_mode
+            self.global_contestants = RaceContestants(contestants_data)
+            self.last_race_contestant_ids = set(last_race_contestant_ids)
+            self.racer_color_assignments = dict(racer_color_assignments)
+
+            known_racer_ids = {
+                c.transmitter_id for c in self.global_contestants.contestants
+            }.union(self.last_race_contestant_ids)
+            self._ensure_racer_color_assignments(known_racer_ids, persist=False)
+            self.refresh_views()
+            self.append_event("Preferences reloaded from database")
             return
 
         if msg_type == "status":

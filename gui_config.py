@@ -183,3 +183,20 @@ def write_config(
         logging.error("Failed to write preferences to database: %s", exc)
     finally:
         db.close()
+
+    # Publish notification to Redis on franklin:events channel
+    try:
+        import time
+
+        import redis
+
+        r = redis.Redis(unix_socket_path="./redis.sock", decode_responses=True)
+        message = {
+            "type": "preferences_changed",
+            "recorded_at": time.time(),
+        }
+        r.publish("franklin:events", json.dumps(message))
+    except Exception as exc:
+        logging.warning(
+            "Failed to publish preferences_changed notification to Redis: %s", exc
+        )

@@ -491,6 +491,29 @@ class Franklin(App[Any]):  # type: ignore[type-arg]
             self.lap_counter_detected = True
             self._last_lap_counter_signal_time = asyncio.get_event_loop().time()
 
+        elif msg_type == "preferences_changed":
+            logging.info("Preferences changed via Redis, reloading...")
+            (
+                configured_mode,
+                total_laps,
+                race_end_mode,
+                contestants_data,
+                last_race_contestant_ids,
+                racer_color_assignments,
+            ) = load_initial_config(self.config_path)
+
+            self.total_laps = total_laps
+            self.race_mode = configured_mode
+            self.race_end_mode = race_end_mode
+            self.global_contestants = RaceContestants(contestants_data)
+            self.last_race_contestant_ids = set(last_race_contestant_ids)
+            self.racer_color_assignments = racer_color_assignments
+
+            self._ensure_racer_color_assignments(set(), persist=False)
+            self.update_subtitle()
+            self.refresh_driver_data()
+            self.notify("Preferences reloaded from database", severity="information")
+
         elif msg_type == "countdown_phase":
             phase = str(msg.get("phase", "")).lower()
             at_raw = msg.get("at")

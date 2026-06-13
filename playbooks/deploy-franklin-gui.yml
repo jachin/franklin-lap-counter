@@ -12,8 +12,8 @@
       - "{{ project_root }}/redis_commands.py"
       - "{{ project_root }}/database.py"
     gui_startup_scripts_local:
-      - "{{ project_root }}/scripts/start-franklin.sh"
-      - "{{ project_root }}/scripts/start-franklin-gui-session.sh"
+      - "{{ project_root }}/scripts/start_franklin.py"
+      - "{{ project_root }}/scripts/start_franklin_gui_session.py"
 
   pre_tasks:
     - name: Check required local GUI files exist
@@ -83,5 +83,5 @@
       ansible.builtin.debug:
         msg:
           - "Deployed GUI runtime files to {{ inventory_hostname }}:{{ pi_dest_dir }}"
-          - "Updated: franklin-gui.py, gui_config.py, racer_colors.py, redis_commands.py, database.py, race/, start-franklin.sh, start-franklin-gui-session.sh"
+          - "Updated: franklin-gui.py, gui_config.py, racer_colors.py, redis_commands.py, database.py, race/, start_franklin.py, start_franklin_gui_session.py"
           - "Restart GUI session on Pi to pick up changes"

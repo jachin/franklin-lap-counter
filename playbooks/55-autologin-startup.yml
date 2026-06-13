@@ -62,9 +62,9 @@
               exec sway
             fi
 
-            if [ -x "{{ pi_dest_dir }}/start-franklin.sh" ]; then
+            if [ -x "{{ pi_dest_dir }}/start_franklin.py" ]; then
               cd "{{ pi_dest_dir }}"
-              exec ./start-franklin.sh
+              exec ./start_franklin.py
             fi
           fi
       when: franklin_enable_autostart

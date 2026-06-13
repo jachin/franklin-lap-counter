@@ -11,8 +11,8 @@
         group: "{{ franklin_group }}"
         mode: "0755"
       loop:
-        - start-franklin.sh
-        - start-franklin-gui-session.sh
+        - start_franklin.py
+        - start_franklin_gui_session.py
 
     - name: Ensure tmuxinator config directory exists
       ansible.builtin.file:

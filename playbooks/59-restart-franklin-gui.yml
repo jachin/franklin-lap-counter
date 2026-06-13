@@ -34,7 +34,7 @@
         set -euo pipefail
         # Use bracketed patterns so pkill does not match its own command line.
         pkill -f "python .*[f]ranklin-gui.py" || true
-        pkill -f "[s]tart-franklin-gui-session.sh" || true
+        pkill -f "[s]tart_franklin_gui_session.py" || true
         tmux kill-session -t "{{ franklin_gui_tmux_session }}" 2>/dev/null || true
       args:
         executable: /bin/bash
@@ -43,7 +43,7 @@
 
     - name: Start Franklin GUI session detached
       ansible.builtin.shell: |
-        nohup ./start-franklin-gui-session.sh </dev/null >/dev/null 2>&1 &
+        nohup python3 ./start_franklin_gui_session.py </dev/null >/dev/null 2>&1 &
       args:
         chdir: "{{ pi_dest_dir }}"
         executable: /bin/bash

@@ -58,8 +58,8 @@
         "devbox run lint:rust"
       ],
       "lint:python": [
-        "ruff check franklin-tui.py franklin-gui.py franklin-race-recorder.py scoreboard_web_app.py referee_web_app.py healthcheck_web_app.py driver_web_app.py database.py race",
-        "basedpyright franklin-tui.py franklin-gui.py franklin-race-recorder.py scoreboard_web_app.py referee_web_app.py healthcheck_web_app.py driver_web_app.py database.py race"
+        "ruff check franklin-tui.py franklin-gui.py franklin-race-recorder.py scoreboard_web_app.py referee_web_app.py healthcheck_web_app.py driver_web_app.py database.py race scripts",
+        "basedpyright franklin-tui.py franklin-gui.py franklin-race-recorder.py scoreboard_web_app.py referee_web_app.py healthcheck_web_app.py driver_web_app.py database.py race scripts"
       ],
       "lint:web": ["biome check --files-ignore-unknown=true static"],
       "lint:rust": ["cargo check --manifest-path rust/Cargo.toml"],
@@ -69,7 +69,7 @@
       ],
       "test:rust": ["cargo test --manifest-path rust/Cargo.toml"],
       "build": ["devbox run build:pi", "devbox run build:release"],
-      "build:pi": ["./scripts/rust-pi-build.sh"],
+      "build:pi": ["python3 ./scripts/rust_pi_build.py"],
       "build:release": [
         "cargo build --release --manifest-path rust/Cargo.toml"
       ],
@@ -82,7 +82,7 @@
       "hardware-monitor:run": [
         "cargo run --manifest-path rust/Cargo.toml --bin franklin-hardware-monitor -- \"$@\""
       ],
-      "hardware-monitor:build-deb": ["./scripts/build-deb.sh"],
+      "hardware-monitor:build-deb": ["python3 ./scripts/build_deb.py"],
       "race-recorder:bump-version": [
         "python scripts/bump-version-recorder.py \"$@\""
       ],

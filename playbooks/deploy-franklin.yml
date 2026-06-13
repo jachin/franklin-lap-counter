@@ -5,8 +5,8 @@
   become: true
   vars:
     project_root: "{{ playbook_dir }}/.."
-    startup_script_local: "{{ project_root }}/scripts/start-franklin.sh"
-    startup_gui_script_local: "{{ project_root }}/scripts/start-franklin-gui-session.sh"
+    startup_script_local: "{{ project_root }}/scripts/start_franklin.py"
+    startup_gui_script_local: "{{ project_root }}/scripts/start_franklin_gui_session.py"
     app_files_local:
       - "{{ project_root }}/franklin-tui.py"
       - "{{ project_root }}/franklin-gui.py"
@@ -180,11 +180,11 @@
       loop:
         - {
             src: "{{ startup_script_local }}",
-            dest: "{{ pi_dest_dir }}/start-franklin.sh",
+            dest: "{{ pi_dest_dir }}/start_franklin.py",
           }
         - {
             src: "{{ startup_gui_script_local }}",
-            dest: "{{ pi_dest_dir }}/start-franklin-gui-session.sh",
+            dest: "{{ pi_dest_dir }}/start_franklin_gui_session.py",
           }
 
     - name: Deploy optional static directory
@@ -230,8 +230,8 @@
         - "{{ pi_dest_dir }}/driver_web_app.py"
         - "{{ pi_dest_dir }}/racer_colors.py"
         - "{{ pi_dest_dir }}/redis_commands.py"
-        - "{{ pi_dest_dir }}/start-franklin.sh"
-        - "{{ pi_dest_dir }}/start-franklin-gui-session.sh"
+        - "{{ pi_dest_dir }}/start_franklin.py"
+        - "{{ pi_dest_dir }}/start_franklin_gui_session.py"
       loop_control:
         label: "{{ item }}"
 
@@ -263,6 +263,6 @@
       ansible.builtin.debug:
         msg:
           - "Deployment complete to {{ inventory_hostname }}:{{ pi_dest_dir }}"
-          - "Deployed: franklin-hardware-monitor, franklin-tui.py, franklin-gui.py, gui_config.py, scoreboard_web_app.py, referee_web_app.py, healthcheck_web_app.py, driver_web_app.py, racer_colors.py, redis_commands.py, database.py, start-franklin.sh, start-franklin-gui-session.sh"
+          - "Deployed: franklin-hardware-monitor, franklin-tui.py, franklin-gui.py, gui_config.py, scoreboard_web_app.py, referee_web_app.py, healthcheck_web_app.py, driver_web_app.py, racer_colors.py, redis_commands.py, database.py, start_franklin.py, start_franklin_gui_session.py"
           - "Optional content copied when present: static/, race/ (race module code), tmuxinator/"
-          - "Start on Pi with: cd {{ pi_dest_dir }} && ./start-franklin.sh"
+          - "Start on Pi with: cd {{ pi_dest_dir }} && ./start_franklin.py"

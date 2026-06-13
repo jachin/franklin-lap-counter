@@ -28,5 +28,5 @@
           output * bg #1e1e1e solid_color
 
           # Start Franklin GUI stack once per sway session
-          exec {{ pi_dest_dir }}/start-franklin-gui-session.sh
+          exec {{ pi_dest_dir }}/start_franklin_gui_session.py
       when: franklin_enable_wayland_boot

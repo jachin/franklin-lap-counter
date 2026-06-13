@@ -1339,7 +1339,11 @@ fn render_ui(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, app: &App) -
         } else {
             "HARDWARE MODE"
         };
-        let header_text = format!("=== Hardware Comm Redis - {} ===", mode_text);
+        let header_text = format!(
+            "=== Hardware Comm Redis v{} - {} ===",
+            env!("CARGO_PKG_VERSION"),
+            mode_text
+        );
         let header = Paragraph::new(header_text)
             .style(
                 Style::default()
@@ -1441,10 +1445,19 @@ async fn main() -> Result<()> {
         .with_ansi(false)
         .init();
 
-    info!("Starting franklin-hardware-monitor");
-
     // Parse command-line arguments
     let args: Vec<String> = std::env::args().collect();
+
+    // Check version flag
+    if args.contains(&"--version".to_string()) || args.contains(&"-V".to_string()) {
+        println!("franklin-hardware-monitor {}", env!("CARGO_PKG_VERSION"));
+        return Ok(());
+    }
+
+    info!(
+        "Starting franklin-hardware-monitor v{}",
+        env!("CARGO_PKG_VERSION")
+    );
     let simulation_mode = args.contains(&"--sim".to_string()) || args.contains(&"-s".to_string());
     let verbose = args.contains(&"--verbose".to_string()) || args.contains(&"-v".to_string());
 

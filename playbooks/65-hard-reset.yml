@@ -1,0 +1,34 @@
+---
+- name: Hard Reset Franklin Lap Counter on Raspberry Pi
+  hosts: all
+  become: true
+  tasks:
+    - name: Stop Franklin tmux sessions before deleting application directory
+      ansible.builtin.command: "tmux kill-session -t {{ item }}"
+      become_user: "{{ franklin_user }}"
+      register: kill_tmux_session
+      failed_when: kill_tmux_session.rc not in [0, 1]
+      changed_when: kill_tmux_session.rc == 0
+      loop:
+        - franklin
+        - franklin-services
+        - franklin-simulator
+
+    - name: Stop any remaining individual Franklin processes
+      ansible.builtin.shell: |
+        pkill -u {{ franklin_user }} -f "franklin-hardware-monitor" || true
+        pkill -u {{ franklin_user }} -f "redis-server" || true
+        pkill -u {{ franklin_user }} -f "scoreboard_web_app.py" || true
+        pkill -u {{ franklin_user }} -f "referee_web_app.py" || true
+        pkill -u {{ franklin_user }} -f "healthcheck_web_app.py" || true
+        pkill -u {{ franklin_user }} -f "driver_web_app.py" || true
+      changed_when: false
+
+    - name: Totally clear out the franklin-lap-counter directory
+      ansible.builtin.file:
+        path: "{{ pi_dest_dir }}"
+        state: absent
+
+    - name: Hard reset summary
+      ansible.builtin.debug:
+        msg: "Totally cleared out {{ pi_dest_dir }} and stopped all running Franklin processes. Run devbox run ansible:deploy to reinstall and redeploy."

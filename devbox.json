@@ -109,6 +109,9 @@
       "ansible:reset-db": [
         "ansible-playbook -i playbooks/inventory.ini playbooks/64-reset-database.yml"
       ],
+      "ansible:hard-reset": [
+        "ansible-playbook -i playbooks/inventory.ini playbooks/65-hard-reset.yml"
+      ],
       "ansible:health-check": [
         "ansible-playbook -i playbooks/inventory.ini playbooks/61-health-check.yml"
       ]

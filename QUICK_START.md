@@ -99,6 +99,7 @@ All activity is logged to: `hardware_redis.log`
 - `ansible:web-bounce` - Ensure tmux web windows are created/running (`web_scoreboard`, `web_referee`, `web_healthcheck`, `web_driver`)
 - `ansible:health-check` - Run runtime health check through the health-check web app
 - `ansible:reboot` - Reboot target host via Ansible
+- `ansible:hard-reset` - Totally clear out the franklin-lap-counter directory (hard reset) via Ansible
 
 **Build / start:**
 - `build` - Run all build tasks

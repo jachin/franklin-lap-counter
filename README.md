@@ -6,6 +6,18 @@ This is lap counter software for [Trackmate Racing RC Lap Counter](https://track
 
 The name is a nod to [Benjamin Franklin Miessner](https://en.wikipedia.org/wiki/Benjamin_Miessner) who was a radio engineer and inventor.
 
+## Features
+
+- ✅ **Redis pub/sub architecture** for flexible, decopuled component communication
+- ✅ **Simulation mode** for fully-featured testing without physical hardware
+- ✅ **Real-time leaderboard display** (TUI and GTK GUI options)
+- ✅ **Driver/Team web view** with countdown lights and customized racer progress
+- ✅ **Scoreboard web view** displaying live, updated race positions
+- ✅ **Referee web interface** supporting start, end, reset, penalties, and lap edits
+- ✅ **Automated heartbeats** every 2 seconds for connection health monitoring
+- ✅ **Flexible contestant and roster management**
+- ✅ **Comprehensive, multi-layer logging**
+
 ## Architecture
 
 The system uses Redis for communication between components, allowing you to run the hardware interface, race UI, scoreboard web app, and referee web app in separate terminals.
@@ -20,7 +32,21 @@ The system uses Redis for communication between components, allowing you to run 
                                   by devbox
 ```
 
-## Quick Start
+Alternative simplified view of data flows:
+
+```
+┌──────────────┐       ┌───────────────┐       ┌─────────────────┐
+│  Your App    │       │     Redis     │       │ Hardware Comm   │
+│  (Any Lang)  │◄─────►│   Pub/Sub     │◄─────►│  (This File)    │
+└──────────────┘       └───────────────┘       └─────────────────┘
+                             │
+                             │
+                       ┌─────┴─────┐
+                       ▼           ▼
+                 hardware:in  hardware:out
+```
+
+## Running the System
 
 ### Prerequisites
 This project uses [Devbox](https://www.jetify.com/devbox) for environment management. Redis starts automatically when you enter the devbox shell.
@@ -30,27 +56,47 @@ This project uses [Devbox](https://www.jetify.com/devbox) for environment manage
 devbox shell
 ```
 
-### Running a Real Race (with hardware)
+---
 
-**Terminal 1 - Hardware Interface:**
+### Method A: Deploy + Run on Target Host (Recommended Workflow)
+
+If you are deploying to a target Raspberry Pi host over the network, use the following core Ansible tasks:
+
 ```bash
-devbox shell
-devbox run rust-hw
+# 1. Perform full machine setup (packages, services, AP configuration, Caddy, etc.)
+devbox run ansible:setup
+
+# 2. Deploy all application artifacts and built binaries to target host
+devbox run ansible:deploy
+
+# 3. Ensure background web apps are up and running in tmux sessions
+devbox run ansible:web-bounce
+
+# 4. Run runtime health checks through the health-check web app
+devbox run ansible:health-check
 ```
 
-**Terminal 2 - Race UI (Text UI):**
+---
+
+### Method B: Full tmux Stack Startup (Local or Remote)
+
+You can launch the entire system (including background services) inside a pre-configured tmux session using `tmuxinator`.
+
 ```bash
-devbox shell
-python franklin-tui.py --race
+# Hardware Mode (assumes real hardware is connected)
+devbox run start:franklin
+
+# Simulator Mode (no hardware required; web apps auto-restart via watchexec)
+devbox run start:franklin-simulator
 ```
 
-**Terminal 2 - Race UI (GTK GUI, optional):**
-```bash
-devbox shell
-python franklin-gui.py --race
-```
+---
 
-### Running in Simulation Mode (no hardware needed)
+### Method C: Terminal-by-Terminal Manual Startup (Local)
+
+If you prefer to start components individually in separate terminals:
+
+#### 1. Running in Simulation Mode (no hardware needed)
 
 **Terminal 1 - Hardware Simulator:**
 ```bash
@@ -58,104 +104,101 @@ devbox shell
 devbox run rust-hw-sim
 ```
 
-**Terminal 2 - Race UI (Text UI):**
+**Terminal 2 - Race UI (Text TUI) or GTK GUI:**
 ```bash
 devbox shell
 python franklin-tui.py --race
-```
-
-**Terminal 2 - Race UI (GTK GUI, optional):**
-```bash
-devbox shell
+# OR
 python franklin-gui.py --race
 ```
 
-### Running a Fake Race (self-contained)
+#### 2. Running a Real Race (with physical hardware connected)
 
-No hardware interface needed - Franklin generates a fake race internally:
+**Terminal 1 - Hardware Interface:**
+```bash
+devbox shell
+devbox run rust-hw
+```
+
+**Terminal 2 - Race UI (Text TUI) or GTK GUI:**
+```bash
+devbox shell
+python franklin-tui.py --race
+# OR
+python franklin-gui.py --race
+```
+
+#### 3. Running a Self-Contained Fake Race (completely standalone)
+
+No hardware interface or Redis backend setup is needed - Franklin generates a fake race internally:
+
 ```bash
 devbox shell
 python franklin-tui.py --fake
-```
-
-Or with GTK GUI:
-```bash
-devbox shell
+# OR
 python franklin-gui.py --fake
 ```
 
-## Scoreboard Web App
+---
 
-Run the scoreboard web app:
+## Web Applications
 
+### Scoreboard Web App
+Starts `scoreboard_web_app.py` on port `8080`. Serves the live scoreboard UI and WebSocket/REST endpoints for race data.
 ```bash
-devbox shell
 devbox run web_scoreboard
 ```
+- Local access: `http://127.0.0.1:8080`
+- Network access: `http://<pi-ip>:8080`
 
-This starts `scoreboard_web_app.py` on `0.0.0.0:8080`.
-
-- On the Pi itself: `http://127.0.0.1:8080`
-- From a device on the same network or AP: `http://<pi-ip>:8080`
-
-The app serves the live scoreboard UI and exposes WebSocket/REST endpoints used for race data.
-
-## Driver Web App
-
-Run the driver/team web app:
-
+### Driver Web App
+Starts `driver_web_app.py` on port `8083`. Enables drivers or teams to view real-time countdown lights, specific racer details (position, progress, best/last lap, penalties), and practice/training mode lap histories.
 ```bash
-devbox shell
 devbox run web_driver
 ```
+- Local access: `http://127.0.0.1:8083`
+- Network access: `http://<pi-ip>:8083`
 
-This starts `driver_web_app.py` on `0.0.0.0:8083`.
+### Referee Web App
+Starts `referee_web_app.py` on port `8081`. Allows race controllers to trigger starts, ends, resets, add penalties, remove invalid laps, or disqualify contestants. Action logs are audit-logged to SQLite.
+```bash
+devbox run web_referee
+```
+- Local access: `http://127.0.0.1:8081`
+- Network access: `http://<pi-ip>:8081`
+- Design specifications: See `docs/referee-web-app-design.md`
 
-- On the Pi itself: `http://127.0.0.1:8083`
-- From a device on the same network or AP: `http://<pi-ip>:8083`
+### Local Hostnames (Hotspot AP + Caddy Proxy)
+When the Raspberry Pi hotspot and Caddy reverse proxy are active, the following local domains route automatically:
+- `scoreboard.frank` → `scoreboard_web_app.py` (`127.0.0.1:8080`)
+- `referee.frank` → `referee_web_app.py` (`127.0.0.1:8081`)
+- `healthcheck.frank` → `healthcheck_web_app.py` (`127.0.0.1:8082`)
+- `racer.frank` → `driver_web_app.py` (`127.0.0.1:8083`)
 
-Current behavior:
-
-- lets a driver/team pick a racer from the roster
-- shows racer name + 4 start lights matching GUI countdown/race state
-- in practice mode (`Training Mode`), shows the last 10 laps and highlights the fastest lap
-- in race mode, shows racer-specific detail (position, lap progress, best/last lap, elapsed/adjusted totals, penalties, and gap to leader)
-
-## Local Hostnames (AP + Caddy)
-
-When the Pi hotspot and Caddy reverse proxy are configured (see playbooks), these hostnames resolve to the Pi and route to the local web apps:
-
-- `scoreboard.frank` → `127.0.0.1:8080` (`scoreboard_web_app.py`)
-- `referee.frank` → `127.0.0.1:8081` (`referee_web_app.py`)
-- `healthcheck.frank` → `127.0.0.1:8082` (`healthcheck_web_app.py`)
-- `racer.frank` → `127.0.0.1:8083` (`driver_web_app.py`)
-
-Relevant Ansible config:
-
-- DNS aliases + domain/upstream vars: `playbooks/group_vars/all.yml`
-- Caddy routes: `playbooks/46-caddy-reverse-proxy.yml`
-- tmux web-app bounce/restart: `playbooks/62-bounce-web-apps.yml`
+---
 
 ## Controls
 
-### Franklin Race UI (Terminal 2)
+### Franklin Race TUI
 - **Ctrl+S** - Start Race
 - **Ctrl+X** - End Race
 - **Ctrl+T** - Toggle Mode (Fake/Real/Training)
-- Click "Start Race" / "End Race" buttons in the TUI
+- You can also click the interactive "Start Race" and "End Race" buttons directly.
 
-### Hardware Interface - Real Hardware Mode (Terminal 1)
+### Hardware Interface (Real Mode - Terminal 1)
 - **Q** - Quit
 
-### Hardware Interface - Simulation Mode (Terminal 1)
+### Hardware Interface (Simulator Mode - Terminal 1)
 - **S** - Start race (sends reset commands)
-- **P** - Stop race
+- **P** - Stop/Pause race
 - **1-4** - Simulate lap for racer 1-4
 - **Q** - Quit
 
+---
+
 ## Configuration
 
-Edit `franklin.config.json` to configure your race:
+Edit `franklin.config.json` in the root directory to configure the race rules and roster:
 
 ```json
 {
@@ -169,131 +212,119 @@ Edit `franklin.config.json` to configure your race:
 }
 ```
 
-## Redis Communication
+---
 
-The canonical Redis protocol reference lives in:
+## Available Devbox Scripts
 
-- `docs/redis-message-reference.md`
+Run these tasks using `devbox run <script-name>` inside your devbox environment:
 
-Use that document for:
+**Core Ansible Workflow:**
+- `ansible:setup` - Full machine setup (packages, services, AP routing, Caddy, etc.)
+- `ansible:deploy` - Deploy full app artifacts and built binaries to target host
+- `ansible:deploy-gui` - Deploy GUI-focused python/runtime files only (fast path)
+- `deploy-gui` - Fast GUI deploy + web-app bounce (`ansible:deploy-gui` then `ansible:web-bounce`)
+- `ansible:web-bounce` - Ensure all tmux web windows are running and active
+- `ansible:health-check` - Run runtime health verification via the health check app
+- `ansible:reboot` - Reboot target host via Ansible
+- `ansible:hard-reset` - Completely wipe the target app directory and stop all running processes on the host
 
-- all channel definitions
-- all message schemas
-- publisher/subscriber ownership
-- known contract inconsistencies
+**Build / Local Execution:**
+- `build` - Run all local build tasks
+- `build:pi` - Build release hardware-monitor binary for the Pi target (`aarch64-unknown-linux-gnu`)
+- `build:release` - Build local release binary of the Rust project
+- `start:franklin` - Start full production Franklin tmux stack (hardware mode)
+- `start:franklin-simulator` - Start simulator Franklin tmux stack (web apps auto-reload via `watchexec`)
+- `web_scoreboard` - Run scoreboard web app locally
+- `web_referee` - Run referee web app locally
+- `web_healthcheck` - Run health-check web app locally
+
+**Remote GUI (VNC over SSH Tunnel):**
+- `vnc:open-tunnel` - Open local tunnel `127.0.0.1:5901 -> Pi:5900`
+- `vnc:connect` - Launch default VNC viewer to connect via tunnel
+
+**Quality Checks & Testing:**
+- `lint` - Run all Python, Web, and Rust linter checks
+- `lint:python` / `lint:web` / `lint:rust` - Run targeted language linter checks
+- `test` - Run all Python and Rust automated test suites
+- `test:python` / `test:rust` - Run targeted test suites
+
+---
 
 ## Testing
 
 ### Automated Tests
+Run the combined test suite:
 ```bash
-devbox run hw-test
+devbox run test
 ```
 
 ### Manual Redis Testing
-```bash
-# Check Redis is running
-redis-cli -s ./redis.sock ping
+You can inspect pub/sub messages manually to test the hardware layer interfaces:
 
-# Monitor all messages
+```bash
+# Terminal 1: Subscribe to lap/state output events
+devbox shell
 redis-cli -s ./redis.sock
 > SUBSCRIBE hardware:out
 
-# Send test command
+# Terminal 2: Run hardware monitor in simulator mode
+devbox shell
+cargo run --manifest-path rust/Cargo.toml --bin franklin-hardware-monitor -- --sim
+
+# Terminal 3: Publish mock commands
+devbox shell
 redis-cli -s ./redis.sock
 > PUBLISH hardware:in '{"type":"command","command":"start_race"}'
+> PUBLISH hardware:in '{"type":"command","command":"simulate_lap","racer_id":1,"sensor_id":1,"race_time":5.5}'
 ```
+
+---
+
+## Logs
+
+- `race.log` - Franklin race control events and rule-checking decisions
+- `hardware_redis.log` - Serial communications and Redis pub/sub bridges
+- `gui.log` - GTK GUI logs and engine status
+- `redis.log` - Redis daemon activity log
+- `web.log` - Output logs for the Scoreboard, Referee, and Driver servers
+
+---
+
+## Redis Communication Reference
+
+The canonical Redis channel/message schemas and publishers/subscribers mapping are maintained in one authoritative document:
+
+- `docs/redis-message-reference.md`
+
+Use that document as the reference source when adding components or refactoring event contracts.
+
+---
 
 ## Troubleshooting
 
-### Redis not running
-If you see "Failed to connect to Redis", make sure you're in a devbox shell:
+### Redis connection issues
+If you receive "Failed to connect to Redis", make sure you are working inside the devbox shell:
 ```bash
 devbox shell
 ```
-Redis starts automatically when you enter the devbox shell.
+The Redis server daemonizes automatically on environment initialization.
 
 ### Hardware not detected
-If Franklin shows "Lap counter not detected":
-1. Check that `franklin-hardware-monitor` is running in Terminal 1
-2. Look for heartbeat messages in Terminal 1's output
-3. Verify the hardware is connected to the correct serial port
-4. Check `hardware_redis.log` for errors
+If Franklin displays "Lap counter not detected":
+1. Verify the `franklin-hardware-monitor` binary is running
+2. Confirm the 2-second heartbeat logs are emitting in `hardware_redis.log`
+3. Ensure serial cables are connected properly. The default fallback serial interface paths are:
+   - macOS: `/dev/tty.usbserial-AB0KLIK2`
+   - Linux: `/dev/ttyUSB0`
 
 ### Duplicate lap events
-If you see duplicate lap events, you may have multiple instances running:
+If multiple laps are triggered near-instantaneously, duplicate interface agents might be active:
 ```bash
 pkill -f 'franklin-hardware-monitor'
 pkill -f 'python franklin-tui.py'
 ```
-Then restart both processes.
+Then restart your preferred stack.
 
-### Serial port errors
-The default serial port is:
-- macOS: `/dev/tty.usbserial-AB0KLIK2`
-- Linux: `/dev/ttyUSB0`
+---
 
-You can modify `franklin-hardware-monitor` to use a different port if needed.
-
-## Logs
-
-- `race.log` - Franklin race events and decisions
-- `hardware_redis.log` - Hardware communication and serial data
-
-## Development
-
-### Running Tests
-```bash
-devbox shell
-pytest
-```
-
-### Type Checking
-```bash
-devbox shell
-basedpyright
-```
-
-## Referee Web App
-
-Run the referee web app:
-
-```bash
-devbox shell
-devbox run web_referee
-```
-
-This starts `referee_web_app.py` on `0.0.0.0:8081`.
-
-- On the Pi itself: `http://127.0.0.1:8081`
-- From a device on the same network/AP: `http://<pi-ip>:8081`
-
-Current supported referee actions:
-
-- Start race (`start_race`)
-- End race (`end_race`)
-- Reset race (`reset_race`)
-- Remove lap (`remove_lap`, specific lap or latest lap for racer)
-- Add penalty (`add_penalty`, 5-second increments)
-- Disqualify racer (`disqualify_racer`)
-
-Design notes and architecture:
-
-- `docs/referee-web-app-design.md`
-- `docs/redis-message-reference.md` (authoritative Redis contract)
-
-Audit logging:
-
-- Race-control outcomes are persisted to SQLite table `race_control_actions` in `franklin.db`.
-
-## Features
-
-- ✅ Redis pub/sub architecture for flexible component communication
-- ✅ Simulation mode for testing without hardware
-- ✅ Real-time leaderboard display
-- ✅ Driver/team-focused racer web view
-- ✅ Lap time tracking and analysis
-- ✅ Multiple race modes (Real, Fake, Training)
-- ✅ Contestant management
-- ✅ Automatic hardware initialization
-- ✅ Comprehensive logging
-- ✅ TUI with Textual framework
+**Note:** For the best performance, timing accuracy, and minimal jitter under heavy loads, always use the compiled Rust hardware monitor (`franklin-hardware-monitor`).

@@ -103,7 +103,7 @@ class RaceStatusDisplay(Static):
         elif self.race_state == "finished":
             status.append("Race finished")
         else:
-            status.append("Race not started")
+            status.append("Ready to start")
         return "\n".join(status)
 
 
@@ -137,9 +137,14 @@ class LeaderboardDisplay(DataTable[Any]):  # type: ignore[type-arg]
             display_name = self.contestants.get_contestant_name(racer_id)
             if position == "DQ":
                 display_name = f"{display_name} (DQ)"
-            best_lap_display = format_time_cs(best_lap_time)
-            last_lap_display = format_time_cs(last_lap_time)
-            total_time_display = format_time_cs(total_time)
+            if position == "" and lap_count == "":
+                best_lap_display = ""
+                last_lap_display = ""
+                total_time_display = ""
+            else:
+                best_lap_display = format_time_cs(best_lap_time)
+                last_lap_display = format_time_cs(last_lap_time)
+                total_time_display = format_time_cs(total_time)
 
             row = (
                 position,
@@ -349,6 +354,17 @@ class Franklin(App[Any]):  # type: ignore[type-arg]
         missing best/last times rendering as ``00:00:00`` via ``format_time_cs``.
         """
         rows: list[tuple[Any, ...]] = []
+        if self.snapshot.state == "not_started":
+            sorted_racer_ids = sorted(
+                self.last_race_contestant_ids,
+                key=lambda rid: self.global_contestants.get_contestant_name(
+                    rid
+                ).lower(),
+            )
+            for rid in sorted_racer_ids:
+                rows.append(("", rid, "", None, None, None))
+            return rows
+
         for row in self.snapshot.leaderboard:
             position: Any = "DQ" if row.disqualified else row.position
             best = row.best_lap_time if row.best_lap_time is not None else float("inf")

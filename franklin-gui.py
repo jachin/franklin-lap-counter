@@ -176,6 +176,8 @@ class FranklinGuiApp(Gtk.Application):
         return ids
 
     def _humanize_snapshot_state(self, state: str) -> str:
+        if state == "not_started":
+            return "Ready to start"
         return state.replace("_", " ").title()
 
     def handle_snapshot(self, data: dict[str, Any]) -> None:
@@ -1098,14 +1100,29 @@ class FranklinGuiApp(Gtk.Application):
 
     def _referee_adjusted_leaderboard(
         self,
-    ) -> list[tuple[str, int, int, float, float, float, bool]]:
+    ) -> list[
+        tuple[str, int, int | str, float | None, float | None, float | None, bool]
+    ]:
         """Display rows from the authoritative snapshot.
 
         The recorder already applies penalties/DQ and orders the rows, so we
         just map them to the grid tuple shape. ``inf`` keeps missing best/last
         times rendering as ``00:00:00`` via ``_format_time_cs``.
         """
-        rows: list[tuple[str, int, int, float, float, float, bool]] = []
+        rows: list[
+            tuple[str, int, int | str, float | None, float | None, float | None, bool]
+        ] = []
+        if self.snapshot.state == "not_started":
+            sorted_racer_ids = sorted(
+                self.last_race_contestant_ids,
+                key=lambda rid: self.global_contestants.get_contestant_name(
+                    rid
+                ).lower(),
+            )
+            for rid in sorted_racer_ids:
+                rows.append(("", rid, "", None, None, None, False))
+            return rows
+
         for row in self.snapshot.leaderboard:
             pos_label = "DQ" if row.disqualified else str(row.position)
             best = row.best_lap_time if row.best_lap_time is not None else float("inf")
@@ -1184,13 +1201,15 @@ class FranklinGuiApp(Gtk.Application):
             if is_dq:
                 status_symbol = "⛔"
                 name = f"{name} (DQ)"
+            elif not pos_label:
+                status_symbol = ""
             else:
                 status_symbol = self._leaderboard_status_symbol(
-                    int(pos_label), lap_count
+                    int(pos_label), lap_count if isinstance(lap_count, int) else 0
                 )
-            best_s = self._format_time_cs(best)
-            last_s = self._format_time_cs(last)
-            total_s = self._format_time_cs(total)
+            best_s = self._format_time_cs(best) if best is not None else ""
+            last_s = self._format_time_cs(last) if last is not None else ""
+            total_s = self._format_time_cs(total) if total is not None else ""
 
             row_values: list[tuple[str, float, bool, list[str]]] = [
                 (pos_label, 1.0, False, []),
@@ -1250,7 +1269,7 @@ class FranklinGuiApp(Gtk.Application):
         if self.laps_remaining_label:
             # Show the running race's mode if one is active, otherwise the mode
             # selected for the next race.
-            if self.snapshot.race_mode:
+            if self.snapshot.is_going and self.snapshot.race_mode:
                 is_training = self.snapshot.race_mode == RaceMode.TRAINING.value
             else:
                 is_training = self.race_mode == RaceMode.TRAINING
@@ -1284,6 +1303,7 @@ class FranklinGuiApp(Gtk.Application):
         self.race_mode = mode_options[selected_idx]
         self.save_config()
         self.append_event(f"Mode changed to {self.race_mode}")
+        self.refresh_views()
 
     def on_start_clicked(self, _button: Gtk.Button | None) -> None:
         if self._start_sequence_running or self.snapshot.is_going:

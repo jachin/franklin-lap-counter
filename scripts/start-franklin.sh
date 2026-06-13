@@ -54,7 +54,7 @@ check_files() {
     fi
 
     # Check for essential files
-    if [ ! -f "franklin-hardware-monitor" ]; then
+    if [ ! -f "franklin-hardware-monitor" ] && ! command -v franklin-hardware-monitor &> /dev/null; then
         missing_files+=("franklin-hardware-monitor")
     fi
 

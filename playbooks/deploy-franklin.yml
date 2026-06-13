@@ -20,11 +20,23 @@
       - "{{ project_root }}/redis_commands.py"
       - "{{ project_root }}/database.py"
     rust_target: "aarch64-unknown-linux-gnu"
-    rust_binary_local: "{{ project_root }}/rust/target/{{ rust_target }}/release/franklin-hardware-monitor"
+    rust_deb_local: "{{ project_root }}/rust/target/debian/franklin-hardware-monitor_{{ pkg_version }}_arm64.deb"
 
   pre_tasks:
     - name: Verify SSH connectivity
       ansible.builtin.ping:
+
+    - name: Get local package version from Cargo.toml
+      ansible.builtin.shell:
+        cmd: python3 -c "import re; m = re.search(r'\[workspace\.package\]\s*[\s\S]*?version\s*=\s*\"([^\"]+)\"', open('{{ project_root }}/rust/Cargo.toml').read()); print(m.group(1))"
+      delegate_to: localhost
+      become: false
+      register: local_version_cmd
+      changed_when: false
+
+    - name: Set package version variable
+      ansible.builtin.set_fact:
+        pkg_version: "{{ local_version_cmd.stdout | trim }}"
 
     - name: Check required local files exist
       ansible.builtin.stat:
@@ -79,8 +91,8 @@
             description: "GUI startup script",
           }
         - {
-            path: "{{ rust_binary_local }}",
-            description: "Franklin hardware monitor compiled binary. (Please build it locally first using: devbox run build:pi)",
+            path: "{{ rust_deb_local }}",
+            description: "Franklin hardware monitor Debian package. (Please build it locally first using: devbox run hardware-monitor:build-deb)",
           }
 
     - name: Fail when required local files are missing
@@ -119,13 +131,35 @@
         update_cache: true
         cache_valid_time: 3600
 
-    - name: Deploy locally built Rust hardware monitor binary to Pi
+    - name: Get installed hardware monitor version on Pi
+      ansible.builtin.command:
+        cmd: dpkg-query -W -f='${Version}' franklin-hardware-monitor
+      register: pi_version_cmd
+      failed_when: false
+      changed_when: false
+
+    - name: Set installed version fact
+      ansible.builtin.set_fact:
+        installed_version: "{{ (pi_version_cmd.rc == 0) | ternary(pi_version_cmd.stdout | trim, '0.0.0') }}"
+
+    - name: Copy Debian package to Pi
       ansible.builtin.copy:
-        src: "{{ rust_binary_local }}"
-        dest: "{{ pi_dest_dir }}/franklin-hardware-monitor"
-        owner: "{{ franklin_user }}"
-        group: "{{ franklin_group }}"
-        mode: "0755"
+        src: "{{ rust_deb_local }}"
+        dest: "/tmp/{{ rust_deb_local | basename }}"
+        mode: "0644"
+      when: pkg_version is version(installed_version, '>')
+
+    - name: Install Debian package on Pi
+      ansible.builtin.apt:
+        deb: "/tmp/{{ rust_deb_local | basename }}"
+        state: present
+      when: pkg_version is version(installed_version, '>')
+
+    - name: Remove temporary Debian package from Pi
+      ansible.builtin.file:
+        path: "/tmp/{{ rust_deb_local | basename }}"
+        state: absent
+      when: pkg_version is version(installed_version, '>')
 
     - name: Deploy Python application files
       ansible.builtin.copy:
@@ -185,7 +219,7 @@
         path: "{{ item }}"
       register: remote_required_file_stats
       loop:
-        - "{{ pi_dest_dir }}/franklin-hardware-monitor"
+        - "/usr/bin/franklin-hardware-monitor"
         - "{{ pi_dest_dir }}/franklin-tui.py"
         - "{{ pi_dest_dir }}/franklin-gui.py"
         - "{{ pi_dest_dir }}/franklin-race-recorder.py"
@@ -210,7 +244,7 @@
         label: "{{ item.item }}"
 
     - name: Read deployed binary file information
-      ansible.builtin.command: "file {{ pi_dest_dir }}/franklin-hardware-monitor"
+      ansible.builtin.command: "file /usr/bin/franklin-hardware-monitor"
       register: binary_file_info
       changed_when: false
 

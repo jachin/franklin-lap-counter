@@ -346,7 +346,7 @@ class FranklinGuiApp(Gtk.Application):
 
         root = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
         root.add_css_class("franklin-root")
-        root.set_margin_top(12)
+        root.set_margin_top(0)
         root.set_margin_bottom(12)
         root.set_margin_start(12)
         root.set_margin_end(12)

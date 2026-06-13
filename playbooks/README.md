@@ -80,5 +80,68 @@ ansible-playbook -i playbooks/inventory.ini playbooks/site.yml \
 - `30-tmuxinator.yml` installs tmuxinator only if it is missing.
 - This setup stage prepares the target machine; deployment of app binaries/files remains in your existing deploy flow.
 - `deploy-franklin.yml` does not copy `.env`; host/runtime settings should be managed in Ansible vars.
-- Network architecture details and the captured live-Pi baseline are documented in `playbooks/NETWORK_HOTSPOT_SETUP.md`.
 - Offline mode is supported: AP + DHCP + local DNS continue working even without internet/uplink.
+
+---
+
+## Raspberry Pi Hotspot/Router Architecture & Setup
+
+This documents the captured live baseline hotspot/router configuration and the matching Ansible automation.
+
+### Captured Live Configuration (Baseline)
+
+#### Topology
+- **Uplink/WAN:** `eth0` (DHCP from `10.27.1.0/24`)
+- **AP/LAN:** `wlan0`
+- **AP gateway IP:** `10.210.1.1/24`
+- **DHCP pool (clients):** `10.210.1.50` - `10.210.1.150`
+- **NAT:** `10.210.1.0/24` masqueraded out `eth0`
+
+#### Wireless AP
+- **Service:** `hostapd` (`enabled`, `active`)
+- **Config file:** `/etc/hostapd/hostapd.conf`
+- **SSID:** `FranklinLapCounter`
+- **Channel:** `7` (`2.4GHz`, `hw_mode=g`)
+- **Security:** WPA2-PSK
+- **Passphrase:** `lapcounter`
+
+#### DHCP/DNS
+- **Service:** `dnsmasq` (`enabled`, `active`)
+- **Config file:** `/etc/dnsmasq.conf`
+- **Interface:** `wlan0`
+- **DHCP range:** `10.210.1.50,10.210.1.150,255.255.255.0,24h`
+- **Local domain:** `wlan`
+- **Static DNS answer:** `burke.local -> 10.210.1.1`
+
+#### IP assignment on wlan0
+A custom systemd unit ensures a deterministic AP address assignment:
+- File: `/etc/systemd/system/wlan0-static-ip.service`
+- Command: `ExecStart=/sbin/ip addr add 10.210.1.1/24 dev wlan0`
+- Ordered before `hostapd.service` and `dnsmasq.service` (while `dhcpcd` is disabled).
+
+#### Routing/firewall
+- `net.ipv4.ip_forward=1` in `/etc/sysctl.conf`
+- **Service:** `nftables` (`enabled`, `active`)
+- Rules in `/etc/nftables.conf`:
+  - NAT masquerade: `ip saddr 10.210.1.0/24 oifname "eth0" masquerade`
+  - Forward allow: `wlan0 -> eth0` and established/related return traffic
+  - Input allow: loopback, all from `wlan0`, SSH on `eth0`
+  - Drop all other inbound traffic
+
+#### Wi-Fi stack control
+- `NetworkManager` is enabled/active, but does not own AP config.
+- `wpa_supplicant` is enabled/active with drop-in override `/etc/systemd/system/wpa_supplicant.service.d/override.conf` forcing `-i wlan0 -D nl80211,wext`.
+
+### DHCP + Portability Behavior
+
+- The playbook does **not** assign a static IP to the uplink Ethernet interface.
+- Uplink addressing/routing stays DHCP-driven by the host network stack (typically NetworkManager on Raspberry Pi OS).
+- Only the AP-side interface (`wlan0` by default) is pinned to a static subnet for clients.
+- AP clients are explicitly handed Pi-local router/DNS settings via DHCP (`option:router` and `option:dns-server`), so local web apps remain reachable without internet.
+- Additional local DNS aliases can be set with `franklin_ap_dns_aliases`.
+- Current local app aliases include `scoreboard.frank`, `referee.frank`, `healthcheck.frank`, and `racer.frank`.
+
+### Notes
+
+- AP passphrase is currently stored in plain text for parity with existing machine state. Consider moving `franklin_ap_passphrase` to Ansible Vault.
+- The playbook uses `ip addr replace` in `wlan0-static-ip.service` so service restarts are idempotent.

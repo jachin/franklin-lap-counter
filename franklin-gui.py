@@ -217,16 +217,42 @@ class FranklinGuiApp(Gtk.Application):
     def _sync_controls_with_race_state(self) -> None:
         running = self.snapshot.is_going
         starting = self._start_sequence_running
-        if self.start_btn:
-            self.start_btn.set_sensitive(not running and not starting)
-        if self.stop_btn:
-            self.stop_btn.set_sensitive(running and not starting)
-        if self.reset_btn:
-            self.reset_btn.set_sensitive(
-                self.snapshot.state == "finished" and not starting
-            )
-        if self.mode_combo:
-            self.mode_combo.set_sensitive(not running and not starting)
+
+        start_action = self.lookup_action("start_race")
+        if start_action:
+            start_action.set_enabled(not running and not starting)
+
+        end_action = self.lookup_action("end_race")
+        if end_action:
+            end_action.set_enabled(running and not starting)
+
+        reset_action = self.lookup_action("reset_race")
+        if reset_action:
+            reset_action.set_enabled(self.snapshot.state == "finished" and not starting)
+
+        mode_action = self.lookup_action("mode")
+        if mode_action:
+            mode_action.set_enabled(not running and not starting)
+
+            # Sync the checked state of GIO action "mode" with the actual race mode
+            if self.snapshot.is_going and self.snapshot.race_mode:
+                if self.snapshot.race_mode == RaceMode.REAL.value:
+                    mode_str = "real"
+                elif self.snapshot.race_mode == RaceMode.FAKE.value:
+                    mode_str = "fake"
+                else:
+                    mode_str = "training"
+            else:
+                if self.race_mode == RaceMode.REAL:
+                    mode_str = "real"
+                elif self.race_mode == RaceMode.FAKE:
+                    mode_str = "fake"
+                else:
+                    mode_str = "training"
+
+            current_state = mode_action.get_state()
+            if current_state and current_state.get_string() != mode_str:
+                mode_action.set_state(GLib.Variant.new_string(mode_str))
 
     def _register_actions_and_shortcuts(self) -> None:
         action_defs: list[tuple[str, Any, list[str]]] = [
@@ -245,6 +271,42 @@ class FranklinGuiApp(Gtk.Application):
             self.add_action(action)
             self.set_accels_for_action(f"app.{name}", accels)
 
+        # Register stateful "mode" action for the PopoverMenuBar checkmarks
+        initial_mode_str = "real"
+        if self.race_mode == RaceMode.FAKE:
+            initial_mode_str = "fake"
+        elif self.race_mode == RaceMode.TRAINING:
+            initial_mode_str = "training"
+
+        mode_action = Gio.SimpleAction.new_stateful(
+            "mode",
+            GLib.VariantType.new("s"),  # string parameter type
+            GLib.Variant.new_string(initial_mode_str),  # initial state
+        )
+        mode_action.connect("activate", self._action_change_mode)
+        self.add_action(mode_action)
+
+    def _action_change_mode(
+        self, action: Gio.SimpleAction, parameter: GLib.Variant
+    ) -> None:
+        if self.snapshot.is_going:
+            self.append_event("Cannot change mode while race is running")
+            return
+
+        mode_str = parameter.get_string()
+        action.set_state(parameter)
+
+        if mode_str == "real":
+            self.race_mode = RaceMode.REAL
+        elif mode_str == "fake":
+            self.race_mode = RaceMode.FAKE
+        elif mode_str == "training":
+            self.race_mode = RaceMode.TRAINING
+
+        self.save_config()
+        self.append_event(f"Mode changed to {self.race_mode}")
+        self.refresh_views()
+
     def _action_start_race(self, _action: Gio.SimpleAction, _param: Any) -> None:
         self.on_start_clicked(None)
 
@@ -262,8 +324,6 @@ class FranklinGuiApp(Gtk.Application):
         idx = modes.index(self.race_mode)
         next_mode = modes[(idx + 1) % len(modes)]
         self.race_mode = next_mode
-        if self.mode_combo:
-            self.mode_combo.set_selected(modes.index(next_mode))
         self.append_event(f"Mode changed to {self.race_mode}")
         self.refresh_views()
 
@@ -289,6 +349,33 @@ class FranklinGuiApp(Gtk.Application):
         root.set_margin_bottom(12)
         root.set_margin_start(12)
         root.set_margin_end(12)
+
+        # PopoverMenuBar setup at the top of the window
+        menu_model = Gio.Menu()
+
+        # Race Submenu
+        race_menu = Gio.Menu()
+        race_menu.append("Start Race", "app.start_race")
+        race_menu.append("End Race", "app.end_race")
+        race_menu.append("Reset Race", "app.reset_race")
+        menu_model.append_submenu("Race", race_menu)
+
+        # Mode Submenu
+        mode_menu = Gio.Menu()
+        mode_menu.append("Real Race Mode", "app.mode('real')")
+        mode_menu.append("Fake Race Mode", "app.mode('fake')")
+        mode_menu.append("Training Mode", "app.mode('training')")
+        menu_model.append_submenu("Mode", mode_menu)
+
+        # Tools Submenu
+        tools_menu = Gio.Menu()
+        tools_menu.append("Manage Drivers", "app.manage_drivers")
+        tools_menu.append("Preferences", "app.preferences")
+        tools_menu.append("Toggle Event Log", "app.toggle_event_log")
+        menu_model.append_submenu("Tools", tools_menu)
+
+        menu_bar = Gtk.PopoverMenuBar.new_from_model(menu_model)
+        menu_bar.set_hexpand(True)
 
         time_label = Gtk.Label(label="00:00:00")
         time_label.add_css_class("race-clock")
@@ -316,43 +403,6 @@ class FranklinGuiApp(Gtk.Application):
         clock_frame.set_hexpand(True)
         clock_frame.set_margin_bottom(10)
         clock_frame.append(clock_row)
-
-        controls = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        mode_options = [RaceMode.REAL, RaceMode.FAKE, RaceMode.TRAINING]
-        mode_combo = Gtk.DropDown.new_from_strings(
-            [mode.value for mode in mode_options]
-        )
-        mode_combo.set_selected(mode_options.index(self.race_mode))
-        mode_combo.connect("notify::selected", self.on_mode_changed)
-        self.mode_combo = mode_combo
-
-        start_btn = Gtk.Button(label="Start Race (Ctrl+S)")
-        start_btn.connect("clicked", self.on_start_clicked)
-        self.start_btn = start_btn
-
-        stop_btn = Gtk.Button(label="End Race (Ctrl+E)")
-        stop_btn.set_sensitive(False)
-        stop_btn.connect("clicked", self.on_end_clicked)
-        self.stop_btn = stop_btn
-
-        reset_btn = Gtk.Button(label="Reset (Ctrl+Shift+R)")
-        reset_btn.set_sensitive(False)
-        reset_btn.connect("clicked", self.on_reset_clicked)
-        self.reset_btn = reset_btn
-
-        actions_menu = Gio.Menu()
-        actions_menu.append("Manage Drivers", "app.manage_drivers")
-        actions_menu.append("Preferences", "app.preferences")
-        actions_menu.append("Toggle Event Log", "app.toggle_event_log")
-        actions_btn = Gtk.MenuButton(label="Actions")
-        actions_btn.set_menu_model(actions_menu)
-
-        controls.append(Gtk.Label(label="Mode (Ctrl+T):"))
-        controls.append(mode_combo)
-        controls.append(start_btn)
-        controls.append(stop_btn)
-        controls.append(reset_btn)
-        controls.append(actions_btn)
 
         status = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=16)
         state_label = Gtk.Label(
@@ -431,8 +481,8 @@ class FranklinGuiApp(Gtk.Application):
         status_bar.append(Gtk.Separator(orientation=Gtk.Orientation.VERTICAL))
         status_bar.append(wifi_label)
 
+        root.append(menu_bar)
         root.append(clock_frame)
-        root.append(controls)
         root.append(status)
         root.append(panes)
         root.append(Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL))
@@ -702,18 +752,12 @@ class FranklinGuiApp(Gtk.Application):
         self._set_start_lights("#c62828")
         self.append_event("Start countdown")
 
-        if self.start_btn:
-            self.start_btn.set_sensitive(False)
-        if self.stop_btn:
-            self.stop_btn.set_sensitive(False)
-        if self.reset_btn:
-            self.reset_btn.set_sensitive(False)
+        self._sync_controls_with_race_state()
 
         if not self._redis_client:
             self.append_event("Redis not connected; cannot schedule race start")
             self._start_sequence_running = False
-            if self.start_btn:
-                self.start_btn.set_sensitive(True)
+            self._sync_controls_with_race_state()
             return
 
         base = time.time() + 0.25
@@ -1294,16 +1338,6 @@ class FranklinGuiApp(Gtk.Application):
             )
 
         return True
-
-    def on_mode_changed(self, combo: Gtk.DropDown, _param: Any) -> None:
-        mode_options = [RaceMode.REAL, RaceMode.FAKE, RaceMode.TRAINING]
-        selected_idx = combo.get_selected()
-        if selected_idx < 0 or selected_idx >= len(mode_options):
-            selected_idx = mode_options.index(RaceMode.TRAINING)
-        self.race_mode = mode_options[selected_idx]
-        self.save_config()
-        self.append_event(f"Mode changed to {self.race_mode}")
-        self.refresh_views()
 
     def on_start_clicked(self, _button: Gtk.Button | None) -> None:
         if self._start_sequence_running or self.snapshot.is_going:

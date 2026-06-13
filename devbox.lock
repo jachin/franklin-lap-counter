@@ -249,6 +249,54 @@
         }
       }
     },
+    "dpkg@latest": {
+      "last_modified": "2026-05-21T08:15:18Z",
+      "resolved": "github:NixOS/nixpkgs/4a29d733e8a7d5b824c3d8c958a946a9867b3eb2#dpkg",
+      "source": "devbox-search",
+      "version": "1.23.7",
+      "systems": {
+        "aarch64-darwin": {
+          "outputs": [
+            {
+              "name": "out",
+              "path": "/nix/store/6m59m2wwyrq98gaf99m00d6gcmx0fy9h-dpkg-1.23.7",
+              "default": true
+            }
+          ],
+          "store_path": "/nix/store/6m59m2wwyrq98gaf99m00d6gcmx0fy9h-dpkg-1.23.7"
+        },
+        "aarch64-linux": {
+          "outputs": [
+            {
+              "name": "out",
+              "path": "/nix/store/z75w0d02910b62vg4xjma061rgjb6q1q-dpkg-1.23.7",
+              "default": true
+            }
+          ],
+          "store_path": "/nix/store/z75w0d02910b62vg4xjma061rgjb6q1q-dpkg-1.23.7"
+        },
+        "x86_64-darwin": {
+          "outputs": [
+            {
+              "name": "out",
+              "path": "/nix/store/3i21flbfc6cmppyb6xiq85lh3yvcrp22-dpkg-1.23.7",
+              "default": true
+            }
+          ],
+          "store_path": "/nix/store/3i21flbfc6cmppyb6xiq85lh3yvcrp22-dpkg-1.23.7"
+        },
+        "x86_64-linux": {
+          "outputs": [
+            {
+              "name": "out",
+              "path": "/nix/store/7cx011ayswfrxd57d69mdhyzfy6fbd5s-dpkg-1.23.7",
+              "default": true
+            }
+          ],
+          "store_path": "/nix/store/7cx011ayswfrxd57d69mdhyzfy6fbd5s-dpkg-1.23.7"
+        }
+      }
+    },
     "gdk-pixbuf@latest": {
       "last_modified": "2026-05-25T07:42:19Z",
       "resolved": "github:NixOS/nixpkgs/f9d8b65950353691ab56561e7c73d2e1063d810b#gdk-pixbuf",

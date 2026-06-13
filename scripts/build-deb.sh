@@ -56,18 +56,8 @@ EOF
 chmod 644 "$PKG_DIR/DEBIAN/control"
 
 # 6. Build the package
-if command -v dpkg-deb >/dev/null 2>&1; then
-    log "✓ Local dpkg-deb found. Building package..."
-    dpkg-deb --build "$PKG_DIR" "$DEB_FILE"
-elif command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
-    log "✓ Docker found and running. Building package using debian:bookworm-slim container..."
-    # Ensure correct root permissions inside the tarball by running dpkg-deb in docker
-    docker run --rm -v "$(pwd)":/workspace -w /workspace debian:bookworm-slim dpkg-deb --build "$PKG_DIR" "$DEB_FILE"
-else
-    log "⚠ Neither 'dpkg-deb' nor a running Docker daemon was found."
-    log "  Falling back to pure Python Debian package generator..."
-    python3 scripts/build-deb-pure.py
-fi
+log "Building package using dpkg-deb..."
+dpkg-deb --root-owner-group --build "$PKG_DIR" "$DEB_FILE"
 
 log "✓ Debian package built successfully!"
 log "  Package location: $DEB_FILE"

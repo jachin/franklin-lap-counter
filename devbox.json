@@ -29,7 +29,8 @@
     "harfbuzz@latest",
     "pango.dev",
     "cairo@latest",
-    "gdk-pixbuf@latest"
+    "gdk-pixbuf@latest",
+    "dpkg@latest"
   ],
   "env": {
     "GI_TYPELIB_PATH": "$GI_TYPELIB_PATH:$(${pkgs.lib.makeSearchPathOutput \"lib\" \"lib/girepository-1.0\" [ pkgs.gtk4 pkgs.pango pkgs.gdk-pixbuf pkgs.gobject-introspection ]})"

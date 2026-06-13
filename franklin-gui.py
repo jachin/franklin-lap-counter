@@ -128,6 +128,7 @@ class FranklinGuiApp(Gtk.Application):
 
         # UI refs
         self.window: Gtk.ApplicationWindow | None = None
+        self._color_provider_counter = 0
         self.mode_combo: Gtk.DropDown | None = None
         self.start_btn: Gtk.Button | None = None
         self.stop_btn: Gtk.Button | None = None
@@ -1012,12 +1013,15 @@ class FranklinGuiApp(Gtk.Application):
     ) -> Gtk.Widget:
         # Custom lightweight Popover-based color picker to completely bypass GSettings schema issues.
         button = Gtk.Button()
+
         swatch_box = Gtk.Box()
         swatch_box.set_size_request(24, 24)
 
-        # Use modern GTK4 add_provider_for_display to avoid DeprecationWarning
-        class_id = f"swatch-box-p-{id(button)}"
+        # Use modern GTK4 add_provider_for_display with an ever-incrementing counter to avoid collisions and deprecations
+        self._color_provider_counter += 1
+        class_id = f"swatch-box-p-{self._color_provider_counter}"
         swatch_box.add_css_class(class_id)
+
         provider = Gtk.CssProvider()
         provider.load_from_data(
             f".{class_id} {{ background-color: {initial_hex}; border-radius: 4px; border: 1px solid #777; }}".encode(
@@ -1082,10 +1086,12 @@ class FranklinGuiApp(Gtk.Application):
             col = i % 7
             preset_btn = Gtk.Button()
             preset_btn.set_size_request(20, 24)
+
             preset_box = Gtk.Box()
             preset_box.set_size_request(16, 16)
 
-            preset_class_id = f"preset-box-{i}-{id(button)}"
+            self._color_provider_counter += 1
+            preset_class_id = f"preset-box-{self._color_provider_counter}"
             preset_box.add_css_class(preset_class_id)
             p_provider = Gtk.CssProvider()
             p_provider.load_from_data(

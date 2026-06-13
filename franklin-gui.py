@@ -1010,67 +1010,122 @@ class FranklinGuiApp(Gtk.Application):
     def _new_color_picker_button(
         self, initial_hex: str, on_hex_changed: Any
     ) -> Gtk.Widget:
-        rgba = self._hex_to_rgba(initial_hex)
+        # Custom lightweight Popover-based color picker to completely bypass GSettings schema issues.
+        button = Gtk.Button()
+        swatch_box = Gtk.Box()
+        swatch_box.set_size_request(24, 24)
 
-        # Prefer GTK4 ColorDialogButton when available.
-        color_dialog_cls = getattr(Gtk, "ColorDialog", None)
-        color_dialog_button_cls = getattr(Gtk, "ColorDialogButton", None)
-        if color_dialog_cls is not None and color_dialog_button_cls is not None:
-            try:
-                color_dialog = color_dialog_cls()
-                button = color_dialog_button_cls.new(color_dialog)
-                button.set_rgba(rgba)
-                button.connect(
-                    "notify::rgba",
-                    lambda b, _pspec: on_hex_changed(self._rgba_to_hex(b.get_rgba())),
+        # Use modern GTK4 add_provider_for_display to avoid DeprecationWarning
+        class_id = f"swatch-box-p-{id(button)}"
+        swatch_box.add_css_class(class_id)
+        provider = Gtk.CssProvider()
+        provider.load_from_data(
+            f".{class_id} {{ background-color: {initial_hex}; border-radius: 4px; border: 1px solid #777; }}".encode(
+                "utf-8"
+            )
+        )
+        display = Gdk.Display.get_default()
+        if display is not None:
+            Gtk.StyleContext.add_provider_for_display(
+                display, provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
+            )
+
+        button.set_child(swatch_box)
+
+        popover = Gtk.Popover()
+        popover.set_parent(button)
+
+        # Unparent the popover when the button is destroyed to avoid finalized child warnings
+        button.connect("destroy", lambda widget: popover.unparent())
+
+        popover_root = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        popover_root.set_margin_top(8)
+        popover_root.set_margin_bottom(8)
+        popover_root.set_margin_start(8)
+        popover_root.set_margin_end(8)
+
+        presets_grid = Gtk.Grid()
+        presets_grid.set_column_spacing(4)
+        presets_grid.set_row_spacing(4)
+
+        presets = [
+            "#e53935",
+            "#d81b60",
+            "#8e24aa",
+            "#5e35b1",
+            "#3949ab",
+            "#1e88e5",
+            "#039be5",
+            "#00acc1",
+            "#00897b",
+            "#43a047",
+            "#7cb342",
+            "#c0ca33",
+            "#fdd835",
+            "#ffb300",
+            "#fb8c00",
+            "#f4511e",
+            "#6d4c41",
+            "#757575",
+            "#546e7a",
+            "#212121",
+            "#ffffff",
+        ]
+
+        def on_preset_clicked(btn: Gtk.Button, hex_val: str) -> None:
+            entry.set_text(hex_val)
+            on_hex_changed(hex_val)
+            popover.popdown()
+
+        for i, hex_val in enumerate(presets):
+            row = i // 7
+            col = i % 7
+            preset_btn = Gtk.Button()
+            preset_btn.set_size_request(20, 24)
+            preset_box = Gtk.Box()
+            preset_box.set_size_request(16, 16)
+
+            preset_class_id = f"preset-box-{i}-{id(button)}"
+            preset_box.add_css_class(preset_class_id)
+            p_provider = Gtk.CssProvider()
+            p_provider.load_from_data(
+                f".{preset_class_id} {{ background-color: {hex_val}; border-radius: 3px; border: 1px solid #777; }}".encode(
+                    "utf-8"
                 )
-                return button
-            except Exception:
-                pass
-
-        # Fallback for environments exposing ColorButton API.
-        color_button_cls = getattr(Gtk, "ColorButton", None)
-        if color_button_cls is not None:
-            try:
-                button = color_button_cls.new()
-                button.set_rgba(rgba)
-                button.connect(
-                    "color-set",
-                    lambda b: on_hex_changed(self._rgba_to_hex(b.get_rgba())),
+            )
+            if display is not None:
+                Gtk.StyleContext.add_provider_for_display(
+                    display, p_provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
                 )
-                return button
-            except Exception:
-                pass
 
-        # Generic fallback: open a color chooser dialog from a button.
-        chooser_dialog_cls = getattr(Gtk, "ColorChooserDialog", None)
-        if chooser_dialog_cls is not None and self.window is not None:
-            button = Gtk.Button(label="Pick")
+            preset_btn.set_child(preset_box)
 
-            def on_pick_clicked(_btn: Gtk.Button) -> None:
-                dialog = chooser_dialog_cls(
-                    title="Pick color",
-                    transient_for=self.window,
-                    modal=True,
-                )
-                if hasattr(dialog, "set_rgba"):
-                    dialog.set_rgba(rgba)
+            preset_btn.connect("clicked", on_preset_clicked, hex_val)
+            presets_grid.attach(preset_btn, col, row, 1, 1)
 
-                def on_response(d: Gtk.Dialog, response: int) -> None:
-                    if response == Gtk.ResponseType.OK and hasattr(d, "get_rgba"):
-                        new_rgba = d.get_rgba()
-                        on_hex_changed(self._rgba_to_hex(new_rgba))
-                    d.destroy()
+        popover_root.append(presets_grid)
 
-                dialog.connect("response", on_response)
-                dialog.present()
+        entry_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        entry = Gtk.Entry()
+        entry.set_width_chars(10)
+        entry.set_text(initial_hex)
+        entry_row.append(entry)
 
-            button.connect("clicked", on_pick_clicked)
-            return button
+        apply_btn = Gtk.Button(label="Apply")
 
-        # Last-resort fallback: keep a compact text indicator button.
-        button = Gtk.Button(label=initial_hex.upper())
-        button.set_sensitive(False)
+        def on_apply_clicked(btn: Gtk.Button) -> None:
+            text = entry.get_text().strip()
+            if text.startswith("#") and len(text) in (4, 7):
+                on_hex_changed(text)
+                popover.popdown()
+
+        apply_btn.connect("clicked", on_apply_clicked)
+        entry_row.append(apply_btn)
+
+        popover_root.append(entry_row)
+        popover.set_child(popover_root)
+
+        button.connect("clicked", lambda b: popover.popup())
         return button
 
     def _new_color_swatch_for_colors(

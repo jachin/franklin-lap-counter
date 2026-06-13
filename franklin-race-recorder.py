@@ -112,6 +112,16 @@ class RaceRecorder:
 
         self._publish_snapshot()  # initial state for late joiners
 
+        # Request hardware status
+        try:
+            status_env = build_command_envelope("request_status", source=SOURCE)
+            self.redis.publish(HARDWARE_IN_CHANNEL, json.dumps(status_env))
+            logging.info("Published request_status command on startup")
+        except Exception as exc:
+            logging.error(
+                "Failed to publish request_status command on startup: %s", exc
+            )
+
         last_lock_refresh = time.monotonic()
         last_tick = time.monotonic()
         try:
@@ -186,7 +196,14 @@ class RaceRecorder:
             self._apply_and_publish(self.engine.ingest(msg))
         elif msg_type == "race_control":
             self._apply_and_publish(self.engine.apply_race_control(msg))
-        # heartbeat/status/countdown_phase/debug/error are display-only here.
+        elif msg_type == "hardware_status":
+            logging.info(
+                "Hardware monitor status: version=%s, simulation_mode=%s, hardware_connected=%s",
+                msg.get("version"),
+                msg.get("simulation_mode"),
+                msg.get("hardware_connected"),
+            )
+        # heartbeat/status/countdown_phase/debug/error/hardware_status are display-only here.
 
     def _handle_command(self, msg: dict[str, Any]) -> None:
         """Cache race-config carried on ``start_race`` commands."""

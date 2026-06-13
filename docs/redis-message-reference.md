@@ -53,6 +53,8 @@ Supported commands:
   - fields: `racer_id` (required), optional `lap_number` (> 0), optional `reason`
 - `disqualify_racer`
   - fields: `racer_id` (required), optional `reason`
+- `request_status`
+  - Request the current status of the hardware monitor (version, simulation mode, connection state). Responsive event is published on `hardware:out` as a `hardware_status` type.
 
 Notes:
 
@@ -75,9 +77,21 @@ Channel policy:
 ```
 
 ### `status`
-
+  
 ```json
 {"type":"status","message":"...","recorded_at":1736200010.123,"simulated":false}
+```
+
+### `hardware_status`
+
+```json
+{
+  "type": "hardware_status",
+  "version": "0.2.0",
+  "simulation_mode": false,
+  "hardware_connected": true,
+  "recorded_at": 1736200010.123
+}
 ```
 
 ### `lap`

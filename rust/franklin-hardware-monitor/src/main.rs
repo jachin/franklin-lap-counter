@@ -105,6 +105,12 @@ enum OutMessage {
     Raw {
         line: String,
     },
+    HardwareStatus {
+        version: String,
+        simulation_mode: bool,
+        hardware_connected: bool,
+        recorded_at: f64,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -327,6 +333,15 @@ impl App {
                 format!("[START_RACE] {}", details.join(", "))
             }
             OutMessage::Raw { line } => format!("[RAW] {}", line),
+            OutMessage::HardwareStatus {
+                version,
+                simulation_mode,
+                hardware_connected,
+                recorded_at,
+            } => format!(
+                "[HW_STATUS] version={} sim={} connected={} (recorded_at={:.3})",
+                version, simulation_mode, hardware_connected, recorded_at
+            ),
         }
     }
 
@@ -1307,6 +1322,28 @@ async fn command_handler_task(hw: Arc<HardwareComm>, app: Arc<Mutex<App>>) -> Re
                                 lap_number: None,
                             });
                             info!("Racer disqualified: {}", rid);
+                        }
+                        "request_status" => {
+                            let rt = tokio::runtime::Handle::current();
+                            let (is_simulation, hardware_connected) = rt.block_on(async {
+                                let app = app.lock().await;
+                                let connected = if app.simulation_mode {
+                                    false
+                                } else if let Some(last_hb) = app.last_heartbeat {
+                                    last_hb.elapsed() < std::time::Duration::from_secs(5)
+                                } else {
+                                    false
+                                };
+                                (app.simulation_mode, connected)
+                            });
+
+                            let _ = hw.send_message(&OutMessage::HardwareStatus {
+                                version: env!("CARGO_PKG_VERSION").to_string(),
+                                simulation_mode: is_simulation,
+                                hardware_connected,
+                                recorded_at: now_epoch_seconds(),
+                            });
+                            info!("Responded to request_status command");
                         }
                         _ => {
                             error!("Unknown command: {}", command);

@@ -3,6 +3,7 @@ import logging
 from pathlib import Path
 from typing import Any
 
+from database import LapDatabase
 from race.race_mode import RaceMode
 from race.race_state import RaceEndMode
 from racer_colors import RacerColorScheme, parse_racer_color_assignments
@@ -30,6 +31,52 @@ def load_initial_config(
     list[int],
     dict[int, RacerColorScheme],
 ]:
+    db_path = config_path.parent / "lap_counter.db"
+    db = LapDatabase(str(db_path))
+
+    race_mode_val = db.get_preference("race_mode")
+    total_laps_val = db.get_preference("total_laps")
+    race_end_mode_val = db.get_preference("race_end_mode")
+    contestants_val = db.get_preference("contestants")
+    last_race_contestant_ids_val = db.get_preference("last_race_contestant_ids")
+    racer_color_assignments_val = db.get_preference("racer_color_assignments")
+
+    # If all DB preferences are None, attempt to migrate from JSON
+    if (
+        race_mode_val is None
+        and total_laps_val is None
+        and race_end_mode_val is None
+        and contestants_val is None
+        and last_race_contestant_ids_val is None
+        and racer_color_assignments_val is None
+    ):
+        if config_path.exists():
+            logging.info(
+                "Database preferences are empty. Loading and migrating from %s",
+                config_path,
+            )
+            try:
+                raw_data = json.loads(config_path.read_text())
+                if isinstance(raw_data, dict):
+                    # Save each value to SQLite
+                    for k, v in raw_data.items():
+                        db.set_preference(k, v)
+
+                    # Update local variables
+                    race_mode_val = raw_data.get("race_mode")
+                    total_laps_val = raw_data.get("total_laps")
+                    race_end_mode_val = raw_data.get("race_end_mode")
+                    contestants_val = raw_data.get("contestants")
+                    last_race_contestant_ids_val = raw_data.get(
+                        "last_race_contestant_ids"
+                    )
+                    racer_color_assignments_val = raw_data.get(
+                        "racer_color_assignments"
+                    )
+            except Exception as exc:
+                logging.error("Failed to migrate config from JSON: %s", exc)
+
+    # Defaults to use if no value was loaded from either source
     race_mode = RaceMode.TRAINING
     total_laps = 10
     race_end_mode = RaceEndMode.LAST_CAR
@@ -37,81 +84,55 @@ def load_initial_config(
     last_race_contestant_ids: list[int] = []
     racer_color_assignments: dict[int, RacerColorScheme] = {}
 
-    if not config_path.exists():
-        return (
-            race_mode,
-            total_laps,
-            race_end_mode,
-            contestants_data,
-            last_race_contestant_ids,
-            racer_color_assignments,
+    if race_mode_val is not None:
+        race_mode = _parse_race_mode(race_mode_val, race_mode)
+
+    if total_laps_val is not None:
+        try:
+            parsed_total_laps = int(total_laps_val)
+            if parsed_total_laps > 0:
+                total_laps = parsed_total_laps
+        except (TypeError, ValueError):
+            logging.warning("Invalid total_laps in config: %r", total_laps_val)
+
+    if race_end_mode_val is not None:
+        try:
+            race_end_mode = RaceEndMode(str(race_end_mode_val))
+        except ValueError:
+            logging.warning("Invalid race_end_mode in config: %r", race_end_mode_val)
+
+    if contestants_val is not None:
+        if isinstance(contestants_val, list):
+            contestants_data = [c for c in contestants_val if isinstance(c, dict)]
+        else:
+            logging.warning(
+                "Invalid contestants in config: expected list, got %s",
+                type(contestants_val).__name__,
+            )
+
+    if last_race_contestant_ids_val is not None:
+        if isinstance(last_race_contestant_ids_val, list):
+            parsed_ids: list[int] = []
+            for raw_id in last_race_contestant_ids_val:
+                try:
+                    parsed_id = int(raw_id)
+                    if parsed_id > 0:
+                        parsed_ids.append(parsed_id)
+                except (TypeError, ValueError):
+                    continue
+            last_race_contestant_ids = list(dict.fromkeys(parsed_ids))
+        else:
+            logging.warning(
+                "Invalid last_race_contestant_ids in config: expected list, got %s",
+                type(last_race_contestant_ids_val).__name__,
+            )
+
+    if racer_color_assignments_val is not None:
+        racer_color_assignments = parse_racer_color_assignments(
+            racer_color_assignments_val
         )
 
-    try:
-        raw_data = json.loads(config_path.read_text())
-    except Exception as exc:
-        logging.error("Failed to load config: %s", exc)
-        return (
-            race_mode,
-            total_laps,
-            race_end_mode,
-            contestants_data,
-            last_race_contestant_ids,
-            racer_color_assignments,
-        )
-
-    config_data = raw_data if isinstance(raw_data, dict) else {}
-
-    race_mode_raw = config_data.get("race_mode", race_mode.value)
-    race_mode = _parse_race_mode(race_mode_raw, race_mode)
-
-    raw_total_laps = config_data.get("total_laps", total_laps)
-    try:
-        parsed_total_laps = int(raw_total_laps)
-        if parsed_total_laps > 0:
-            total_laps = parsed_total_laps
-    except (TypeError, ValueError):
-        logging.warning("Invalid total_laps in config: %r", raw_total_laps)
-
-    race_end_mode_raw = str(config_data.get("race_end_mode", race_end_mode.value))
-    try:
-        race_end_mode = RaceEndMode(race_end_mode_raw)
-    except ValueError:
-        logging.warning("Invalid race_end_mode in config: %r", race_end_mode_raw)
-
-    raw_contestants = config_data.get("contestants", contestants_data)
-    if isinstance(raw_contestants, list):
-        contestants_data = [c for c in raw_contestants if isinstance(c, dict)]
-    else:
-        logging.warning(
-            "Invalid contestants in config: expected list, got %s",
-            type(raw_contestants).__name__,
-        )
-
-    raw_last_race_contestant_ids = config_data.get(
-        "last_race_contestant_ids", last_race_contestant_ids
-    )
-    if isinstance(raw_last_race_contestant_ids, list):
-        parsed_ids: list[int] = []
-        for raw_id in raw_last_race_contestant_ids:
-            try:
-                parsed_id = int(raw_id)
-                if parsed_id > 0:
-                    parsed_ids.append(parsed_id)
-            except (TypeError, ValueError):
-                continue
-        # Keep ordering stable while removing duplicates.
-        last_race_contestant_ids = list(dict.fromkeys(parsed_ids))
-    else:
-        logging.warning(
-            "Invalid last_race_contestant_ids in config: expected list, got %s",
-            type(raw_last_race_contestant_ids).__name__,
-        )
-
-    racer_color_assignments = parse_racer_color_assignments(
-        config_data.get("racer_color_assignments", racer_color_assignments)
-    )
-
+    db.close()
     return (
         race_mode,
         total_laps,
@@ -132,6 +153,9 @@ def write_config(
     last_race_contestant_ids: list[int],
     racer_color_assignments: dict[int, RacerColorScheme],
 ) -> None:
+    db_path = config_path.parent / "lap_counter.db"
+    db = LapDatabase(str(db_path))
+
     normalized_last_race_contestant_ids = sorted(
         {
             int(racer_id)
@@ -140,17 +164,22 @@ def write_config(
         }
     )
 
-    data = {
-        "race_mode": race_mode.value,
-        "total_laps": total_laps,
-        "race_end_mode": race_end_mode.value,
-        "contestants": contestants_data,
-        "last_race_contestant_ids": normalized_last_race_contestant_ids,
-        "racer_color_assignments": {
-            str(racer_id): {"primary": colors[0], "secondary": colors[1]}
-            for racer_id, colors in sorted(racer_color_assignments.items())
-        },
-    }
-
-    config_path.parent.mkdir(parents=True, exist_ok=True)
-    config_path.write_text(json.dumps(data, indent=2))
+    try:
+        db.set_preference("race_mode", race_mode.value)
+        db.set_preference("total_laps", total_laps)
+        db.set_preference("race_end_mode", race_end_mode.value)
+        db.set_preference("contestants", contestants_data)
+        db.set_preference(
+            "last_race_contestant_ids", normalized_last_race_contestant_ids
+        )
+        db.set_preference(
+            "racer_color_assignments",
+            {
+                str(racer_id): {"primary": colors[0], "secondary": colors[1]}
+                for racer_id, colors in sorted(racer_color_assignments.items())
+            },
+        )
+    except Exception as exc:
+        logging.error("Failed to write preferences to database: %s", exc)
+    finally:
+        db.close()

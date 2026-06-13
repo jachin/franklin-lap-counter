@@ -31,7 +31,7 @@ windows:
             - sleep 3
             - echo "Starting Race Recorder (authoritative; owns recording + DB)..."
             - python franklin-race-recorder.py
-  - lap-counter:
+  - tui:
       layout: main-horizontal
       panes:
         - tui:

@@ -30,10 +30,19 @@ class LapDatabase:
 
     def _init_database(self) -> None:
         """Initialize database connection and create tables if needed"""
+        self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self.conn = sqlite3.connect(self.db_path)
         self.conn.row_factory = sqlite3.Row  # Enable column access by name
 
         cursor = self.conn.cursor()
+
+        # Create preferences table
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS preferences (
+                key TEXT PRIMARY KEY,
+                value TEXT
+            )
+        """)
 
         # Create races table
         cursor.execute("""
@@ -483,6 +492,40 @@ class LapDatabase:
                 racer_stats[row["racer_id"]]["best_lap_time"] = row["best_lap_time"]
 
         return racer_stats
+
+    def get_preference(self, key: str, default: Any = None) -> Any:
+        """Get a JSON-decoded preference value by key"""
+        if not self.conn:
+            return default
+        cursor = self.conn.cursor()
+        try:
+            cursor.execute("SELECT value FROM preferences WHERE key = ?", (key,))
+            row = cursor.fetchone()
+            if row:
+                try:
+                    return json.loads(row["value"])
+                except Exception:
+                    return row["value"]
+        except sqlite3.OperationalError:
+            pass
+        return default
+
+    def set_preference(self, key: str, value: Any) -> None:
+        """Set a preference value, serialized as JSON"""
+        if not self.conn:
+            return
+        serialized = json.dumps(value)
+        cursor = self.conn.cursor()
+        cursor.execute(
+            """
+            INSERT INTO preferences (key, value)
+            VALUES (?, ?)
+            ON CONFLICT(key)
+            DO UPDATE SET value = excluded.value
+            """,
+            (key, serialized),
+        )
+        self.conn.commit()
 
     def close(self) -> None:
         """Close database connection"""

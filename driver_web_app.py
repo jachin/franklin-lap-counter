@@ -91,15 +91,38 @@ class DriverWebAppServer:
 
     def _read_config(self) -> dict[str, Any]:
         try:
-            if os.path.exists(CONFIG_PATH):
-                with open(CONFIG_PATH, "r") as f:
-                    loaded = json.load(f)
-                if isinstance(loaded, dict):
-                    return loaded
-        except Exception as exc:
-            logger.error("Error reading config: %s", exc)
+            config = {}
+            for key in [
+                "race_mode",
+                "total_laps",
+                "race_end_mode",
+                "contestants",
+                "last_race_contestant_ids",
+                "racer_color_assignments",
+            ]:
+                val = self.db.get_preference(key)
+                if val is not None:
+                    config[key] = val
 
-        return {"total_laps": 10, "contestants": []}
+            # One-time migration fallback if database has no preferences
+            if not config:
+                if os.path.exists(CONFIG_PATH):
+                    with open(CONFIG_PATH, "r") as f:
+                        loaded = json.load(f)
+                    if isinstance(loaded, dict):
+                        for k, v in loaded.items():
+                            self.db.set_preference(k, v)
+                            config[k] = v
+                        return config
+
+            if "total_laps" not in config:
+                config["total_laps"] = 10
+            if "contestants" not in config:
+                config["contestants"] = []
+            return config
+        except Exception as exc:
+            logger.error("Error reading config from database: %s", exc)
+            return {"total_laps": 10, "contestants": []}
 
     async def get_config(self, request: web.Request) -> web.Response:
         return web.json_response(self._read_config())

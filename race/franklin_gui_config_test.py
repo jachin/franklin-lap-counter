@@ -125,6 +125,11 @@ class TestLoadInitialConfig(unittest.TestCase):
             ) = load_initial_config(config_path)
             self.assertEqual(race_mode, RaceMode.FAKE)
 
+            # Delete the SQLite database to force a fresh migration from the new JSON config file
+            db_path = config_path.parent / "lap_counter.db"
+            if db_path.exists():
+                db_path.unlink()
+
             config_path.write_text(json.dumps({"race_mode": "REAL"}))
             (
                 race_mode,
@@ -214,7 +219,8 @@ class TestWriteConfig(unittest.TestCase):
                 },
             )
 
-            self.assertTrue(config_path.exists())
+            db_path = config_path.parent / "lap_counter.db"
+            self.assertTrue(db_path.exists())
 
             (
                 race_mode,
@@ -257,18 +263,25 @@ class TestWriteConfig(unittest.TestCase):
                 racer_color_assignments={4: ("#0a0b0c", "#0d0e0f")},
             )
 
-            payload = json.loads(config_path.read_text())
-            self.assertEqual(payload["race_mode"], RaceMode.FAKE.value)
-            self.assertEqual(payload["total_laps"], 9)
-            self.assertEqual(payload["race_end_mode"], RaceEndMode.LAST_CAR.value)
+            from database import LapDatabase
+
+            db_path = config_path.parent / "lap_counter.db"
+            db = LapDatabase(str(db_path))
+            self.assertEqual(db.get_preference("race_mode"), RaceMode.FAKE.value)
+            self.assertEqual(db.get_preference("total_laps"), 9)
             self.assertEqual(
-                payload["contestants"], [{"transmitter_id": 4, "name": "Cara"}]
+                db.get_preference("race_end_mode"), RaceEndMode.LAST_CAR.value
             )
-            self.assertEqual(payload["last_race_contestant_ids"], [4])
             self.assertEqual(
-                payload["racer_color_assignments"],
+                db.get_preference("contestants"),
+                [{"transmitter_id": 4, "name": "Cara"}],
+            )
+            self.assertEqual(db.get_preference("last_race_contestant_ids"), [4])
+            self.assertEqual(
+                db.get_preference("racer_color_assignments"),
                 {"4": {"primary": "#0a0b0c", "secondary": "#0d0e0f"}},
             )
+            db.close()
 
 
 if __name__ == "__main__":

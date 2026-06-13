@@ -89,7 +89,6 @@
       "ansible:setup": [
         "ansible-playbook -i playbooks/inventory.ini playbooks/site.yml"
       ],
-
       "ansible:web-bounce": [
         "ansible-playbook -i playbooks/inventory.ini playbooks/62-bounce-web-apps.yml"
       ],
@@ -110,11 +109,6 @@
       "ansible:reset-db": [
         "ansible-playbook -i playbooks/inventory.ini playbooks/64-reset-database.yml"
       ],
-      "deploy-gui": [
-        "devbox run ansible:deploy-gui",
-        "devbox run ansible:web-bounce"
-      ],
-
       "ansible:health-check": [
         "ansible-playbook -i playbooks/inventory.ini playbooks/61-health-check.yml"
       ]

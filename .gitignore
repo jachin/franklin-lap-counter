@@ -21,7 +21,7 @@ redis.sock
 
 # Database
 *.db
-lap_counter.db
+franklin.db
 
 # Configuration
 franklin.config.json

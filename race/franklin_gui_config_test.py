@@ -126,7 +126,7 @@ class TestLoadInitialConfig(unittest.TestCase):
             self.assertEqual(race_mode, RaceMode.FAKE)
 
             # Delete the SQLite database to force a fresh migration from the new JSON config file
-            db_path = config_path.parent / "lap_counter.db"
+            db_path = config_path.parent / "franklin.db"
             if db_path.exists():
                 db_path.unlink()
 
@@ -219,7 +219,7 @@ class TestWriteConfig(unittest.TestCase):
                 },
             )
 
-            db_path = config_path.parent / "lap_counter.db"
+            db_path = config_path.parent / "franklin.db"
             self.assertTrue(db_path.exists())
 
             (
@@ -265,7 +265,7 @@ class TestWriteConfig(unittest.TestCase):
 
             from database import LapDatabase
 
-            db_path = config_path.parent / "lap_counter.db"
+            db_path = config_path.parent / "franklin.db"
             db = LapDatabase(str(db_path))
             self.assertEqual(db.get_preference("race_mode"), RaceMode.FAKE.value)
             self.assertEqual(db.get_preference("total_laps"), 9)

@@ -31,7 +31,7 @@ def load_initial_config(
     list[int],
     dict[int, RacerColorScheme],
 ]:
-    db_path = config_path.parent / "lap_counter.db"
+    db_path = config_path.parent / "franklin.db"
     db = LapDatabase(str(db_path))
 
     race_mode_val = db.get_preference("race_mode")
@@ -153,7 +153,7 @@ def write_config(
     last_race_contestant_ids: list[int],
     racer_color_assignments: dict[int, RacerColorScheme],
 ) -> None:
-    db_path = config_path.parent / "lap_counter.db"
+    db_path = config_path.parent / "franklin.db"
     db = LapDatabase(str(db_path))
 
     normalized_last_race_contestant_ids = sorted(

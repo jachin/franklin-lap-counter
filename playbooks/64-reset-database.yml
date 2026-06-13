@@ -3,7 +3,7 @@
   hosts: all
   become: true
   vars:
-    franklin_db_path: "{{ pi_dest_dir }}/lap_counter.db"
+    franklin_db_path: "{{ pi_dest_dir }}/franklin.db"
   tasks:
     - name: Stop Franklin tmux sessions before deleting database
       ansible.builtin.command: "tmux kill-session -t {{ item }}"

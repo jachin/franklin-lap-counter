@@ -432,8 +432,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument(
         "--db",
-        default="lap_counter.db",
-        help="Path to the SQLite database (default: lap_counter.db)",
+        default="franklin.db",
+        help="Path to the SQLite database (default: franklin.db)",
     )
     write_group = parser.add_mutually_exclusive_group()
     write_group.add_argument(

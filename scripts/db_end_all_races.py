@@ -12,7 +12,7 @@ from database import LapDatabase
 
 
 def main() -> int:
-    db = LapDatabase("lap_counter.db")
+    db = LapDatabase("franklin.db")
     try:
         assert db.conn is not None
         rows = db.conn.execute(

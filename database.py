@@ -23,7 +23,7 @@ def _epoch_to_iso(epoch: float) -> str:
 class LapDatabase:
     """Manages race and lap data in SQLite database"""
 
-    def __init__(self, db_path: str = "lap_counter.db"):
+    def __init__(self, db_path: str = "franklin.db"):
         self.db_path: Path = Path(db_path)
         self.conn: sqlite3.Connection | None = None
         self._init_database()

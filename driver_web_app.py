@@ -31,7 +31,7 @@ REDIS_EVENTS_CHANNEL = "franklin:events"
 WEB_PORT = 8083
 WEB_HOST = "0.0.0.0"
 STATIC_DIR = Path(__file__).parent / "static"
-DB_PATH = "lap_counter.db"
+DB_PATH = "franklin.db"
 CONFIG_PATH = Path(__file__).parent / "franklin.config.json"
 
 logging.basicConfig(

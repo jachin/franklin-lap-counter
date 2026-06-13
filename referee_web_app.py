@@ -53,7 +53,7 @@ class RefereeWebAppServer:
         self.redis_client: redis.Redis | None = None  # type: ignore[type-arg]
         self.redis_pubsub: Any | None = None
         self.websockets: set[web.WebSocketResponse] = set()
-        self.db = LapDatabase("lap_counter.db")
+        self.db = LapDatabase("franklin.db")
 
         self.app.router.add_get("/", self.index_handler)
         self.app.router.add_get("/ws", self.websocket_handler)

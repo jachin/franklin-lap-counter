@@ -28,7 +28,7 @@ REDIS_EVENTS_CHANNEL = "franklin:events"
 WEB_PORT = 8080
 WEB_HOST = "0.0.0.0"  # Bind to all network interfaces
 STATIC_DIR = Path(__file__).parent / "static"
-DB_PATH = "lap_counter.db"
+DB_PATH = "franklin.db"
 CONFIG_PATH = Path(__file__).parent / "franklin.config.json"
 
 # Logging setup

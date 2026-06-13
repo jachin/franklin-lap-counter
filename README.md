@@ -283,7 +283,7 @@ Design notes and architecture:
 
 Audit logging:
 
-- Race-control outcomes are persisted to SQLite table `race_control_actions` in `lap_counter.db`.
+- Race-control outcomes are persisted to SQLite table `race_control_actions` in `franklin.db`.
 
 ## Features
 

@@ -81,6 +81,7 @@
       "hardware-monitor:run": [
         "cargo run --manifest-path rust/Cargo.toml --bin franklin-hardware-monitor -- \"$@\""
       ],
+      "hardware-monitor:build-deb": ["./scripts/build-deb.sh"],
       "ansible:setup": [
         "ansible-playbook -i playbooks/inventory.ini playbooks/site.yml"
       ],

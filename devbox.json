@@ -75,6 +75,12 @@
       "hardware-monitor:bump-version": [
         "python scripts/bump-version.py \"$@\""
       ],
+      "hardware-monitor:build": [
+        "cargo build --release --manifest-path rust/Cargo.toml"
+      ],
+      "hardware-monitor:run": [
+        "cargo run --manifest-path rust/Cargo.toml --bin franklin-hardware-monitor -- \"$@\""
+      ],
       "ansible:setup": [
         "ansible-playbook -i playbooks/inventory.ini playbooks/site.yml"
       ],

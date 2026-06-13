@@ -57,6 +57,7 @@ LOCK_REFRESH_SECONDS = 4.0
 SNAPSHOT_TICK_SECONDS = 1.0
 
 SOURCE = "franklin_race_recorder"
+VERSION = "0.2.0"
 
 
 class RaceRecorder:
@@ -101,9 +102,7 @@ class RaceRecorder:
             return 1
 
         if not self._acquire_lock():
-            logging.error(
-                "Another race recorder already holds %s; exiting.", LOCK_KEY
-            )
+            logging.error("Another race recorder already holds %s; exiting.", LOCK_KEY)
             return 1
 
         pubsub = self.redis.pubsub()
@@ -377,9 +376,7 @@ class RaceRecorder:
     def _acquire_lock(self) -> bool:
         try:
             return bool(
-                self.redis.set(
-                    LOCK_KEY, self._lock_value, nx=True, ex=LOCK_TTL_SECONDS
-                )
+                self.redis.set(LOCK_KEY, self._lock_value, nx=True, ex=LOCK_TTL_SECONDS)
             )
         except Exception as exc:
             logging.error("Failed to acquire lock: %s", exc)
@@ -405,6 +402,12 @@ class RaceRecorder:
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Franklin headless race recorder")
+    parser.add_argument(
+        "--version",
+        action="version",
+        version=f"%(prog)s {VERSION}",
+        help="Show program's version number and exit",
+    )
     parser.add_argument(
         "--redis-socket",
         default="./redis.sock",
@@ -445,6 +448,8 @@ def main(argv: list[str] | None = None) -> int:
     logging.getLogger().addHandler(logging.StreamHandler())
 
     args = parse_args(argv)
+
+    logging.info("Starting franklin-race-recorder v%s", VERSION)
     recorder = RaceRecorder(
         redis_socket=args.redis_socket,
         db_path=args.db,

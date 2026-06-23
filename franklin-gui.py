@@ -264,6 +264,7 @@ class FranklinGuiApp(Gtk.Application):
             ("toggle_event_log", self._action_toggle_event_log, ["<Primary>l"]),
             ("manage_drivers", self._action_manage_drivers, ["<Primary>r"]),
             ("preferences", self._action_preferences, ["<Primary>comma"]),
+            ("show_keyboard_shortcuts", self._action_show_keyboard_shortcuts, ["?"]),
         ]
 
         for name, callback, accels in action_defs:
@@ -336,6 +337,11 @@ class FranklinGuiApp(Gtk.Application):
 
     def _action_preferences(self, _action: Gio.SimpleAction, _param: Any) -> None:
         self.on_preferences_clicked(None)
+
+    def _action_show_keyboard_shortcuts(
+        self, _action: Gio.SimpleAction, _param: Any
+    ) -> None:
+        self.show_keyboard_shortcuts_dialog()
 
     def do_activate(self) -> None:  # type: ignore[override]
         window = Gtk.ApplicationWindow(application=self)
@@ -484,6 +490,8 @@ class FranklinGuiApp(Gtk.Application):
         status_bar.append(ethernet_label)
         status_bar.append(Gtk.Separator(orientation=Gtk.Orientation.VERTICAL))
         status_bar.append(wifi_label)
+        status_bar.append(Gtk.Separator(orientation=Gtk.Orientation.VERTICAL))
+        status_bar.append(Gtk.Label(label="? for Help"))
 
         root.append(menu_bar)
         root.append(clock_frame)
@@ -1504,6 +1512,65 @@ class FranklinGuiApp(Gtk.Application):
 
         cancel_btn.connect("clicked", lambda _button: close_preferences(False))
         save_btn.connect("clicked", lambda _button: close_preferences(True))
+        dialog.present()
+
+    def show_keyboard_shortcuts_dialog(self) -> None:
+        if not self.window:
+            return
+
+        dialog = Gtk.Dialog(
+            title="Keyboard Shortcuts", transient_for=self.window, modal=True
+        )
+        root = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        root.set_margin_top(16)
+        root.set_margin_bottom(16)
+        root.set_margin_start(16)
+        root.set_margin_end(16)
+
+        shortcuts = [
+            ("?", "Show keyboard shortcuts"),
+            ("Ctrl+S", "Start race"),
+            ("Ctrl+E", "End race"),
+            ("Ctrl+Shift+R", "Reset race"),
+            ("Ctrl+T", "Toggle race mode"),
+            ("Ctrl+L", "Toggle event log"),
+            ("Ctrl+R", "Manage drivers"),
+            ("Ctrl+,", "Preferences"),
+        ]
+
+        grid = Gtk.Grid()
+        grid.set_column_spacing(24)
+        grid.set_row_spacing(8)
+        for row, (shortcut, description) in enumerate(shortcuts):
+            shortcut_label = Gtk.Label(label=shortcut)
+            shortcut_label.set_xalign(0)
+            description_label = Gtk.Label(label=description)
+            description_label.set_xalign(0)
+            grid.attach(shortcut_label, 0, row, 1, 1)
+            grid.attach(description_label, 1, row, 1, 1)
+
+        close_btn = Gtk.Button(label="Close")
+        close_btn.set_halign(Gtk.Align.END)
+        close_btn.connect("clicked", lambda _button: dialog.destroy())
+
+        def on_key_pressed(
+            _controller: Gtk.EventControllerKey,
+            keyval: int,
+            _keycode: int,
+            _state: Gdk.ModifierType,
+        ) -> bool:
+            if keyval == Gdk.KEY_Escape:
+                dialog.destroy()
+                return True
+            return False
+
+        key_controller = Gtk.EventControllerKey()
+        key_controller.connect("key-pressed", on_key_pressed)
+        dialog.add_controller(key_controller)
+
+        root.append(grid)
+        root.append(close_btn)
+        dialog.set_child(root)
         dialog.present()
 
     def on_manage_drivers_clicked(self, _button: Gtk.Button | None) -> None:

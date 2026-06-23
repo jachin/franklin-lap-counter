@@ -187,31 +187,47 @@
             dest: "{{ pi_dest_dir }}/start_franklin_gui_session.py",
           }
 
-    - name: Deploy optional static directory
-      ansible.builtin.copy:
+    # Directory trees are pushed with rsync (ansible.posix.synchronize) instead
+    # of the copy module: copy walks the tree and transfers every file in its
+    # own SSH round-trip (slow), whereas rsync syncs in a single pass and skips
+    # unchanged files. We also exclude Python bytecode so __pycache__/*.pyc are
+    # never shipped. The connection user (jachin) is unprivileged, so rsync runs
+    # under sudo on the Pi (--rsync-path) with become disabled on the task, and
+    # ownership is set inline with --chown to match franklin_user/group.
+    - name: Deploy static directory
+      ansible.posix.synchronize:
         src: "{{ project_root }}/static/"
         dest: "{{ pi_dest_dir }}/static/"
-        owner: "{{ franklin_user }}"
-        group: "{{ franklin_group }}"
-        mode: preserve
+        rsync_opts:
+          - "--exclude=__pycache__"
+          - "--exclude=*.pyc"
+          - "--rsync-path=sudo rsync"
+          - "--chown={{ franklin_user }}:{{ franklin_group }}"
+      become: false
       when: (optional_dir_stats.results | selectattr('item.key', 'equalto', 'static') | map(attribute='stat.isdir') | first | default(false))
 
-    - name: Deploy optional race directory
-      ansible.builtin.copy:
+    - name: Deploy race directory
+      ansible.posix.synchronize:
         src: "{{ project_root }}/race/"
         dest: "{{ pi_dest_dir }}/race/"
-        owner: "{{ franklin_user }}"
-        group: "{{ franklin_group }}"
-        mode: preserve
+        rsync_opts:
+          - "--exclude=__pycache__"
+          - "--exclude=*.pyc"
+          - "--rsync-path=sudo rsync"
+          - "--chown={{ franklin_user }}:{{ franklin_group }}"
+      become: false
       when: (optional_dir_stats.results | selectattr('item.key', 'equalto', 'race') | map(attribute='stat.isdir') | first | default(false))
 
-    - name: Deploy optional tmuxinator directory
-      ansible.builtin.copy:
+    - name: Deploy tmuxinator directory
+      ansible.posix.synchronize:
         src: "{{ project_root }}/tmuxinator/"
         dest: "{{ pi_dest_dir }}/tmuxinator/"
-        owner: "{{ franklin_user }}"
-        group: "{{ franklin_group }}"
-        mode: preserve
+        rsync_opts:
+          - "--exclude=__pycache__"
+          - "--exclude=*.pyc"
+          - "--rsync-path=sudo rsync"
+          - "--chown={{ franklin_user }}:{{ franklin_group }}"
+      become: false
       when: (optional_dir_stats.results | selectattr('item.key', 'equalto', 'tmuxinator') | map(attribute='stat.isdir') | first | default(false))
 
     - name: Verify required files on remote host

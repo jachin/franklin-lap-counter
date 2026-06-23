@@ -56,6 +56,13 @@ LOCK_TTL_SECONDS = 10
 LOCK_REFRESH_SECONDS = 4.0
 SNAPSHOT_TICK_SECONDS = 1.0
 
+# Per-reason throttle for "dropped lap" warnings. Misconfigured hardware can
+# stream laps continuously, so we log each distinct reason at most this often.
+LAP_DROP_WARN_INTERVAL_SECONDS = 10.0
+# Drop reasons worth warning about (a real problem). Duplicates, disqualified,
+# and already-finished are expected and would only be noise.
+LAP_DROP_WARN_REASONS = frozenset({"invalid_lap", "race_not_running"})
+
 SOURCE = "franklin_race_recorder"
 VERSION = "0.2.0"
 
@@ -90,6 +97,9 @@ class RaceRecorder:
 
         self._lock_value = f"{socket.gethostname()}:{os.getpid()}:{uuid4().hex}"
         self._running = True
+
+        # Last monotonic time we warned about each lap-drop reason (throttling).
+        self._last_lap_drop_warn: dict[str, float] = {}
 
     # ------------------------------------------------------------------ #
     # Lifecycle
@@ -197,7 +207,9 @@ class RaceRecorder:
         if msg_type == "start_race":
             self._handle_start_event(msg)
         elif msg_type == "lap":
-            self._apply_and_publish(self.engine.ingest(msg))
+            result = self.engine.ingest(msg)
+            self._log_dropped_lap(result, msg)
+            self._apply_and_publish(result)
         elif msg_type == "race_control":
             self._apply_and_publish(self.engine.apply_race_control(msg))
         elif msg_type == "hardware_status":
@@ -208,6 +220,33 @@ class RaceRecorder:
                 msg.get("hardware_connected"),
             )
         # heartbeat/status/countdown_phase/debug/error/hardware_status are display-only here.
+
+    def _log_dropped_lap(self, result: Any, msg: dict[str, Any]) -> None:
+        """Warn (throttled) when a lap is received but not recorded.
+
+        The engine silently returns ``changed=False`` with a ``note`` for laps
+        it ignores. Some reasons are expected (duplicate/disqualified/finished),
+        but ``invalid_lap`` (malformed/old schema) and ``race_not_running``
+        usually mean a real misconfiguration, so surface those.
+        """
+        if getattr(result, "changed", False):
+            return
+        note = getattr(result, "note", None)
+        if note not in LAP_DROP_WARN_REASONS:
+            return
+        now = time.monotonic()
+        last = self._last_lap_drop_warn.get(note, 0.0)
+        if now - last < LAP_DROP_WARN_INTERVAL_SECONDS:
+            return
+        self._last_lap_drop_warn[note] = now
+        logging.warning(
+            "Dropped lap: reason=%s message=%s (further '%s' warnings throttled "
+            "to 1 per %ss)",
+            note,
+            msg,
+            note,
+            int(LAP_DROP_WARN_INTERVAL_SECONDS),
+        )
 
     def _handle_command(self, msg: dict[str, Any]) -> None:
         """React to operator commands on ``hardware:in``.

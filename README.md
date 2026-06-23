@@ -2,49 +2,28 @@
 
 This is lap counter software for [Trackmate Racing RC Lap Counter](https://trackmateracing.com/shop/en/r-c-lap-counter-transponder-system/122-759-rc-lap-counter.html#/126-software-free_download). It comes with free software but it's Windows only. This project aims to support other operating systems and hopefully allow for something that might fit more people's needs.
 
-## The Name
+## The Big Idea
 
-The name is a nod to [Benjamin Franklin Miessner](https://en.wikipedia.org/wiki/Benjamin_Miessner) who was a radio engineer and inventor.
+You need
+ - [Trackmate Racing RC Lap Counter](https://trackmateracing.com/shop/en/10-r-c-lap-counter-transponder-system)
+ - [Raspberry PI](https://www.raspberrypi.com)
+   Probably just about any model will work) but so far I've tested it on a PI5.
+
+ After installing RasberryPI OS you run the Ansible playbooks included in this project and it setups the PI as a race tracking system.
 
 ## Features
 
-- ✅ **Redis pub/sub architecture** for flexible, decopuled component communication
-- ✅ **Simulation mode** for fully-featured testing without physical hardware
-- ✅ **Real-time leaderboard display** (TUI and GTK GUI options)
-- ✅ **Driver/Team web view** with countdown lights and customized racer progress
-- ✅ **Scoreboard web view** displaying live, updated race positions
-- ✅ **Referee web interface** supporting start, end, reset, penalties, and lap edits
-- ✅ **Automated heartbeats** every 2 seconds for connection health monitoring
-- ✅ **Flexible contestant and roster management**
-- ✅ **Comprehensive, multi-layer logging**
+- Race Mode
+- Training Mode
 
-## Architecture
+### Kisok Mode
 
-The system uses Redis for communication between components, allowing you to run the hardware interface, race UI, scoreboard web app, and referee web app in separate terminals.
+Whe the PI boots up it auto logsin and starts up the Franklin Lap Couter.
 
-```
-┌─────────────────────┐         ┌─────────────┐         ┌──────────────────────┐
-│   Franklin (TUI)    │         │   Redis     │         │ Hardware Comm        │
-│   Race Management   │◄───────►│  Pub/Sub    │◄───────►│ (Serial Interface)   │
-│                     │         │             │         │                      │
-└─────────────────────┘         └─────────────┘         └──────────────────────┘
-     Terminal 1                   Auto-started              Terminal 2
-                                  by devbox
-```
+- TUI Interface
+- GUI Interface (GTK)
 
-Alternative simplified view of data flows:
-
-```
-┌──────────────┐       ┌───────────────┐       ┌─────────────────┐
-│  Your App    │       │     Redis     │       │ Hardware Comm   │
-│  (Any Lang)  │◄─────►│   Pub/Sub     │◄─────►│  (This File)    │
-└──────────────┘       └───────────────┘       └─────────────────┘
-                             │
-                             │
-                       ┌─────┴─────┐
-                       ▼           ▼
-                 hardware:in  hardware:out
-```
+### Web Interface
 
 ## Running the System
 
@@ -177,79 +156,6 @@ When the Raspberry Pi hotspot and Caddy reverse proxy are active, the following 
 
 ---
 
-## Controls
-
-### Franklin Race TUI
-- **Ctrl+S** - Start Race
-- **Ctrl+X** - End Race
-- **Ctrl+T** - Toggle Mode (Fake/Real/Training)
-- You can also click the interactive "Start Race" and "End Race" buttons directly.
-
-### Hardware Interface (Real Mode - Terminal 1)
-- **Q** - Quit
-
-### Hardware Interface (Simulator Mode - Terminal 1)
-- **S** - Start race (sends reset commands)
-- **P** - Stop/Pause race
-- **1-4** - Simulate lap for racer 1-4
-- **Q** - Quit
-
----
-
-## Configuration
-
-Edit `franklin.config.json` in the root directory to configure the race rules and roster:
-
-```json
-{
-  "total_laps": 10,
-  "contestants": [
-    {"id": 1, "name": "Racer 1"},
-    {"id": 2, "name": "Racer 2"},
-    {"id": 3, "name": "Racer 3"},
-    {"id": 4, "name": "Racer 4"}
-  ]
-}
-```
-
----
-
-## Available Devbox Scripts
-
-Run these tasks using `devbox run <script-name>` inside your devbox environment:
-
-**Core Ansible Workflow:**
-- `ansible:setup` - Full machine setup (packages, services, AP routing, Caddy, etc.)
-- `ansible:deploy` - Deploy full app artifacts and built binaries to target host
-- `ansible:deploy-gui` - Deploy GUI-focused python/runtime files only (fast path)
-- `deploy-gui` - Fast GUI deploy + web-app bounce (`ansible:deploy-gui` then `ansible:web-bounce`)
-- `ansible:web-bounce` - Ensure all tmux web windows are running and active
-- `ansible:health-check` - Run runtime health verification via the health check app
-- `ansible:reboot` - Reboot target host via Ansible
-- `ansible:hard-reset` - Completely wipe the target app directory and stop all running processes on the host
-
-**Build / Local Execution:**
-- `build` - Run all local build tasks
-- `build:pi` - Build release hardware-monitor binary for the Pi target (`aarch64-unknown-linux-gnu`)
-- `build:release` - Build local release binary of the Rust project
-- `start:franklin` - Start full production Franklin tmux stack (hardware mode)
-- `start:franklin-simulator` - Start simulator Franklin tmux stack (web apps auto-reload via `watchexec`)
-- `web_scoreboard` - Run scoreboard web app locally
-- `web_referee` - Run referee web app locally
-- `web_healthcheck` - Run health-check web app locally
-
-**Remote GUI (VNC over SSH Tunnel):**
-- `vnc:open-tunnel` - Open local tunnel `127.0.0.1:5901 -> Pi:5900`
-- `vnc:connect` - Launch default VNC viewer to connect via tunnel
-
-**Quality Checks & Testing:**
-- `lint` - Run all Python, Web, and Rust linter checks
-- `lint:python` / `lint:web` / `lint:rust` - Run targeted language linter checks
-- `test` - Run all Python and Rust automated test suites
-- `test:python` / `test:rust` - Run targeted test suites
-
----
-
 ## Testing
 
 ### Automated Tests
@@ -325,6 +231,7 @@ pkill -f 'python franklin-tui.py'
 ```
 Then restart your preferred stack.
 
----
 
-**Note:** For the best performance, timing accuracy, and minimal jitter under heavy loads, always use the compiled Rust hardware monitor (`franklin-hardware-monitor`).
+## The Name
+
+The name is a nod to [Benjamin Franklin Miessner](https://en.wikipedia.org/wiki/Benjamin_Miessner) who was a radio engineer and inventor.

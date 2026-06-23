@@ -22,7 +22,7 @@ windows:
             - echo "Waiting for Redis to be ready..."
             - sleep 2
             - echo "Starting Hardware Monitor..."
-            - ./franklin-hardware-monitor
+            - if [ -f ./franklin-hardware-monitor ]; then ./franklin-hardware-monitor; elif command -v franklin-hardware-monitor >/dev/null 2>&1; then franklin-hardware-monitor; else cargo run --manifest-path rust/Cargo.toml --bin franklin-hardware-monitor; fi
   - race_recorder:
       layout: main-horizontal
       panes:

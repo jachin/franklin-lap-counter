@@ -105,26 +105,29 @@ class RaceRecorder:
             logging.error("Another race recorder already holds %s; exiting.", LOCK_KEY)
             return 1
 
-        pubsub = self.redis.pubsub()
-        pubsub.subscribe(HARDWARE_OUT_CHANNEL, EVENTS_CHANNEL, HARDWARE_IN_CHANNEL)
-        mode = "WRITE (authoritative)" if self.persist else "SHADOW (no DB writes)"
-        logging.info("Race recorder started in %s mode", mode)
-
-        self._publish_snapshot()  # initial state for late joiners
-
-        # Request hardware status
+        # Everything after we own the lock runs inside try/finally so the lock is
+        # always released on any exit path (normal stop, signal, or exception).
+        pubsub = None
         try:
-            status_env = build_command_envelope("request_status", source=SOURCE)
-            self.redis.publish(HARDWARE_IN_CHANNEL, json.dumps(status_env))
-            logging.info("Published request_status command on startup")
-        except Exception as exc:
-            logging.error(
-                "Failed to publish request_status command on startup: %s", exc
-            )
+            pubsub = self.redis.pubsub()
+            pubsub.subscribe(HARDWARE_OUT_CHANNEL, EVENTS_CHANNEL, HARDWARE_IN_CHANNEL)
+            mode = "WRITE (authoritative)" if self.persist else "SHADOW (no DB writes)"
+            logging.info("Race recorder started in %s mode", mode)
 
-        last_lock_refresh = time.monotonic()
-        last_tick = time.monotonic()
-        try:
+            self._publish_snapshot()  # initial state for late joiners
+
+            # Request hardware status
+            try:
+                status_env = build_command_envelope("request_status", source=SOURCE)
+                self.redis.publish(HARDWARE_IN_CHANNEL, json.dumps(status_env))
+                logging.info("Published request_status command on startup")
+            except Exception as exc:
+                logging.error(
+                    "Failed to publish request_status command on startup: %s", exc
+                )
+
+            last_lock_refresh = time.monotonic()
+            last_tick = time.monotonic()
             while self._running:
                 message = pubsub.get_message(timeout=0.1)
                 if message and message.get("type") == "message":
@@ -151,10 +154,11 @@ class RaceRecorder:
                     last_tick = now
         finally:
             self._finish_running_race_on_shutdown()
-            try:
-                pubsub.close()
-            except Exception:
-                pass
+            if pubsub is not None:
+                try:
+                    pubsub.close()
+                except Exception:
+                    pass
             self._release_lock()
             self.db.close()
             logging.info("Race recorder stopped")
@@ -409,10 +413,17 @@ class RaceRecorder:
             logging.error("Failed to refresh lock: %s", exc)
             return False
 
+    # Atomic compare-and-delete: only remove the lock if we still own it, so a
+    # late release can never clobber a lock a different recorder has acquired.
+    _RELEASE_LUA = (
+        "if redis.call('get', KEYS[1]) == ARGV[1] "
+        "then return redis.call('del', KEYS[1]) else return 0 end"
+    )
+
     def _release_lock(self) -> None:
         try:
-            if self.redis.get(LOCK_KEY) == self._lock_value:
-                self.redis.delete(LOCK_KEY)
+            self.redis.eval(self._RELEASE_LUA, 1, LOCK_KEY, self._lock_value)
+            logging.info("Released recorder lock %s", LOCK_KEY)
         except Exception as exc:  # pragma: no cover - defensive
             logging.debug("Failed to release lock: %s", exc)
 

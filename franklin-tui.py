@@ -182,6 +182,17 @@ class Franklin(App[Any]):  # type: ignore[type-arg]
         align: center middle;
     }
 
+    #recorder_banner {
+        width: 1fr;
+        padding: 1 2;
+        margin: 1;
+        text-align: center;
+        text-style: bold;
+        color: white;
+        background: red;
+        border: heavy white;
+    }
+
     #race_controls {
         padding: 1;
         margin: 1;
@@ -278,6 +289,10 @@ class Franklin(App[Any]):  # type: ignore[type-arg]
         self.redis_events_channel = "franklin:events"
         self.redis_race_state_channel = "franklin:race_state"
         self.redis_race_state_latest_key = "franklin:race_state:latest"
+        # The authoritative recorder holds this lock while alive. Without it the
+        # TUI is a frozen renderer, so surface a big error when it is missing.
+        self.redis_recorder_lock_key = "franklin:race_recorder:lock"
+        self._recorder_present_cached: bool | None = None
         self._redis_client = None
         self._redis_pubsub = None
         self.config_path = Path("franklin.config.json")
@@ -613,6 +628,13 @@ class Franklin(App[Any]):  # type: ignore[type-arg]
     def compose(self) -> ComposeResult:
         # Use RaceContestants instance for contestant data
         yield Header()
+        recorder_banner = Static(
+            "⚠  NO RACE RECORDER RUNNING  ⚠\n"
+            "Race controls will not work. Start the recorder to clear this.",
+            id="recorder_banner",
+        )
+        recorder_banner.display = False
+        yield recorder_banner
         with Vertical():
             with Horizontal():
                 with Vertical(id="race_controls"):
@@ -719,6 +741,37 @@ class Franklin(App[Any]):  # type: ignore[type-arg]
     async def on_mount(self) -> None:
         asyncio.create_task(self.refresh_lap_data())
         asyncio.create_task(self.hardware_monitor_task())
+        self.set_interval(2.0, self._update_recorder_banner)
+
+    def _update_recorder_banner(self) -> None:
+        """Show/hide the big banner based on whether a recorder is alive.
+
+        The recorder owns ``franklin:race_state``; without it the TUI is a
+        frozen renderer, so make the missing recorder impossible to miss.
+        """
+        present = False
+        if self._redis_client is not None:
+            try:
+                present = (
+                    self._redis_client.get(self.redis_recorder_lock_key) is not None
+                )
+            except Exception as exc:
+                logging.error("Failed to check recorder lock: %s", exc)
+                present = False
+        if present == self._recorder_present_cached:
+            return
+        self._recorder_present_cached = present
+        try:
+            banner = self.query_one("#recorder_banner", Static)
+        except Exception:
+            return
+        banner.display = not present
+        if not present:
+            self.notify(
+                "No race recorder running; race controls disabled",
+                severity="error",
+                timeout=10,
+            )
 
 
 class RenameDriverScreen(ModalScreen[bool]):

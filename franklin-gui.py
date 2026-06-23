@@ -151,6 +151,10 @@ class FranklinGuiApp(Gtk.Application):
         self.panes: Gtk.Paned | None = None
         self.events_box: Gtk.Box | None = None
         self._events_visible = False
+        # Big, persistent banner shown whenever no authoritative recorder holds
+        # the lock. Without a recorder the GUI is a frozen renderer.
+        self.recorder_banner: Gtk.Label | None = None
+        self._recorder_present_cached: bool | None = None
 
         self._system_status_thread: threading.Thread | None = None
         # Single CSS provider for the whole window. Only the root font size
@@ -490,7 +494,19 @@ class FranklinGuiApp(Gtk.Application):
         status_bar.append(Gtk.Separator(orientation=Gtk.Orientation.VERTICAL))
         status_bar.append(Gtk.Label(label="? for Help"))
 
+        recorder_banner = Gtk.Label()
+        recorder_banner.set_wrap(True)
+        recorder_banner.set_justify(Gtk.Justification.CENTER)
+        recorder_banner.add_css_class("recorder-error-banner")
+        recorder_banner.set_visible(False)
+        recorder_banner.set_text(
+            "⚠  NO RACE RECORDER RUNNING  ⚠\n"
+            "Race controls will not work. Start the recorder, then this banner clears."
+        )
+        self.recorder_banner = recorder_banner
+
         root.append(menu_bar)
+        root.append(recorder_banner)
         root.append(clock_frame)
         root.append(status)
         root.append(panes)
@@ -515,6 +531,8 @@ class FranklinGuiApp(Gtk.Application):
         self.connect_redis()
         GLib.timeout_add(100, self.update_time)
         GLib.timeout_add(50, self.drain_incoming_messages)
+        self._update_recorder_banner()
+        GLib.timeout_add(2000, self._update_recorder_banner)
 
         self.toggle_event_log_visibility(show=False)
         self._start_system_status_updater()
@@ -614,6 +632,15 @@ class FranklinGuiApp(Gtk.Application):
         """
         return f"""
         .franklin-root {{ font-size: {base_pt}pt; }}
+
+        .recorder-error-banner {{
+            font-size: 1.6em;
+            font-weight: bold;
+            color: #ffffff;
+            background-color: #c62828;
+            padding: 12px;
+            border-radius: 6px;
+        }}
 
         .race-clock {{ font-size: 2.6em; font-weight: bold; }}
         .leaderboard-title {{ font-size: 2.3em; font-weight: bold; }}
@@ -2126,6 +2153,23 @@ class FranklinGuiApp(Gtk.Application):
         except Exception as exc:
             logging.error("Failed to check recorder lock: %s", exc)
             return False
+
+    def _update_recorder_banner(self) -> bool:
+        """Show/hide the big banner based on whether a recorder is alive.
+
+        Runs on the GTK main thread via ``GLib.timeout_add`` (returns ``True``
+        to stay scheduled). The lock check is a single fast unix-socket GET.
+        """
+        present = self._recorder_present()
+        if present != self._recorder_present_cached:
+            self._recorder_present_cached = present
+            if self.recorder_banner:
+                self.recorder_banner.set_visible(not present)
+            if not present:
+                self.append_event("No race recorder detected; race controls disabled")
+            else:
+                self.append_event("Race recorder detected")
+        return True
 
     def publish_command(self, command: str, **kwargs: Any) -> None:
         if not self._redis_client:

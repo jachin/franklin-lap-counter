@@ -13,6 +13,13 @@ If another document or code comment conflicts with this one, treat this file as 
 | `franklin:events` | Race-control + countdown timeline events (`race_control`, `countdown_phase`) | `rust/franklin-hardware-monitor` | `franklin-tui.py`, `franklin-gui.py`, `franklin-race-recorder.py`, `scoreboard_web_app.py`, `referee_web_app.py`, rust local monitor TUI |
 | `franklin:race_state` | Authoritative full race-state snapshots (model + leaderboard + persistence-derived state); retained latest at key `franklin:race_state:latest` | `franklin-race-recorder.py` | `franklin-gui.py`, `franklin-tui.py`, other read-only views |
 
+## Keys (non-pub/sub)
+
+| Key | Purpose | Owner (writer) | Readers |
+|---|---|---|---|
+| `franklin:race_state:latest` | Retained latest race-state snapshot for late joiners | `franklin-race-recorder.py` | `franklin-gui.py`, `franklin-tui.py`, other read-only views |
+| `franklin:race_recorder:lock` | Single-owner recorder lock (`SET NX EX 10`, refreshed every 4 s, atomically released on exit). Exactly **one** recorder may hold it. | `franklin-race-recorder.py` (the **only** writer — acquires/refreshes/releases) | `franklin-gui.py`, `franklin-tui.py` (read-only liveness check; show a big error banner when the key is absent) |
+
 ---
 
 ## Message contracts
@@ -282,6 +289,7 @@ If `franklin:race_state:latest` is absent (recorder not yet running), views fall
 ## `franklin-tui.py` *(pure renderer — no DB writes)*
 
 - **Subscribes:** `hardware:out`, `franklin:events`, `franklin:race_state` (and reads `franklin:race_state:latest` on connect)
+- **Reads (keys):** `franklin:race_recorder:lock` (liveness only; shows a big error banner when absent)
 - **Publishes:**
   - `hardware:in` (`start_race` with schedule fields, `end_race`)
 - Renders the authoritative `franklin:race_state` snapshot; it never owns a `Race` model or writes SQLite. `hardware:out`/`franklin:events` are used display-only (heartbeat, countdown notifications, log lines).
@@ -289,6 +297,7 @@ If `franklin:race_state:latest` is absent (recorder not yet running), views fall
 ## `franklin-gui.py` *(pure renderer — no DB writes)*
 
 - **Subscribes:** `hardware:out`, `franklin:events`, `franklin:race_state` (and reads `franklin:race_state:latest` on connect)
+- **Reads (keys):** `franklin:race_recorder:lock` (liveness only; shows a big error banner + warns on command publish when absent)
 - **Publishes:**
   - `hardware:in` (`start_race` with schedule fields, `end_race`, `reset_race`)
 - Renders the authoritative `franklin:race_state` snapshot; it never owns a `Race` model or writes SQLite. `hardware:out`/`franklin:events` are used display-only (heartbeat, countdown/start lights, log lines).
@@ -296,6 +305,7 @@ If `franklin:race_state:latest` is absent (recorder not yet running), views fall
 ## `franklin-race-recorder.py` *(headless recorder — sole race-model owner & DB writer)*
 
 - **Subscribes:** `hardware:out`, `franklin:events`, `hardware:in` (the latter only to cache `start_race` race-config)
+- **Owns (keys):** `franklin:race_recorder:lock` — the **sole** writer. Acquires with `SET NX EX 10`, refreshes every 4 s, and releases atomically (compare-and-delete) on every exit path (normal stop, `SIGINT`/`SIGTERM`, or exception). A second recorder that cannot acquire the lock logs and exits, guaranteeing a single owner.
 - **Publishes:**
   - `franklin:race_state` (full snapshots) and sets `franklin:race_state:latest`
   - `hardware:in` (`end_race`) when it detects automatic race finish

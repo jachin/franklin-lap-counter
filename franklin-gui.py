@@ -264,7 +264,7 @@ class FranklinGuiApp(Gtk.Application):
             ("toggle_event_log", self._action_toggle_event_log, ["<Primary>l"]),
             ("manage_drivers", self._action_manage_drivers, ["<Primary>r"]),
             ("preferences", self._action_preferences, ["<Primary>comma"]),
-            ("show_keyboard_shortcuts", self._action_show_keyboard_shortcuts, ["?"]),
+            ("show_keyboard_shortcuts", self._action_show_keyboard_shortcuts, ["<Shift>slash"]),
         ]
 
         for name, callback, accels in action_defs:

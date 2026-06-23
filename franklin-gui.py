@@ -112,6 +112,10 @@ class FranklinGuiApp(Gtk.Application):
         self.redis_events_channel = "franklin:events"
         self.redis_race_state_channel = "franklin:race_state"
         self.redis_race_state_latest_key = "franklin:race_state:latest"
+        # The authoritative recorder holds this lock while it is alive. The GUI
+        # is a pure renderer, so commands only take effect (and snapshots only
+        # update) while a recorder owns this key. See franklin-race-recorder.py.
+        self.redis_recorder_lock_key = "franklin:race_recorder:lock"
         self._redis_client: redis.Redis | None = None
         self._redis_pubsub = None
 
@@ -2108,6 +2112,21 @@ class FranklinGuiApp(Gtk.Application):
             self.append_event(f"LAP [{source}]: {name} (ID {racer_id_i})")
             return
 
+    def _recorder_present(self) -> bool:
+        """True if an authoritative recorder currently owns the lock.
+
+        The GUI is a pure renderer; without a live recorder, commands like
+        ``end_race``/``reset_race`` are published but never turn into a
+        ``franklin:race_state`` snapshot, so the race appears stuck.
+        """
+        if not self._redis_client:
+            return False
+        try:
+            return self._redis_client.get(self.redis_recorder_lock_key) is not None
+        except Exception as exc:
+            logging.error("Failed to check recorder lock: %s", exc)
+            return False
+
     def publish_command(self, command: str, **kwargs: Any) -> None:
         if not self._redis_client:
             self.append_event("Redis client not initialized")
@@ -2115,6 +2134,17 @@ class FranklinGuiApp(Gtk.Application):
                 "Cannot publish command '%s': redis client not initialized", command
             )
             return
+
+        if not self._recorder_present():
+            self.append_event(
+                f"No race recorder running: '{command}' will have no effect "
+                "until the recorder is restarted"
+            )
+            logging.warning(
+                "Publishing command '%s' but no authoritative recorder holds %s",
+                command,
+                self.redis_recorder_lock_key,
+            )
 
         try:
             payload = build_command_envelope(command, source="franklin_gui", **kwargs)

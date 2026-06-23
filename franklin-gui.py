@@ -264,7 +264,6 @@ class FranklinGuiApp(Gtk.Application):
             ("toggle_event_log", self._action_toggle_event_log, ["<Primary>l"]),
             ("manage_drivers", self._action_manage_drivers, ["<Primary>r"]),
             ("preferences", self._action_preferences, ["<Primary>comma"]),
-            ("show_keyboard_shortcuts", self._action_show_keyboard_shortcuts, ["<Shift>slash"]),
         ]
 
         for name, callback, accels in action_defs:
@@ -337,11 +336,6 @@ class FranklinGuiApp(Gtk.Application):
 
     def _action_preferences(self, _action: Gio.SimpleAction, _param: Any) -> None:
         self.on_preferences_clicked(None)
-
-    def _action_show_keyboard_shortcuts(
-        self, _action: Gio.SimpleAction, _param: Any
-    ) -> None:
-        self.show_keyboard_shortcuts_dialog()
 
     def do_activate(self) -> None:  # type: ignore[override]
         window = Gtk.ApplicationWindow(application=self)
@@ -508,6 +502,9 @@ class FranklinGuiApp(Gtk.Application):
         window.connect("notify::default-width", self._on_window_resize)
         window.connect("notify::default-height", self._on_window_resize)
         window.connect("map", self._on_window_resize)
+        key_controller = Gtk.EventControllerKey()
+        key_controller.connect("key-pressed", self._on_window_key_pressed)
+        window.add_controller(key_controller)
 
         window.present()
         self._apply_scale()
@@ -1572,6 +1569,18 @@ class FranklinGuiApp(Gtk.Application):
         root.append(close_btn)
         dialog.set_child(root)
         dialog.present()
+
+    def _on_window_key_pressed(
+        self,
+        _controller: Gtk.EventControllerKey,
+        keyval: int,
+        _keycode: int,
+        _state: Gdk.ModifierType,
+    ) -> bool:
+        if keyval == Gdk.KEY_question:
+            self.show_keyboard_shortcuts_dialog()
+            return True
+        return False
 
     def on_manage_drivers_clicked(self, _button: Gtk.Button | None) -> None:
         if not self.window:

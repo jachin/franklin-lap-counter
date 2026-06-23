@@ -210,8 +210,25 @@ class RaceRecorder:
         # heartbeat/status/countdown_phase/debug/error/hardware_status are display-only here.
 
     def _handle_command(self, msg: dict[str, Any]) -> None:
-        """Cache race-config carried on ``start_race`` commands."""
-        if msg.get("command") != "start_race":
+        """React to operator commands on ``hardware:in``.
+
+        The hardware monitor (Rust) is the normal race-control owner: it echoes
+        events back on ``hardware:out``/``franklin:events`` which drive the
+        engine. But if that relay is unavailable/stale the recorder must still
+        honor operator intent, so we apply ``end_race``/``reset_race`` directly
+        here (mirroring the existing self-start fallback below). These engine
+        ops are idempotent, so a later genuine ``race_control`` echo is a no-op.
+        """
+        command = msg.get("command")
+        if command == "end_race":
+            logging.info("Applying end_race from hardware:in command (fallback)")
+            self._apply_and_publish(self.engine.end_race())
+            return
+        if command == "reset_race":
+            logging.info("Applying reset_race from hardware:in command (fallback)")
+            self._apply_and_publish(self.engine.reset())
+            return
+        if command != "start_race":
             return
         config = self._config_from_command(msg)
         self._last_start_config = config

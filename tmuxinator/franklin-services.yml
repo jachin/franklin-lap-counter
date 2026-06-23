@@ -63,3 +63,18 @@ windows:
             - sleep 3
             - echo "Starting Driver Web Server..."
             - python driver_web_app.py
+  - tui:
+      layout: main-horizontal
+      panes:
+        - tui:
+            - echo "Waiting for services to be ready..."
+            - sleep 3
+            - echo "Starting Franklin TUI..."
+            - python franklin-tui.py
+  - logs:
+      layout: main-horizontal
+      panes:
+        - system:
+            - echo "Opening all logs in lnav (merged, time-ordered)..."
+            - touch race.log race_recorder.log hardware_redis.log redis.log gui.log
+            - if [ -f /var/log/syslog ]; then lnav race.log race_recorder.log hardware_redis.log redis.log gui.log /var/log/syslog; else lnav race.log race_recorder.log hardware_redis.log redis.log gui.log; fi

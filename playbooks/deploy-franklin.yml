@@ -194,13 +194,19 @@
     # never shipped. The connection user (jachin) is unprivileged, so rsync runs
     # under sudo on the Pi (--rsync-path) with become disabled on the task, and
     # ownership is set inline with --chown to match franklin_user/group.
+    # delete + --delete-excluded make the Pi an exact mirror of the local tree
+    # (minus bytecode), so stale remote-only files and old __pycache__ are
+    # removed. These dirs hold only source-controlled content, never Pi-local
+    # state, so mirroring is safe.
     - name: Deploy static directory
       ansible.posix.synchronize:
         src: "{{ project_root }}/static/"
         dest: "{{ pi_dest_dir }}/static/"
+        delete: true
         rsync_opts:
           - "--exclude=__pycache__"
           - "--exclude=*.pyc"
+          - "--delete-excluded"
           - "--rsync-path=sudo rsync"
           - "--chown={{ franklin_user }}:{{ franklin_group }}"
       become: false
@@ -210,9 +216,11 @@
       ansible.posix.synchronize:
         src: "{{ project_root }}/race/"
         dest: "{{ pi_dest_dir }}/race/"
+        delete: true
         rsync_opts:
           - "--exclude=__pycache__"
           - "--exclude=*.pyc"
+          - "--delete-excluded"
           - "--rsync-path=sudo rsync"
           - "--chown={{ franklin_user }}:{{ franklin_group }}"
       become: false
@@ -222,9 +230,11 @@
       ansible.posix.synchronize:
         src: "{{ project_root }}/tmuxinator/"
         dest: "{{ pi_dest_dir }}/tmuxinator/"
+        delete: true
         rsync_opts:
           - "--exclude=__pycache__"
           - "--exclude=*.pyc"
+          - "--delete-excluded"
           - "--rsync-path=sudo rsync"
           - "--chown={{ franklin_user }}:{{ franklin_group }}"
       become: false

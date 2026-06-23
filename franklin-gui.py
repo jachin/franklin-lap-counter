@@ -256,21 +256,20 @@ class FranklinGuiApp(Gtk.Application):
                 mode_action.set_state(GLib.Variant.new_string(mode_str))
 
     def _register_actions_and_shortcuts(self) -> None:
-        action_defs: list[tuple[str, Any, list[str]]] = [
-            ("start_race", self._action_start_race, ["<Primary>s"]),
-            ("end_race", self._action_end_race, ["<Primary>e"]),
-            ("reset_race", self._action_reset_race, ["<Primary><Shift>r"]),
-            ("toggle_mode", self._action_toggle_mode, ["<Primary>t"]),
-            ("toggle_event_log", self._action_toggle_event_log, ["<Primary>l"]),
-            ("manage_drivers", self._action_manage_drivers, ["<Primary>r"]),
-            ("preferences", self._action_preferences, ["<Primary>comma"]),
+        action_defs: list[tuple[str, Any]] = [
+            ("start_race", self._action_start_race),
+            ("end_race", self._action_end_race),
+            ("reset_race", self._action_reset_race),
+            ("toggle_mode", self._action_toggle_mode),
+            ("toggle_event_log", self._action_toggle_event_log),
+            ("manage_drivers", self._action_manage_drivers),
+            ("preferences", self._action_preferences),
         ]
 
-        for name, callback, accels in action_defs:
+        for name, callback in action_defs:
             action = Gio.SimpleAction.new(name, None)
             action.connect("activate", callback)
             self.add_action(action)
-            self.set_accels_for_action(f"app.{name}", accels)
 
         # Register stateful "mode" action for the PopoverMenuBar checkmarks
         initial_mode_str = "real"
@@ -1579,6 +1578,32 @@ class FranklinGuiApp(Gtk.Application):
     ) -> bool:
         if keyval == Gdk.KEY_question:
             self.show_keyboard_shortcuts_dialog()
+            return True
+        primary = bool(_state & Gdk.ModifierType.CONTROL_MASK)
+        shift = bool(_state & Gdk.ModifierType.SHIFT_MASK)
+        if not primary:
+            return False
+
+        if keyval in (Gdk.KEY_s, Gdk.KEY_S) and not shift:
+            self.on_start_clicked(None)
+            return True
+        if keyval in (Gdk.KEY_e, Gdk.KEY_E) and not shift:
+            self.on_end_clicked(None)
+            return True
+        if keyval in (Gdk.KEY_r, Gdk.KEY_R):
+            if shift:
+                self.on_reset_clicked(None)
+            else:
+                self.on_manage_drivers_clicked(None)
+            return True
+        if keyval in (Gdk.KEY_t, Gdk.KEY_T) and not shift:
+            self._action_toggle_mode(None, None)
+            return True
+        if keyval in (Gdk.KEY_l, Gdk.KEY_L) and not shift:
+            self.toggle_event_log_visibility()
+            return True
+        if keyval == Gdk.KEY_comma and not shift:
+            self.on_preferences_clicked(None)
             return True
         return False
 

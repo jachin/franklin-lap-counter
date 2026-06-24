@@ -6,6 +6,9 @@ import sys
 from datetime import datetime
 
 
+SUPPORTED_APPLE_CONTAINER_TARGETS = {"aarch64-unknown-linux-gnu": "arm64"}
+
+
 def log(msg: str):
     print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] {msg}")
 
@@ -34,6 +37,100 @@ def prepare_cross_env(env: dict[str, str]) -> None:
         env.pop("CARGO_HOME", None)
         env["PATH"] = cargo_bin + os.pathsep + env.get("PATH", "")
         log("Using native rustup toolchain (~/.rustup) for cross.")
+
+
+def apple_container_build(rust_target: str) -> bool:
+    """Try building in Apple's `container` runtime.
+
+    This is intentionally best-effort. The existing `cross`/Docker path remains
+    the reliable fallback while we prove whether Apple's container runtime can
+    handle the same Debian arm64 build environment.
+    """
+    mode = os.environ.get("RUST_PI_APPLE_CONTAINER", "auto").lower()
+    if mode in {"0", "false", "no", "off"}:
+        log("Apple container build disabled by RUST_PI_APPLE_CONTAINER.")
+        return False
+    if mode not in {"1", "true", "yes", "on", "auto"}:
+        log(f"Unknown RUST_PI_APPLE_CONTAINER={mode!r}; skipping Apple container build.")
+        return False
+
+    platform_arch = SUPPORTED_APPLE_CONTAINER_TARGETS.get(rust_target)
+    if platform_arch is None:
+        log(f"Apple container build is not configured for {rust_target}; skipping.")
+        return False
+
+    if not shutil.which("container"):
+        log("Apple 'container' command not found; skipping Apple container build.")
+        return False
+
+    project_root = os.path.abspath(os.getcwd())
+    image = "debian:bookworm"
+    container_project_root = "/work"
+    container_cargo_home = "/cargo"
+    container_rustup_home = "/rustup"
+    rustup_installer = "/tmp/rustup-init"
+
+    log("Trying Apple container build before Docker/cross fallback...")
+    log(f"Using image: {image}")
+
+    build_script = " && ".join(
+        [
+            "dpkg --add-architecture arm64",
+            "apt-get update",
+            "apt-get --assume-yes install ca-certificates curl libudev-dev:arm64 pkg-config gcc",
+            (
+                f"(test -x {container_cargo_home}/bin/rustup || "
+                f"(curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs -o {rustup_installer} && "
+                f"sh {rustup_installer} -y --no-modify-path))"
+            ),
+            f"{container_cargo_home}/bin/rustup target add {rust_target}",
+            (
+                f"{container_cargo_home}/bin/cargo build --release "
+                "--manifest-path rust/Cargo.toml "
+                f"--target {rust_target}"
+            ),
+        ]
+    )
+
+    command = [
+        "container",
+        "run",
+        "--rm",
+        "--platform",
+        f"linux/{platform_arch}",
+        "--volume",
+        f"{project_root}:{container_project_root}",
+        "--volume",
+        f"franklin-rust-pi-cargo:{container_cargo_home}",
+        "--volume",
+        f"franklin-rust-pi-rustup:{container_rustup_home}",
+        "--workdir",
+        container_project_root,
+        "--env",
+        f"CARGO_HOME={container_cargo_home}",
+        "--env",
+        f"RUSTUP_HOME={container_rustup_home}",
+        "--env",
+        f"PATH={container_cargo_home}/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+        image,
+        "bash",
+        "-lc",
+        build_script,
+    ]
+
+    try:
+        subprocess.run(command, check=True)
+    except subprocess.CalledProcessError as e:
+        log(f"Apple container build failed ({e}); falling back to existing path.")
+        if mode in {"1", "true", "yes", "on"}:
+            sys.exit(1)
+        return False
+    except FileNotFoundError:
+        log("Apple 'container' command disappeared; falling back to existing path.")
+        return False
+
+    log("✓ Apple container build succeeded")
+    return True
 
 
 def main():
@@ -78,45 +175,48 @@ def main():
 
     build_cmd = "cargo"
     build_env = os.environ.copy()
-    if shutil.which("cross"):
+    if apple_container_build(rust_target):
+        build_cmd = "apple-container"
+    elif shutil.which("cross"):
         log(
             "✓ 'cross' tool detected! Using containerized cross-compilation with 'cross'..."
         )
         build_cmd = "cross"
         prepare_cross_env(build_env)
 
-    log(f"Running build with {build_cmd}...")
-    try:
-        subprocess.run(
-            [
-                build_cmd,
-                "build",
-                "--release",
-                "--manifest-path",
-                "rust/Cargo.toml",
-                "--target",
-                rust_target,
-            ],
-            check=True,
-            env=build_env,
-        )
-    except subprocess.CalledProcessError:
-        log(f"❌ Cross-build failed for {rust_target}")
-        log("   The Rust hardware monitor depends on libudev, so compiling for Linux")
-        log(
-            "   on a Mac requires a sysroot/cross-linker setup or a container-based build tool."
-        )
-        if build_cmd == "cargo":
-            log("")
-            log(
-                "   💡 Recommendation: Install and use 'cross' to build seamlessly inside a Docker container:"
+    if build_cmd != "apple-container":
+        log(f"Running build with {build_cmd}...")
+        try:
+            subprocess.run(
+                [
+                    build_cmd,
+                    "build",
+                    "--release",
+                    "--manifest-path",
+                    "rust/Cargo.toml",
+                    "--target",
+                    rust_target,
+                ],
+                check=True,
+                env=build_env,
             )
+        except subprocess.CalledProcessError:
+            log(f"❌ Cross-build failed for {rust_target}")
+            log("   The Rust hardware monitor depends on libudev, so compiling for Linux")
             log(
-                "      1. Install cross:  cargo install cross --git https://github.com/cross-rs/cross"
+                "   on a Mac requires a sysroot/cross-linker setup or a container-based build tool."
             )
-            log("      2. Start Docker")
-            log("      3. Run this build task again")
-        sys.exit(1)
+            if build_cmd == "cargo":
+                log("")
+                log(
+                    "   💡 Recommendation: Install and use 'cross' to build seamlessly inside a Docker container:"
+                )
+                log(
+                    "      1. Install cross:  cargo install cross --git https://github.com/cross-rs/cross"
+                )
+                log("      2. Start Docker")
+                log("      3. Run this build task again")
+            sys.exit(1)
 
     binary_path = f"rust/target/{rust_target}/release/franklin-hardware-monitor"
     if os.path.exists(binary_path):

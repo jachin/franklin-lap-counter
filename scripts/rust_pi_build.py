@@ -10,6 +10,32 @@ def log(msg: str):
     print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] {msg}")
 
 
+def prepare_cross_env(env: dict[str, str]) -> None:
+    """Sanitize the environment so `cross` works inside devbox.
+
+    Two devbox/nix details break `cross`'s Docker build on macOS:
+
+    1. `cross` has built-in Nix support: when ``NIX_STORE`` is set it
+       bind-mounts that path into the build container. devbox sets
+       ``NIX_STORE=/nix/store``, which Docker Desktop refuses to share
+       ("mounts denied"), aborting the build. The container ships its own
+       toolchain, so we drop ``NIX_STORE`` to skip that mount.
+    2. Inside devbox, cargo/rustc resolve via the devbox rustup. We prefer the
+       user's native rustup (``~/.rustup``/``~/.cargo``) when present so any
+       toolchain paths cross references live under ``$HOME`` (Docker-shared).
+    """
+    if env.pop("NIX_STORE", None) is not None:
+        log("Unset NIX_STORE so cross does not bind-mount /nix/store into Docker.")
+
+    home = os.path.expanduser("~")
+    cargo_bin = os.path.join(home, ".cargo", "bin")
+    if os.path.exists(os.path.join(cargo_bin, "rustup")):
+        env.pop("RUSTUP_HOME", None)
+        env.pop("CARGO_HOME", None)
+        env["PATH"] = cargo_bin + os.pathsep + env.get("PATH", "")
+        log("Using native rustup toolchain (~/.rustup) for cross.")
+
+
 def main():
     # Load .env file manually if it exists to mimic 'source .env'
     if os.path.exists(".env"):
@@ -51,11 +77,13 @@ def main():
             sys.exit(1)
 
     build_cmd = "cargo"
+    build_env = os.environ.copy()
     if shutil.which("cross"):
         log(
             "✓ 'cross' tool detected! Using containerized cross-compilation with 'cross'..."
         )
         build_cmd = "cross"
+        prepare_cross_env(build_env)
 
     log(f"Running build with {build_cmd}...")
     try:
@@ -70,6 +98,7 @@ def main():
                 rust_target,
             ],
             check=True,
+            env=build_env,
         )
     except subprocess.CalledProcessError:
         log(f"❌ Cross-build failed for {rust_target}")

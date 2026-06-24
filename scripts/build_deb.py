@@ -41,15 +41,20 @@ def main():
         "rust/target/aarch64-unknown-linux-gnu/release/franklin-hardware-monitor"
     )
 
-    # Ensure the binary is built
+    # Always (re)build the Pi binary before packaging so the .deb can never ship
+    # a stale binary. cargo is incremental, so this is cheap when nothing changed
+    # but guarantees source edits are picked up even when an older binary already
+    # exists at binary_path.
+    log("Building Pi binary before packaging...")
+    try:
+        subprocess.run([sys.executable, "scripts/rust_pi_build.py"], check=True)
+    except subprocess.CalledProcessError:
+        log("❌ Local cross-build failed. Cannot build Debian package.")
+        sys.exit(1)
+
     if not os.path.exists(binary_path):
-        log(f"Binary not found at {binary_path}. Running build...")
-        try:
-            # Run the python version of the pi build script
-            subprocess.run([sys.executable, "scripts/rust_pi_build.py"], check=True)
-        except subprocess.CalledProcessError:
-            log("❌ Local cross-build failed. Cannot build Debian package.")
-            sys.exit(1)
+        log(f"❌ Build did not produce expected binary at {binary_path}")
+        sys.exit(1)
 
     # Create package directory structure
     pkg_name = "franklin-hardware-monitor"

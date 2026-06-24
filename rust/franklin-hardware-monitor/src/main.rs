@@ -1476,20 +1476,22 @@ fn get_default_serial_port() -> String {
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    // Parse command-line arguments
+    let args: Vec<String> = std::env::args().collect();
+
+    // Check version flag before any side effects. Logging init below truncates
+    // hardware_redis.log, and `--version` must stay read-only so it can be run
+    // safely (e.g. by deploy/health checks) without clobbering the log.
+    if args.contains(&"--version".to_string()) || args.contains(&"-V".to_string()) {
+        println!("franklin-hardware-monitor {}", env!("CARGO_PKG_VERSION"));
+        return Ok(());
+    }
+
     // Initialize logging
     tracing_subscriber::fmt()
         .with_writer(std::fs::File::create("hardware_redis.log")?)
         .with_ansi(false)
         .init();
-
-    // Parse command-line arguments
-    let args: Vec<String> = std::env::args().collect();
-
-    // Check version flag
-    if args.contains(&"--version".to_string()) || args.contains(&"-V".to_string()) {
-        println!("franklin-hardware-monitor {}", env!("CARGO_PKG_VERSION"));
-        return Ok(());
-    }
 
     info!(
         "Starting franklin-hardware-monitor v{}",

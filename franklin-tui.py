@@ -271,6 +271,11 @@ class Franklin(App[Any]):  # type: ignore[type-arg]
         self.lap_counter_detected = reactive(False)
         self._last_lap_counter_signal_time = None
 
+        # Version reported by the Rust hardware monitor via `hardware_status`
+        # (see docs/redis-message-reference.md). Surfaced in the header so a
+        # stale deployed binary is visible at a glance.
+        self.hardware_monitor_version: str | None = None
+
         # Setup logging
         logging.basicConfig(
             filename="race.log",
@@ -300,6 +305,8 @@ class Franklin(App[Any]):  # type: ignore[type-arg]
 
     def update_subtitle(self) -> None:
         mode_str = f"RC Lap Counter - {self.race_mode}"
+        if self.hardware_monitor_version:
+            mode_str = f"{mode_str} - HW v{self.hardware_monitor_version}"
         self.sub_title = mode_str
         try:
             header = self.query_one(Header)
@@ -425,6 +432,11 @@ class Franklin(App[Any]):  # type: ignore[type-arg]
         )
         self._redis_pubsub.subscribe(*channels)
         logging.info("Subscribed to Redis channels: %s", ", ".join(channels))
+
+        # Ask the hardware monitor to report its status (including version) so
+        # the header shows the running monitor version right away, even when the
+        # TUI starts after the monitor's initial broadcast.
+        self._publish_command("request_status")
 
         self.lap_counter_detected = False
         self._last_lap_counter_signal_time = None
@@ -583,6 +595,13 @@ class Franklin(App[Any]):  # type: ignore[type-arg]
                 "Simulated" if simulated else "Hardware",
                 msg.get("message", ""),
             )
+
+        elif msg_type == "hardware_status":
+            version = msg.get("version")
+            if isinstance(version, str) and version != self.hardware_monitor_version:
+                self.hardware_monitor_version = version
+                logging.info("Hardware monitor version: %s", version)
+                self.update_subtitle()
 
         elif msg_type == "race_control":
             logging.info(

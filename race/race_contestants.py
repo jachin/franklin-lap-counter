@@ -32,3 +32,23 @@ class RaceContestants:
             if contestant.transmitter_id == transmitter_id:
                 return contestant.name
         return f"Unknown (ID: {transmitter_id})"
+
+    def has_contestant(self, transmitter_id: int) -> bool:
+        """Return whether a contestant exists for the transmitter ID."""
+        return any(c.transmitter_id == transmitter_id for c in self.contestants)
+
+    def ensure_contestant(self, transmitter_id: int) -> bool:
+        """Add a placeholder contestant for an unknown transmitter ID.
+
+        Returns True when a new contestant was added.
+        """
+        transmitter_id = int(transmitter_id)
+        if transmitter_id <= 0 or self.has_contestant(transmitter_id):
+            return False
+        self.contestants.append(
+            Contestant(
+                transmitter_id=transmitter_id,
+                name=f"Unknown (ID: {transmitter_id})",
+            )
+        )
+        return True

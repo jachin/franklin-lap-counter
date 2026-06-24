@@ -208,6 +208,8 @@ class FranklinGuiApp(Gtk.Application):
         if racer_ids:
             self.last_race_contestant_ids = set(racer_ids)
             self._ensure_racer_color_assignments(racer_ids, persist=True)
+            if self._ensure_unknown_drivers(racer_ids):
+                self.save_config()
 
         # An authoritative running/finished state ends any local countdown visuals.
         if self.snapshot.is_going:
@@ -1927,6 +1929,15 @@ class FranklinGuiApp(Gtk.Application):
         self.global_contestants.contestants.append(
             Contestant(transmitter_id=transmitter_id, name=name)
         )
+
+    def _ensure_unknown_drivers(self, racer_ids: set[int]) -> bool:
+        """Persist placeholder driver rows for newly-seen racer IDs."""
+        changed = False
+        for racer_id in sorted(racer_ids):
+            if racer_id <= 0:
+                continue
+            changed = self.global_contestants.ensure_contestant(racer_id) or changed
+        return changed
 
     def save_config(self) -> None:
         contestants = [

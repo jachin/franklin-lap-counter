@@ -518,6 +518,8 @@ class Franklin(App[Any]):  # type: ignore[type-arg]
         if racer_ids:
             self.last_race_contestant_ids = set(racer_ids)
             self._ensure_racer_color_assignments(racer_ids, persist=True)
+            if self._ensure_unknown_drivers(racer_ids):
+                self.save_config()
 
     def _handle_hardware_message(self, msg: dict[str, Any]) -> None:
         """Display-only handling of hardware/event traffic.
@@ -745,6 +747,15 @@ class Franklin(App[Any]):  # type: ignore[type-arg]
         self._ensure_racer_color_assignments(known_racer_ids, persist=False)
         self.save_config()
         self.refresh_driver_data()
+
+    def _ensure_unknown_drivers(self, racer_ids: set[int]) -> bool:
+        """Persist placeholder driver rows for newly-seen racer IDs."""
+        changed = False
+        for racer_id in sorted(racer_ids):
+            if racer_id <= 0:
+                continue
+            changed = self.global_contestants.ensure_contestant(racer_id) or changed
+        return changed
 
     def refresh_driver_data(self) -> None:
         """Refresh displays that show driver information."""

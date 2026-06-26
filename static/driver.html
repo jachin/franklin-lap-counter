@@ -775,6 +775,20 @@
                         const msg = JSON.parse(evt.data);
                         const type = msg?.type;
 
+                        if (msg.snapshot_seq !== undefined) {
+                            const raceState = String(msg.state || "").toLowerCase();
+                            if (raceState === "running") {
+                                state.phase = "running";
+                            } else {
+                                state.phase = "waiting";
+                            }
+                            syncLightsForPhase();
+                            renderAll().catch((err) => {
+                                el.connection.textContent = `Refresh error: ${err.message}`;
+                            });
+                            return;
+                        }
+
                         if (type === "countdown_phase") {
                             const phase = String(msg.phase || "").toLowerCase();
                             if (

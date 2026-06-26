@@ -410,6 +410,10 @@
             ws.onmessage = (evt) => {
                 try {
                     const msg = JSON.parse(evt.data);
+                    if (msg.snapshot_seq !== undefined) {
+                        log(`RACE STATE: ${String(msg.state || "unknown").toUpperCase()}`);
+                        return;
+                    }
                     if (msg.type === "countdown_phase") {
                         const at = Number(msg.at);
                         const when = Number.isFinite(at)

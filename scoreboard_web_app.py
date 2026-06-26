@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Scoreboard web app server that bridges Redis pub/sub to connected clients.
-Subscribes to `hardware:out` and `franklin:events`, then broadcasts messages over WebSocket.
+Subscribes to `hardware:out`, `franklin:events`, and `franklin:race_state`, then broadcasts messages over WebSocket.
 
 Authoritative channel/message reference:
 - docs/redis-message-reference.md
@@ -25,6 +25,7 @@ from database import LapDatabase
 REDIS_SOCKET_PATH = "./redis.sock"
 REDIS_OUT_CHANNEL = "hardware:out"
 REDIS_EVENTS_CHANNEL = "franklin:events"
+RACE_STATE_CHANNEL = "franklin:race_state"
 WEB_PORT = 8080
 WEB_HOST = "0.0.0.0"  # Bind to all network interfaces
 STATIC_DIR = Path(__file__).parent / "static"
@@ -295,10 +296,10 @@ class ScoreboardWebAppServer:
                 unix_socket_path=self.redis_socket, decode_responses=True
             )
             self.redis_pubsub = self.redis_client.pubsub()
-            await self.redis_pubsub.subscribe(REDIS_OUT_CHANNEL, REDIS_EVENTS_CHANNEL)
+            await self.redis_pubsub.subscribe(REDIS_OUT_CHANNEL, REDIS_EVENTS_CHANNEL, RACE_STATE_CHANNEL)
 
             logger.info(
-                f"Subscribed to Redis channels: {REDIS_OUT_CHANNEL}, {REDIS_EVENTS_CHANNEL}"
+                f"Subscribed to Redis channels: {REDIS_OUT_CHANNEL}, {REDIS_EVENTS_CHANNEL}, {RACE_STATE_CHANNEL}"
             )
 
             # Load and broadcast the retained snapshot so late joiners show

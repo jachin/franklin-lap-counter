@@ -2,6 +2,7 @@
 """
 Referee web app server.
 
+Subscribes to `hardware:out`, `franklin:events`, and `franklin:race_state`.
 Provides race-control REST endpoints and a WebSocket feed of race-control/hardware
 messages to referee clients.
 
@@ -29,6 +30,7 @@ REDIS_SOCKET_PATH = "./redis.sock"
 REDIS_IN_CHANNEL = "hardware:in"
 REDIS_OUT_CHANNEL = "hardware:out"
 REDIS_EVENTS_CHANNEL = "franklin:events"
+RACE_STATE_CHANNEL = "franklin:race_state"
 WEB_PORT = 8081
 WEB_HOST = "0.0.0.0"
 STATIC_DIR = Path(__file__).parent / "static"
@@ -299,12 +301,13 @@ class RefereeWebAppServer:
                 decode_responses=True,
             )
             self.redis_pubsub = self.redis_client.pubsub()
-            await self.redis_pubsub.subscribe(REDIS_EVENTS_CHANNEL, REDIS_OUT_CHANNEL)
+            await self.redis_pubsub.subscribe(REDIS_EVENTS_CHANNEL, REDIS_OUT_CHANNEL, RACE_STATE_CHANNEL)
 
             logger.info(
-                "Referee app subscribed to Redis channels: %s, %s",
+                "Referee app subscribed to Redis channels: %s, %s, %s",
                 REDIS_EVENTS_CHANNEL,
                 REDIS_OUT_CHANNEL,
+                RACE_STATE_CHANNEL,
             )
 
             while True:

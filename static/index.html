@@ -947,6 +947,25 @@
                         const data = JSON.parse(event.data);
                         console.log("WebSocket received:", data);
 
+                        // For race state snapshots, refresh immediately
+                        if (data.snapshot_seq !== undefined) {
+                            console.log(
+                                "Race snapshot received, state:",
+                                data.state,
+                            );
+                            fetchRaceData().catch((err) => {
+                                console.warn(
+                                    "Refresh error after snapshot:",
+                                    err,
+                                );
+                                addEvent({
+                                    type: "error",
+                                    message:
+                                        "Failed to refresh data after state change",
+                                });
+                            });
+                        }
+
                         // For race start/end events, refresh immediately
                         if (data.type === "status" && data.message) {
                             console.log(

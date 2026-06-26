@@ -60,6 +60,7 @@ class RefereeWebAppServer:
         self.app.router.add_get("/", self.index_handler)
         self.app.router.add_get("/ws", self.websocket_handler)
         self.app.router.add_get("/api/health", self.health_handler)
+        self.app.router.add_get("/api/config", self.get_config_handler)
 
         self.app.router.add_post("/api/control/start_race", self.start_race_handler)
         self.app.router.add_post("/api/control/end_race", self.end_race_handler)
@@ -76,6 +77,31 @@ class RefereeWebAppServer:
 
     async def health_handler(self, request: web.Request) -> web.Response:
         return web.json_response({"ok": True})
+
+    async def get_config_handler(self, request: web.Request) -> web.Response:
+        try:
+            config = {}
+            for key in [
+                "race_mode",
+                "total_laps",
+                "race_end_mode",
+                "contestants",
+                "last_race_contestant_ids",
+                "racer_color_assignments",
+            ]:
+                val = self.db.get_preference(key)
+                if val is not None:
+                    config[key] = val
+            if "total_laps" not in config:
+                config["total_laps"] = 10
+            if "contestants" not in config:
+                config["contestants"] = []
+            return web.json_response(config)
+        except Exception as e:
+            logger.error("Error reading config: %s", e)
+            return web.json_response(
+                {"total_laps": 10, "contestants": [], "error": str(e)}
+            )
 
     async def websocket_handler(self, request: web.Request) -> web.WebSocketResponse:
         ws = web.WebSocketResponse()

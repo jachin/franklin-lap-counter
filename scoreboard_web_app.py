@@ -26,7 +26,7 @@ REDIS_SOCKET_PATH = "./redis.sock"
 REDIS_OUT_CHANNEL = "hardware:out"
 REDIS_EVENTS_CHANNEL = "franklin:events"
 RACE_STATE_CHANNEL = "franklin:race_state"
-WEB_PORT = 8080
+WEB_PORT = 8085
 WEB_HOST = "0.0.0.0"  # Bind to all network interfaces
 STATIC_DIR = Path(__file__).parent / "static"
 DB_PATH = "franklin.db"
@@ -60,6 +60,7 @@ class ScoreboardWebAppServer:
         # Setup routes
         self.app.router.add_get("/ws", self.websocket_handler)
         self.app.router.add_get("/", self.index_handler)
+        self.app.router.add_get("/dashboard", self.dashboard_handler)
 
         # REST API routes
         self.app.router.add_get("/api/races", self.get_races)
@@ -74,6 +75,9 @@ class ScoreboardWebAppServer:
         """Serve the index.html file"""
         index_file = STATIC_DIR / "index.html"
         return web.FileResponse(index_file)
+
+    async def dashboard_handler(self, request: web.Request) -> web.FileResponse:
+        return web.FileResponse(STATIC_DIR / "dashboard.html")
 
     async def get_races(self, request: web.Request) -> web.Response:
         """Get paginated list of races ordered by newest to oldest"""

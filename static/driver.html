@@ -263,6 +263,19 @@
         </style>
     </head>
     <body>
+        <style>
+            .dash-link {
+                display: inline-block;
+                font-size: 0.8rem;
+                opacity: 0.6;
+                text-decoration: none;
+                color: inherit;
+                margin-bottom: 8px;
+            }
+            .dash-link:hover { opacity: 1; text-decoration: underline; }
+        </style>
+        <a id="dashLink" class="dash-link" href="#">← Dashboard</a>
+        <script>document.getElementById('dashLink').href = `${location.protocol}//${location.hostname}:8085/dashboard`</script>
         <div class="container">
             <div class="card">
                 <h1>Driver / Team View</h1>

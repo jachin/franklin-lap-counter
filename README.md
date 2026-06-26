@@ -139,13 +139,13 @@ devbox run start:franklin-simulator
 ## Web Applications
 
 ### Scoreboard Web App
-Starts `scoreboard_web_app.py` on port `8080`. Serves the live scoreboard UI and WebSocket/REST endpoints for race data.
+Starts `scoreboard_web_app.py` on port `8085`. Serves the live scoreboard UI and WebSocket/REST endpoints for race data.
 ```bash
 devbox run web_scoreboard
 ```
-- Local access: `http://127.0.0.1:8080`
-- Network access: `http://<pi-ip>:8080`
+- Local access: `http://127.0.0.1:8085`
 
+- Network access: `http://<pi-ip>:8085`
 ### Driver Web App
 Starts `driver_web_app.py` on port `8083`. Enables drivers or teams to view real-time countdown lights, specific racer details (position, progress, best/last lap, penalties), and practice/training mode lap histories.
 ```bash
@@ -165,7 +165,7 @@ devbox run web_referee
 
 ### Local Hostnames (Hotspot AP + Caddy Proxy)
 When the Raspberry Pi hotspot and Caddy reverse proxy are active, the following local domains route automatically:
-- `scoreboard.frank` → `scoreboard_web_app.py` (`127.0.0.1:8080`)
+- `scoreboard.frank` → `scoreboard_web_app.py` (`127.0.0.1:8085`)
 - `referee.frank` → `referee_web_app.py` (`127.0.0.1:8081`)
 - `healthcheck.frank` → `healthcheck_web_app.py` (`127.0.0.1:8082`)
 - `racer.frank` → `driver_web_app.py` (`127.0.0.1:8083`)

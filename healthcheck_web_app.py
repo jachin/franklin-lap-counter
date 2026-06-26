@@ -261,7 +261,7 @@ class HealthCheckWebAppServer:
         )
 
     async def _check_scoreboard_direct_http(self) -> dict[str, Any]:
-        return await self._check_http_async("http://127.0.0.1:8080/")
+        return await self._check_http_async("http://127.0.0.1:8085/")
 
     async def _check_referee_direct_http(self) -> dict[str, Any]:
         return await self._check_http_async("http://127.0.0.1:8081/api/health")

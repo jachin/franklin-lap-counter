@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>Franklin Lap Counter</title>
+        <style>
+            :root {
+                color-scheme: light dark;
+                --bg: #111;
+                --text: #eee;
+                --card-bg: #1e1e1e;
+                --card-border: #333;
+                --accent: #4a9eff;
+                --accent-hover: #6db3ff;
+            }
+            @media (prefers-color-scheme: light) {
+                :root {
+                    --bg: #f4f5f7;
+                    --text: #1f2328;
+                    --card-bg: #ffffff;
+                    --card-border: #d0d7de;
+                    --accent: #0969da;
+                    --accent-hover: #0860ca;
+                }
+            }
+            * {
+                box-sizing: border-box;
+                margin: 0;
+                padding: 0;
+            }
+            body {
+                font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+                background: var(--bg);
+                color: var(--text);
+                min-height: 100vh;
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                justify-content: center;
+                padding: 24px;
+            }
+            h1 {
+                font-size: 2rem;
+                margin-bottom: 4px;
+            }
+            .subtitle {
+                color: var(--text);
+                opacity: 0.65;
+                margin-bottom: 32px;
+                text-align: center;
+            }
+            .grid {
+                display: grid;
+                grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+                gap: 16px;
+                max-width: 720px;
+                width: 100%;
+            }
+            .card {
+                background: var(--card-bg);
+                border: 1px solid var(--card-border);
+                border-radius: 10px;
+                padding: 24px;
+                text-decoration: none;
+                color: inherit;
+                display: flex;
+                flex-direction: column;
+                transition: border-color 0.15s, box-shadow 0.15s;
+            }
+            .card:hover {
+                border-color: var(--accent);
+                box-shadow: 0 0 0 2px rgba(74, 158, 255, 0.25);
+            }
+            .card h2 {
+                font-size: 1.2rem;
+                margin-bottom: 8px;
+            }
+            .card p {
+                font-size: 0.875rem;
+                opacity: 0.7;
+                line-height: 1.5;
+                flex: 1;
+            }
+            .card .url {
+                font-size: 0.75rem;
+                opacity: 0.45;
+                margin-top: 12px;
+                font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+            }
+        </style>
+    </head>
+    <body>
+        <h1>Franklin Lap Counter</h1>
+        <p class="subtitle">Select your role to get started</p>
+        <div class="grid" id="grid"></div>
+        <script>
+            const roles = [
+                {
+                    name: "Scoreboard",
+                    desc: "Live race standings, lap times, leaderboard, and event feed.",
+                    port: 8085,
+                },
+                {
+                    name: "Referee",
+                    desc: "Start/end races, add penalties, remove laps, disqualify racers.",
+                    port: 8081,
+                },
+                {
+                    name: "Healthcheck",
+                    desc: "System health dashboard — Redis, web apps, and services status.",
+                    port: 8082,
+                },
+                {
+                    name: "Driver",
+                    desc: "Your lap times, race stats, and start-light display.",
+                    port: 8083,
+                },
+            ];
+            const host = window.location.hostname;
+            const proto = window.location.protocol;
+            const grid = document.getElementById("grid");
+            for (const role of roles) {
+                const url = `${proto}//${host}:${role.port}/`;
+                const a = document.createElement("a");
+                a.className = "card";
+                a.href = url;
+                a.target = "_blank";
+                a.rel = "noopener";
+                a.innerHTML =
+                    `<h2>${role.name}</h2><p>${role.desc}</p><div class="url">${url}</div>`;
+                grid.appendChild(a);
+            }
+        </script>
+    </body>
+</html>

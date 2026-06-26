@@ -2,6 +2,7 @@
 """
 Referee web app server.
 
+Subscribes to `hardware:out`, `franklin:events`, and `franklin:race_state`.
 Provides race-control REST endpoints and a WebSocket feed of race-control/hardware
 messages to referee clients.
 
@@ -29,6 +30,7 @@ REDIS_SOCKET_PATH = "./redis.sock"
 REDIS_IN_CHANNEL = "hardware:in"
 REDIS_OUT_CHANNEL = "hardware:out"
 REDIS_EVENTS_CHANNEL = "franklin:events"
+RACE_STATE_CHANNEL = "franklin:race_state"
 WEB_PORT = 8081
 WEB_HOST = "0.0.0.0"
 STATIC_DIR = Path(__file__).parent / "static"
@@ -58,6 +60,7 @@ class RefereeWebAppServer:
         self.app.router.add_get("/", self.index_handler)
         self.app.router.add_get("/ws", self.websocket_handler)
         self.app.router.add_get("/api/health", self.health_handler)
+        self.app.router.add_get("/api/config", self.get_config_handler)
 
         self.app.router.add_post("/api/control/start_race", self.start_race_handler)
         self.app.router.add_post("/api/control/end_race", self.end_race_handler)
@@ -74,6 +77,31 @@ class RefereeWebAppServer:
 
     async def health_handler(self, request: web.Request) -> web.Response:
         return web.json_response({"ok": True})
+
+    async def get_config_handler(self, request: web.Request) -> web.Response:
+        try:
+            config = {}
+            for key in [
+                "race_mode",
+                "total_laps",
+                "race_end_mode",
+                "contestants",
+                "last_race_contestant_ids",
+                "racer_color_assignments",
+            ]:
+                val = self.db.get_preference(key)
+                if val is not None:
+                    config[key] = val
+            if "total_laps" not in config:
+                config["total_laps"] = 10
+            if "contestants" not in config:
+                config["contestants"] = []
+            return web.json_response(config)
+        except Exception as e:
+            logger.error("Error reading config: %s", e)
+            return web.json_response(
+                {"total_laps": 10, "contestants": [], "error": str(e)}
+            )
 
     async def websocket_handler(self, request: web.Request) -> web.WebSocketResponse:
         ws = web.WebSocketResponse()
@@ -299,12 +327,13 @@ class RefereeWebAppServer:
                 decode_responses=True,
             )
             self.redis_pubsub = self.redis_client.pubsub()
-            await self.redis_pubsub.subscribe(REDIS_EVENTS_CHANNEL, REDIS_OUT_CHANNEL)
+            await self.redis_pubsub.subscribe(REDIS_EVENTS_CHANNEL, REDIS_OUT_CHANNEL, RACE_STATE_CHANNEL)
 
             logger.info(
-                "Referee app subscribed to Redis channels: %s, %s",
+                "Referee app subscribed to Redis channels: %s, %s, %s",
                 REDIS_EVENTS_CHANNEL,
                 REDIS_OUT_CHANNEL,
+                RACE_STATE_CHANNEL,
             )
 
             while True:
@@ -325,6 +354,8 @@ class RefereeWebAppServer:
                             logger.error("Invalid JSON from Redis: %s", data)
 
                 await asyncio.sleep(0.01)
+        except asyncio.CancelledError:
+            logger.info("Redis listener cancelled")
         finally:
             if self.redis_pubsub:
                 await self.redis_pubsub.aclose()

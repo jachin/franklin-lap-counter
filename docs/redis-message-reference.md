@@ -9,15 +9,15 @@ If another document or code comment conflicts with this one, treat this file as 
 | Channel | Direction / Purpose | Primary Publishers | Primary Subscribers |
 |---|---|---|---|
 | `hardware:in` | Commands to the race-control owner (hardware monitor) | `franklin-tui.py`, `franklin-gui.py`, `referee_web_app.py` | `rust/franklin-hardware-monitor` (`command_handler_task`), `franklin-race-recorder.py` (caches `start_race` config only) |
-| `hardware:out` | **Hardware-only** telemetry/events (or simulation of those same hardware events) | `rust/franklin-hardware-monitor` | `franklin-tui.py`, `franklin-gui.py`, `franklin-race-recorder.py`, `scoreboard_web_app.py`, `referee_web_app.py`, `healthcheck_web_app.py` (heartbeat sampling), rust local monitor TUI |
+| `hardware:out` | **Hardware-only** telemetry/events (or simulation of those same hardware events) | `rust/franklin-hardware-monitor` | `franklin-tui.py`, `franklin-gui.py`, `franklin-race-recorder.py`, `scoreboard_web_app.py`, `driver_web_app.py`, `referee_web_app.py`, `healthcheck_web_app.py` (heartbeat sampling), rust local monitor TUI |
 | `franklin:events` | Race-control + countdown timeline events (`race_control`, `countdown_phase`) | `rust/franklin-hardware-monitor` | `franklin-tui.py`, `franklin-gui.py`, `franklin-race-recorder.py`, `scoreboard_web_app.py`, `referee_web_app.py`, rust local monitor TUI |
-| `franklin:race_state` | Authoritative full race-state snapshots (model + leaderboard + persistence-derived state); retained latest at key `franklin:race_state:latest` | `franklin-race-recorder.py` | `franklin-gui.py`, `franklin-tui.py`, other read-only views |
+| `franklin:race_state` | Authoritative full race-state snapshots (model + leaderboard + persistence-derived state); retained latest at key `franklin:race_state:latest` | `franklin-race-recorder.py` | `franklin-gui.py`, `franklin-tui.py`, `scoreboard_web_app.py`, `driver_web_app.py`, `referee_web_app.py`, other read-only views |
 
 ## Keys (non-pub/sub)
 
 | Key | Purpose | Owner (writer) | Readers |
 |---|---|---|---|
-| `franklin:race_state:latest` | Retained latest race-state snapshot for late joiners | `franklin-race-recorder.py` | `franklin-gui.py`, `franklin-tui.py`, other read-only views |
+| `franklin:race_state:latest` | Retained latest race-state snapshot for late joiners | `franklin-race-recorder.py` | `franklin-gui.py`, `franklin-tui.py`, `scoreboard_web_app.py`, `driver_web_app.py`, `referee_web_app.py`, other read-only views |
 | `franklin:race_recorder:lock` | Single-owner recorder lock (`SET NX EX 10`, refreshed every 4 s, atomically released on exit). Exactly **one** recorder may hold it. | `franklin-race-recorder.py` (the **only** writer — acquires/refreshes/releases) | `franklin-gui.py`, `franklin-tui.py` (read-only liveness check; show a big error banner when the key is absent) |
 
 ---
@@ -312,15 +312,21 @@ If `franklin:race_state:latest` is absent (recorder not yet running), views fall
 - Owns the in-memory `Race` model and is the only writer to SQLite (`laps`, `races`).
 - Core model/persistence logic lives in `race/race_engine.py` (`RaceEngine`); the daemon is a thin Redis transport around it.
 
+## `driver_web_app.py`
+
+- **Subscribes:** `hardware:out`, `franklin:events`, `franklin:race_state`
+- **Publishes to Redis:** none
+- **Forwards to browser clients:** all received Redis JSON messages over WebSocket
+
 ## `referee_web_app.py`
 
-- **Subscribes:** `hardware:out`, `franklin:events`
+- **Subscribes:** `hardware:out`, `franklin:events`, `franklin:race_state`
 - **Publishes:** `hardware:in` (`start_race` with schedule fields, `end_race`, `reset_race`, `add_penalty`, `remove_lap`, `disqualify_racer`)
 - Adds metadata by default to command payloads: `command_id`, `source`, `timestamp`
 
 ## `scoreboard_web_app.py`
 
-- **Subscribes:** `hardware:out`, `franklin:events`
+- **Subscribes:** `hardware:out`, `franklin:events`, `franklin:race_state`
 - **Publishes to Redis:** none
 - **Forwards to browser clients:** all received Redis JSON messages over WebSocket
 

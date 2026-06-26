@@ -2264,4 +2264,16 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except RuntimeError as e:
+        if "Gtk couldn't be initialized" in str(e):
+            msg = (
+                "GTK display initialization failed. No display server (X11/Wayland) available.\n"
+                "  - If you're over SSH, reconnect with: ssh -X <host>\n"
+                "  - Or use the TUI instead: python franklin-tui.py --fake\n"
+                "  - Or set DISPLAY if running on a local terminal."
+            )
+            print(msg, file=__import__("sys").stderr)
+            __import__("sys").exit(1)
+        raise

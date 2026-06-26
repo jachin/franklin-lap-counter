@@ -28,7 +28,11 @@ Whe the PI boots up it auto logsin and starts up the Franklin Lap Couter.
 ## Running the System
 
 ### Prerequisites
-This project uses [Devbox](https://www.jetify.com/devbox) for environment management. Redis starts automatically when you enter the devbox shell.
+- **Rust toolchain** — The hardware monitor is written in Rust. `rustup` is already in devbox, so no separate install is needed. Inside a devbox/tmux session, set the default toolchain:
+  ```bash
+  rustup default stable
+  ```
+- **Devbox** — This project uses [Devbox](https://www.jetify.com/devbox) for environment management. Redis starts automatically when you enter the devbox shell.
 
 ```bash
 # Enter the development environment
@@ -107,10 +111,17 @@ python franklin-tui.py --race
 python franklin-gui.py --race
 ```
 
-#### 3. Running a Self-Contained Fake Race (completely standalone)
+#### 3. Running a Fake Race (no hardware required)
 
-No hardware interface or Redis backend setup is needed - Franklin generates a fake race internally:
+A fake race generates synthetic laps so you can test the UI without physical hardware. The race recorder must be running — it owns the race model and generates the fake laps. The TUI/GUI are pure renderers that subscribe to the recorder's state.
 
+**Terminal 1 — Headless Recorder (required):**
+```bash
+devbox shell
+python franklin-race-recorder.py
+```
+
+**Terminal 2 — TUI or GUI renderer:**
 ```bash
 devbox shell
 python franklin-tui.py --fake
@@ -118,18 +129,23 @@ python franklin-tui.py --fake
 python franklin-gui.py --fake
 ```
 
+You can also launch the full stack (recorder + web apps + renderer) in a single tmux session:
+```bash
+devbox run start:franklin-simulator
+```
+
 ---
 
 ## Web Applications
 
 ### Scoreboard Web App
-Starts `scoreboard_web_app.py` on port `8080`. Serves the live scoreboard UI and WebSocket/REST endpoints for race data.
+Starts `scoreboard_web_app.py` on port `8085`. Serves the live scoreboard UI and WebSocket/REST endpoints for race data.
 ```bash
 devbox run web_scoreboard
 ```
-- Local access: `http://127.0.0.1:8080`
-- Network access: `http://<pi-ip>:8080`
+- Local access: `http://127.0.0.1:8085`
 
+- Network access: `http://<pi-ip>:8085`
 ### Driver Web App
 Starts `driver_web_app.py` on port `8083`. Enables drivers or teams to view real-time countdown lights, specific racer details (position, progress, best/last lap, penalties), and practice/training mode lap histories.
 ```bash
@@ -149,7 +165,7 @@ devbox run web_referee
 
 ### Local Hostnames (Hotspot AP + Caddy Proxy)
 When the Raspberry Pi hotspot and Caddy reverse proxy are active, the following local domains route automatically:
-- `scoreboard.frank` → `scoreboard_web_app.py` (`127.0.0.1:8080`)
+- `scoreboard.frank` → `scoreboard_web_app.py` (`127.0.0.1:8085`)
 - `referee.frank` → `referee_web_app.py` (`127.0.0.1:8081`)
 - `healthcheck.frank` → `healthcheck_web_app.py` (`127.0.0.1:8082`)
 - `racer.frank` → `driver_web_app.py` (`127.0.0.1:8083`)

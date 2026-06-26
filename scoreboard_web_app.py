@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Scoreboard web app server that bridges Redis pub/sub to connected clients.
-Subscribes to `hardware:out` and `franklin:events`, then broadcasts messages over WebSocket.
+Subscribes to `hardware:out`, `franklin:events`, and `franklin:race_state`, then broadcasts messages over WebSocket.
 
 Authoritative channel/message reference:
 - docs/redis-message-reference.md
@@ -25,7 +25,8 @@ from database import LapDatabase
 REDIS_SOCKET_PATH = "./redis.sock"
 REDIS_OUT_CHANNEL = "hardware:out"
 REDIS_EVENTS_CHANNEL = "franklin:events"
-WEB_PORT = 8080
+RACE_STATE_CHANNEL = "franklin:race_state"
+WEB_PORT = 8085
 WEB_HOST = "0.0.0.0"  # Bind to all network interfaces
 STATIC_DIR = Path(__file__).parent / "static"
 DB_PATH = "franklin.db"
@@ -59,6 +60,7 @@ class ScoreboardWebAppServer:
         # Setup routes
         self.app.router.add_get("/ws", self.websocket_handler)
         self.app.router.add_get("/", self.index_handler)
+        self.app.router.add_get("/dashboard", self.dashboard_handler)
 
         # REST API routes
         self.app.router.add_get("/api/races", self.get_races)
@@ -73,6 +75,9 @@ class ScoreboardWebAppServer:
         """Serve the index.html file"""
         index_file = STATIC_DIR / "index.html"
         return web.FileResponse(index_file)
+
+    async def dashboard_handler(self, request: web.Request) -> web.FileResponse:
+        return web.FileResponse(STATIC_DIR / "dashboard.html")
 
     async def get_races(self, request: web.Request) -> web.Response:
         """Get paginated list of races ordered by newest to oldest"""
@@ -142,10 +147,30 @@ class ScoreboardWebAppServer:
             return web.json_response({"error": str(e)}, status=500)
 
     async def get_race_stats(self, request: web.Request) -> web.Response:
-        """Get statistics for a specific race"""
+        """Get statistics for a specific race, including registered contestants with 0 laps."""
         try:
             race_id = int(request.match_info["race_id"])
             stats = self.db.get_race_stats(race_id)
+
+            # Include registered contestants even when they have no laps yet
+            # (so the frontend shows all drivers with 0 laps instead of "No standings").
+            config = self._read_config()
+            contestants = config.get("contestants")
+            if isinstance(contestants, list):
+                for entry in contestants:
+                    if not isinstance(entry, dict):
+                        continue
+                    cid = entry.get("transmitter_id")
+                    if not isinstance(cid, int):
+                        continue
+                    if cid not in stats:
+                        stats[cid] = {
+                            "racer_id": cid,
+                            "lap_count": 0,
+                            "max_lap": 0,
+                            "best_lap_time": None,
+                        }
+
             return web.json_response({"race_id": race_id, "stats": stats})
         except ValueError:
             return web.json_response({"error": "Invalid race ID"}, status=400)
@@ -181,10 +206,10 @@ class ScoreboardWebAppServer:
 
         return ws
 
-    async def get_config(self, request: web.Request) -> web.Response:
-        """Get the configuration from preferences database"""
+    def _read_config(self) -> dict[str, Any]:
+        """Read the configuration from preferences database"""
         try:
-            config = {}
+            config: dict[str, Any] = {}
             for key in [
                 "race_mode",
                 "total_laps",
@@ -205,16 +230,23 @@ class ScoreboardWebAppServer:
                         for k, v in loaded.items():
                             self.db.set_preference(k, v)
                             config[k] = v
-                        return web.json_response(config)
+                        return config
 
             if "total_laps" not in config:
                 config["total_laps"] = 10
             if "contestants" not in config:
                 config["contestants"] = []
-            return web.json_response(config)
+            return config
+        except Exception as e:
+            logger.error("Error reading config from database: %s", e)
+            return {"total_laps": 10, "contestants": []}
+
+    async def get_config(self, request: web.Request) -> web.Response:
+        """Get the configuration from preferences database"""
+        try:
+            return web.json_response(self._read_config())
         except Exception as e:
             logger.error(f"Error reading config from database: {e}")
-            # Return a default configuration on error
             default_config = {"total_laps": 10, "contestants": [], "error": str(e)}
             return web.json_response(default_config)
 
@@ -275,6 +307,19 @@ class ScoreboardWebAppServer:
         # Clean up disconnected clients
         self.websockets -= disconnected
 
+    async def _broadcast_retained_snapshot(self) -> None:
+        """Load the retained race snapshot from Redis and broadcast to clients."""
+        if self.redis_client is None:
+            return
+        try:
+            payload = await self.redis_client.get("franklin:race_state:latest")
+            if isinstance(payload, str):
+                data = json.loads(payload)
+                if isinstance(data, dict):
+                    await self.broadcast_to_websockets(data)
+        except Exception as exc:
+            logger.debug("No retained snapshot to broadcast: %s", exc)
+
     async def redis_listener(self) -> None:
         """Listen to Redis pub/sub and broadcast to WebSocket clients"""
         try:
@@ -282,11 +327,15 @@ class ScoreboardWebAppServer:
                 unix_socket_path=self.redis_socket, decode_responses=True
             )
             self.redis_pubsub = self.redis_client.pubsub()
-            await self.redis_pubsub.subscribe(REDIS_OUT_CHANNEL, REDIS_EVENTS_CHANNEL)
+            await self.redis_pubsub.subscribe(REDIS_OUT_CHANNEL, REDIS_EVENTS_CHANNEL, RACE_STATE_CHANNEL)
 
             logger.info(
-                f"Subscribed to Redis channels: {REDIS_OUT_CHANNEL}, {REDIS_EVENTS_CHANNEL}"
+                f"Subscribed to Redis channels: {REDIS_OUT_CHANNEL}, {REDIS_EVENTS_CHANNEL}, {RACE_STATE_CHANNEL}"
             )
+
+            # Load and broadcast the retained snapshot so late joiners show
+            # current state immediately instead of waiting for the next live msg.
+            await self._broadcast_retained_snapshot()
 
             while True:
                 message = await self.redis_pubsub.get_message(
@@ -304,6 +353,8 @@ class ScoreboardWebAppServer:
 
                 await asyncio.sleep(0.01)
 
+        except asyncio.CancelledError:
+            logger.info("Redis listener cancelled")
         except Exception as e:
             logger.error(f"Redis listener error: {e}")
         finally:

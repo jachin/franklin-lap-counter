@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Driver/team web app server.
 
+Subscribes to `hardware:out`, `franklin:events`, and `franklin:race_state`, then broadcasts messages over WebSocket.
+
 Provides a racer-focused view:
 - pick a racer
 - see start-light state mirrored from race timeline events
@@ -28,6 +30,7 @@ from database import LapDatabase
 REDIS_SOCKET_PATH = "./redis.sock"
 REDIS_OUT_CHANNEL = "hardware:out"
 REDIS_EVENTS_CHANNEL = "franklin:events"
+RACE_STATE_CHANNEL = "franklin:race_state"
 WEB_PORT = 8083
 WEB_HOST = "0.0.0.0"
 STATIC_DIR = Path(__file__).parent / "static"
@@ -131,11 +134,21 @@ class DriverWebAppServer:
         if not race:
             return "unknown"
 
-        notes = str(race.get("notes") or "")
-        notes_lower = notes.lower()
+        notes_raw = race.get("notes")
+        if isinstance(notes_raw, str):
+            try:
+                parsed = json.loads(notes_raw)
+                if isinstance(parsed, dict):
+                    mode_str = str(parsed.get("mode", "")).lower()
+                    if mode_str == "training":
+                        return "practice"
+                    return "race"
+            except (json.JSONDecodeError, TypeError):
+                pass
+            notes_lower = notes_raw.lower()
+            if "training mode" in notes_lower:
+                return "practice"
 
-        if "training mode" in notes_lower:
-            return "practice"
         return "race"
 
     def _latest_race(self) -> dict[str, Any] | None:
@@ -476,12 +489,13 @@ class DriverWebAppServer:
                 decode_responses=True,
             )
             self.redis_pubsub = self.redis_client.pubsub()
-            await self.redis_pubsub.subscribe(REDIS_OUT_CHANNEL, REDIS_EVENTS_CHANNEL)
+            await self.redis_pubsub.subscribe(REDIS_OUT_CHANNEL, REDIS_EVENTS_CHANNEL, RACE_STATE_CHANNEL)
 
             logger.info(
-                "Driver app subscribed to Redis channels: %s, %s",
+                "Driver app subscribed to Redis channels: %s, %s, %s",
                 REDIS_OUT_CHANNEL,
                 REDIS_EVENTS_CHANNEL,
+                RACE_STATE_CHANNEL,
             )
 
             while True:
@@ -500,6 +514,8 @@ class DriverWebAppServer:
                             logger.error("Invalid JSON from Redis: %s", data)
 
                 await asyncio.sleep(0.01)
+        except asyncio.CancelledError:
+            logger.info("Redis listener cancelled")
         finally:
             if self.redis_pubsub:
                 await self.redis_pubsub.aclose()

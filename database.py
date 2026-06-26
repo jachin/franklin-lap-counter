@@ -465,12 +465,12 @@ class LapDatabase:
         assert self.conn is not None
         cursor = self.conn.cursor()
 
-        # Get total laps per racer
+        # Get total laps per racer (lap_number > 0 excludes the first detection/crossing)
         cursor.execute(
             """
             SELECT racer_id, COUNT(*) as lap_count, MAX(lap_number) as max_lap
             FROM laps
-            WHERE race_id = ?
+            WHERE race_id = ? AND lap_number > 0
             GROUP BY racer_id
         """,
             (race_id,),

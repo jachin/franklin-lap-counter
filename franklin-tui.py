@@ -759,13 +759,14 @@ class Franklin(App[Any]):  # type: ignore[type-arg]
 
     def refresh_driver_data(self) -> None:
         """Refresh displays that show driver information."""
-        # Update any UI components that display driver names
+        # Push the latest contestants reference to widgets so renamed names
+        # are visible even after preferences_changed replaced the object.
+        self.query_one(LeaderboardDisplay).contestants = self.global_contestants
         self.query_one(LeaderboardDisplay).refresh_display()
 
-        # If we have any lap data displays, update them
         lap_displays = self.query(LapDataDisplay)
         for display in lap_displays:
-            # Force a re-render by setting laps to itself
+            display.contestants = self.global_contestants
             display.refresh_display()
 
     async def on_mount(self) -> None:

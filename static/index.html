@@ -342,6 +342,18 @@
         </style>
     </head>
     <body>
+        <style>
+            .dash-link {
+                display: inline-block;
+                font-size: 0.8rem;
+                opacity: 0.6;
+                text-decoration: none;
+                color: inherit;
+                margin-bottom: 8px;
+            }
+            .dash-link:hover { opacity: 1; text-decoration: underline; }
+        </style>
+        <a href="/dashboard" class="dash-link">← Dashboard</a>
         <h1>Franklin RC Lap Counter</h1>
 
         <div class="controls">
@@ -729,6 +741,12 @@
                     return;
                 }
 
+                // Filter out full race-state snapshots (handled by snapshot_seq handler)
+                // to avoid dumping massive laps/leaderboard JSON into the event log.
+                if (eventData.snapshot_seq !== undefined) {
+                    return;
+                }
+
                 console.log(`Received event type: ${eventType}`, eventData);
 
                 const eventDiv = document.createElement("div");
@@ -856,7 +874,7 @@
                     state.currentRace = latestRace;
 
                     // Only fetch additional data if the race is in progress or recently ended
-                    const endEpochMs = Number.isFinite(
+                    const endEpochMs = latestRace.end_at != null && Number.isFinite(
                         Number(latestRace.end_at),
                     )
                         ? Number(latestRace.end_at) * 1000
@@ -946,6 +964,25 @@
                     try {
                         const data = JSON.parse(event.data);
                         console.log("WebSocket received:", data);
+
+                        // For race state snapshots, refresh immediately
+                        if (data.snapshot_seq !== undefined) {
+                            console.log(
+                                "Race snapshot received, state:",
+                                data.state,
+                            );
+                            fetchRaceData().catch((err) => {
+                                console.warn(
+                                    "Refresh error after snapshot:",
+                                    err,
+                                );
+                                addEvent({
+                                    type: "error",
+                                    message:
+                                        "Failed to refresh data after state change",
+                                });
+                            });
+                        }
 
                         // For race start/end events, refresh immediately
                         if (data.type === "status" && data.message) {

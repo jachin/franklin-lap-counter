@@ -123,6 +123,15 @@ class RefereeWebAppServer:
 
         return ws
 
+    def _require_race_in_progress(self) -> web.Response | None:
+        """Return a 409 JSON response if no race is in progress, or None if OK."""
+        if self.db.get_in_progress_race() is None:
+            return web.json_response(
+                {"ok": False, "error": "No race is currently in progress"},
+                status=409,
+            )
+        return None
+
     async def _publish_command(self, payload: dict[str, Any]) -> None:
         if not self.redis_client:
             raise RuntimeError("Redis not connected")
@@ -154,16 +163,25 @@ class RefereeWebAppServer:
         return web.json_response({"ok": True, "published": payload})
 
     async def end_race_handler(self, request: web.Request) -> web.Response:
+        guard = self._require_race_in_progress()
+        if guard:
+            return guard
         payload = {"command": "end_race"}
         await self._publish_command(payload)
         return web.json_response({"ok": True, "published": payload})
 
     async def reset_race_handler(self, request: web.Request) -> web.Response:
+        guard = self._require_race_in_progress()
+        if guard:
+            return guard
         payload = {"command": "reset_race"}
         await self._publish_command(payload)
         return web.json_response({"ok": True, "published": payload})
 
     async def add_penalty_handler(self, request: web.Request) -> web.Response:
+        guard = self._require_race_in_progress()
+        if guard:
+            return guard
         body = await request.json()
 
         racer_id = int(body.get("racer_id", 0))
@@ -194,6 +212,9 @@ class RefereeWebAppServer:
         return web.json_response({"ok": True, "published": payload})
 
     async def remove_lap_handler(self, request: web.Request) -> web.Response:
+        guard = self._require_race_in_progress()
+        if guard:
+            return guard
         body = await request.json()
 
         racer_id = int(body.get("racer_id", 0))
@@ -224,6 +245,9 @@ class RefereeWebAppServer:
         return web.json_response({"ok": True, "published": payload})
 
     async def disqualify_racer_handler(self, request: web.Request) -> web.Response:
+        guard = self._require_race_in_progress()
+        if guard:
+            return guard
         body = await request.json()
 
         racer_id = int(body.get("racer_id", 0))

@@ -171,7 +171,12 @@ class ScoreboardWebAppServer:
                             "best_lap_time": None,
                         }
 
-            return web.json_response({"race_id": race_id, "stats": stats})
+            disqualified = self.db.get_disqualified_racers(race_id)
+            return web.json_response({
+                "race_id": race_id,
+                "stats": stats,
+                "disqualified": disqualified,
+            })
         except ValueError:
             return web.json_response({"error": "Invalid race ID"}, status=400)
         except Exception as e:

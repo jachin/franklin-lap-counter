@@ -28,7 +28,6 @@
     "graphene@latest",
     "harfbuzz@latest",
     "pango.dev",
-    "systemd.dev",
     "cairo@latest",
     "gdk-pixbuf@latest",
     "dpkg@latest"

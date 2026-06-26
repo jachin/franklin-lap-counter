@@ -275,6 +275,19 @@ class ScoreboardWebAppServer:
         # Clean up disconnected clients
         self.websockets -= disconnected
 
+    async def _broadcast_retained_snapshot(self) -> None:
+        """Load the retained race snapshot from Redis and broadcast to clients."""
+        if self.redis_client is None:
+            return
+        try:
+            payload = await self.redis_client.get("franklin:race_state:latest")
+            if isinstance(payload, str):
+                data = json.loads(payload)
+                if isinstance(data, dict):
+                    await self.broadcast_to_websockets(data)
+        except Exception as exc:
+            logger.debug("No retained snapshot to broadcast: %s", exc)
+
     async def redis_listener(self) -> None:
         """Listen to Redis pub/sub and broadcast to WebSocket clients"""
         try:
@@ -287,6 +300,10 @@ class ScoreboardWebAppServer:
             logger.info(
                 f"Subscribed to Redis channels: {REDIS_OUT_CHANNEL}, {REDIS_EVENTS_CHANNEL}"
             )
+
+            # Load and broadcast the retained snapshot so late joiners show
+            # current state immediately instead of waiting for the next live msg.
+            await self._broadcast_retained_snapshot()
 
             while True:
                 message = await self.redis_pubsub.get_message(
@@ -304,6 +321,8 @@ class ScoreboardWebAppServer:
 
                 await asyncio.sleep(0.01)
 
+        except asyncio.CancelledError:
+            logger.info("Redis listener cancelled")
         except Exception as e:
             logger.error(f"Redis listener error: {e}")
         finally:

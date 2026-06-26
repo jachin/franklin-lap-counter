@@ -77,4 +77,4 @@ windows:
         - system:
             - echo "Opening all logs in lnav (merged, time-ordered)..."
             - touch race.log race_recorder.log hardware_redis.log redis.log gui.log
-            - if [ -f /var/log/syslog ]; then lnav race.log race_recorder.log hardware_redis.log redis.log gui.log /var/log/syslog; else lnav race.log race_recorder.log hardware_redis.log redis.log gui.log; fi
+            - if [ -r /var/log/syslog ]; then lnav race.log race_recorder.log hardware_redis.log redis.log gui.log /var/log/syslog; else lnav race.log race_recorder.log hardware_redis.log redis.log gui.log; fi

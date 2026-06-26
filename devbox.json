@@ -28,6 +28,7 @@
     "graphene@latest",
     "harfbuzz@latest",
     "pango.dev",
+    "systemd.dev",
     "cairo@latest",
     "gdk-pixbuf@latest",
     "dpkg@latest"
@@ -37,13 +38,27 @@
   },
   "shell": {
     "init_hook": [
-      "export GI_TYPELIB_PATH=\"$DEVBOX_PACKAGES_DIR/lib/girepository-1.0:/nix/store/88695svqh0ii3c8ax51vgkv53rsdfnwn-pango-1.57.1/lib/girepository-1.0:/nix/store/f5q5qhflsijx1drbsanwcjx0m9l717ix-gdk-pixbuf-2.44.6/lib/girepository-1.0:$GI_TYPELIB_PATH\"",
+      "export GI_TYPELIB_PATH=\"$(find /nix/store -maxdepth 3 -type d -path '*/lib/girepository-1.0' 2>/dev/null | tr '\\n' ':')$GI_TYPELIB_PATH\"",
       "redis-server --daemonize yes --unixsocket ./redis.sock --unixsocketperm 700"
     ],
     "scripts": {
       "start:franklin": ["tmuxinator start -p tmuxinator/franklin.yml"],
       "start:franklin-simulator": [
         "tmuxinator start -p tmuxinator/franklin-simulator.yml"
+      ],
+      "stop:franklin-simulator": [
+        "echo 'Stopping franklin-simulator tmux session...'",
+        "tmuxinator stop franklin-simulator 2>/dev/null || tmux kill-session -t franklin-simulator 2>/dev/null || true",
+        "echo 'Cleaning up orphaned processes...'",
+        "pkill -f 'python .*_web_app.py' 2>/dev/null || true",
+        "pkill -f 'franklin-hardware-monitor' 2>/dev/null || true",
+        "pkill -f 'python franklin-race-recorder.py' 2>/dev/null || true",
+        "pkill -f 'python franklin-tui.py' 2>/dev/null || true",
+        "pkill -f 'watchexec' 2>/dev/null || true",
+        "echo 'Clearing stale Redis state...'",
+        "redis-cli -s ./redis.sock DEL franklin:race_state:latest 2>/dev/null || true",
+        "redis-cli -s ./redis.sock DEL franklin:race_recorder:lock 2>/dev/null || true",
+        "echo 'Done.'"
       ],
       "web_scoreboard": ["python scoreboard_web_app.py"],
       "web_referee": ["python referee_web_app.py"],

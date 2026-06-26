@@ -28,7 +28,11 @@ Whe the PI boots up it auto logsin and starts up the Franklin Lap Couter.
 ## Running the System
 
 ### Prerequisites
-This project uses [Devbox](https://www.jetify.com/devbox) for environment management. Redis starts automatically when you enter the devbox shell.
+- **Rust toolchain** — The hardware monitor is written in Rust. `rustup` is already in devbox, so no separate install is needed. Inside a devbox/tmux session, set the default toolchain:
+  ```bash
+  rustup default stable
+  ```
+- **Devbox** — This project uses [Devbox](https://www.jetify.com/devbox) for environment management. Redis starts automatically when you enter the devbox shell.
 
 ```bash
 # Enter the development environment
@@ -107,15 +111,27 @@ python franklin-tui.py --race
 python franklin-gui.py --race
 ```
 
-#### 3. Running a Self-Contained Fake Race (completely standalone)
+#### 3. Running a Fake Race (no hardware required)
 
-No hardware interface or Redis backend setup is needed - Franklin generates a fake race internally:
+A fake race generates synthetic laps so you can test the UI without physical hardware. The race recorder must be running — it owns the race model and generates the fake laps. The TUI/GUI are pure renderers that subscribe to the recorder's state.
 
+**Terminal 1 — Headless Recorder (required):**
+```bash
+devbox shell
+python franklin-race-recorder.py
+```
+
+**Terminal 2 — TUI or GUI renderer:**
 ```bash
 devbox shell
 python franklin-tui.py --fake
 # OR
 python franklin-gui.py --fake
+```
+
+You can also launch the full stack (recorder + web apps + renderer) in a single tmux session:
+```bash
+devbox run start:franklin-simulator
 ```
 
 ---

@@ -1840,6 +1840,10 @@
         }
       }
     },
+    "systemd.dev": {
+      "resolved": "github:NixOS/nixpkgs/cbb5cf358f50aa6acc9efd6113b7bcfbc352cd73?narHash=sha256-IX7G1dlKrOqPOImfbo7ADDfV5yU1%2Bj%2BMRChI3TL4tAA%3D#systemd.dev",
+      "source": "nixpkg"
+    },
     "tmux@latest": {
       "last_modified": "2025-11-26T14:39:26Z",
       "resolved": "github:NixOS/nixpkgs/5c46f3bd98147c8d82366df95bbef2cab3a967ea#tmux",

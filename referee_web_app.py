@@ -325,6 +325,8 @@ class RefereeWebAppServer:
                             logger.error("Invalid JSON from Redis: %s", data)
 
                 await asyncio.sleep(0.01)
+        except asyncio.CancelledError:
+            logger.info("Redis listener cancelled")
         finally:
             if self.redis_pubsub:
                 await self.redis_pubsub.aclose()

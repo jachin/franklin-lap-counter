@@ -741,6 +741,12 @@
                     return;
                 }
 
+                // Filter out full race-state snapshots (handled by snapshot_seq handler)
+                // to avoid dumping massive laps/leaderboard JSON into the event log.
+                if (eventData.snapshot_seq !== undefined) {
+                    return;
+                }
+
                 console.log(`Received event type: ${eventType}`, eventData);
 
                 const eventDiv = document.createElement("div");
@@ -868,7 +874,7 @@
                     state.currentRace = latestRace;
 
                     // Only fetch additional data if the race is in progress or recently ended
-                    const endEpochMs = Number.isFinite(
+                    const endEpochMs = latestRace.end_at != null && Number.isFinite(
                         Number(latestRace.end_at),
                     )
                         ? Number(latestRace.end_at) * 1000

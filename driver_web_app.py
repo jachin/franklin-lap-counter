@@ -134,11 +134,21 @@ class DriverWebAppServer:
         if not race:
             return "unknown"
 
-        notes = str(race.get("notes") or "")
-        notes_lower = notes.lower()
+        notes_raw = race.get("notes")
+        if isinstance(notes_raw, str):
+            try:
+                parsed = json.loads(notes_raw)
+                if isinstance(parsed, dict):
+                    mode_str = str(parsed.get("mode", "")).lower()
+                    if mode_str == "training":
+                        return "practice"
+                    return "race"
+            except (json.JSONDecodeError, TypeError):
+                pass
+            notes_lower = notes_raw.lower()
+            if "training mode" in notes_lower:
+                return "practice"
 
-        if "training mode" in notes_lower:
-            return "practice"
         return "race"
 
     def _latest_race(self) -> dict[str, Any] | None:

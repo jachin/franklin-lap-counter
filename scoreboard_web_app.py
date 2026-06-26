@@ -147,10 +147,30 @@ class ScoreboardWebAppServer:
             return web.json_response({"error": str(e)}, status=500)
 
     async def get_race_stats(self, request: web.Request) -> web.Response:
-        """Get statistics for a specific race"""
+        """Get statistics for a specific race, including registered contestants with 0 laps."""
         try:
             race_id = int(request.match_info["race_id"])
             stats = self.db.get_race_stats(race_id)
+
+            # Include registered contestants even when they have no laps yet
+            # (so the frontend shows all drivers with 0 laps instead of "No standings").
+            config = self._read_config()
+            contestants = config.get("contestants")
+            if isinstance(contestants, list):
+                for entry in contestants:
+                    if not isinstance(entry, dict):
+                        continue
+                    cid = entry.get("transmitter_id")
+                    if not isinstance(cid, int):
+                        continue
+                    if cid not in stats:
+                        stats[cid] = {
+                            "racer_id": cid,
+                            "lap_count": 0,
+                            "max_lap": 0,
+                            "best_lap_time": None,
+                        }
+
             return web.json_response({"race_id": race_id, "stats": stats})
         except ValueError:
             return web.json_response({"error": "Invalid race ID"}, status=400)
@@ -186,10 +206,10 @@ class ScoreboardWebAppServer:
 
         return ws
 
-    async def get_config(self, request: web.Request) -> web.Response:
-        """Get the configuration from preferences database"""
+    def _read_config(self) -> dict[str, Any]:
+        """Read the configuration from preferences database"""
         try:
-            config = {}
+            config: dict[str, Any] = {}
             for key in [
                 "race_mode",
                 "total_laps",
@@ -210,16 +230,23 @@ class ScoreboardWebAppServer:
                         for k, v in loaded.items():
                             self.db.set_preference(k, v)
                             config[k] = v
-                        return web.json_response(config)
+                        return config
 
             if "total_laps" not in config:
                 config["total_laps"] = 10
             if "contestants" not in config:
                 config["contestants"] = []
-            return web.json_response(config)
+            return config
+        except Exception as e:
+            logger.error("Error reading config from database: %s", e)
+            return {"total_laps": 10, "contestants": []}
+
+    async def get_config(self, request: web.Request) -> web.Response:
+        """Get the configuration from preferences database"""
+        try:
+            return web.json_response(self._read_config())
         except Exception as e:
             logger.error(f"Error reading config from database: {e}")
-            # Return a default configuration on error
             default_config = {"total_laps": 10, "contestants": [], "error": str(e)}
             return web.json_response(default_config)
 

@@ -276,6 +276,16 @@
         </style>
         <a id="dashLink" class="dash-link" href="#">← Dashboard</a>
         <script>document.getElementById('dashLink').href = `${location.protocol}//${location.hostname}:8085/dashboard`</script>
+
+        <div id="audioModal" style="position:fixed;inset:0;background:rgba(0,0,0,0.7);display:flex;align-items:center;justify-content:center;z-index:999">
+            <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:24px;max-width:320px;text-align:center">
+                <p style="margin:0 0 12px;font-size:1.1rem">🔊 Audio is on</p>
+                <p style="margin:0 0 16px;color:var(--muted);font-size:0.9rem">Race sounds enabled</p>
+                <!-- <p style="margin:0;color:var(--muted);font-size:0.75rem"><a href="../docs/audio.md" target="_blank" style="color:var(--muted)">Audio design docs</a></p> -->
+                <button type="button" id="audioOkBtn" style="width:auto;min-width:100px;margin:0 auto">OK</button>
+            </div>
+        </div>
+
         <div class="container">
             <div class="card">
                 <h1>Driver / Team View</h1>
@@ -284,6 +294,11 @@
                     <label for="racerSelect">Pick racer:</label>
                     <select id="racerSelect"></select>
                     <button type="button" id="refreshBtn">Refresh</button>
+                    <button type="button" id="soundBtn">Sound: on</button>
+                    <select id="soundStyleSelect" style="width:100%;min-width:120px">
+                        <option value="classic">Classic</option>
+                        <option value="8bit">8-Bit</option>
+                    </select>
                 </div>
             </div>
 
@@ -296,7 +311,6 @@
                 </div>
 
                 <div class="lights" id="lights">
-                    <div class="light red"></div>
                     <div class="light red"></div>
                     <div class="light red"></div>
                     <div class="light red"></div>
@@ -324,6 +338,13 @@
                 selectedRacerId: null,
                 phase: "waiting",
                 reconnectTimer: null,
+                countdownTimers: [],
+                countdownActive: false,
+                countdownReadyAt: 0,
+                countdownReadyAtMs: 0,
+                raceReady: false,
+                soundEnabled: true,
+                soundStyle: localStorage.getItem("franklin_sound_style") || "classic",
             };
 
             const el = {
@@ -338,7 +359,277 @@
                 topThreeStrip: document.getElementById("topThreeStrip"),
                 detailTitle: document.getElementById("detailTitle"),
                 detailContent: document.getElementById("detailContent"),
+                soundBtn: document.getElementById("soundBtn"),
+                soundStyleSelect: document.getElementById("soundStyleSelect"),
             };
+
+            // Sync the select element to the loaded setting
+            el.soundStyleSelect.value = state.soundStyle;
+
+            let audioCtx = null;
+            let bitcrusherNode = null;
+            let bitcrusherGainNode = null;
+            let pulseWave = null;
+
+            function initBitcrusher() {
+                if (!audioCtx) return;
+                if (bitcrusherNode) return;
+                const shaper = audioCtx.createWaveShaper();
+                const curve = new Float32Array(2048);
+                for (let i = 0; i < 2048; i++) {
+                    let x = (i / 2047) * 2 - 1;
+                    curve[i] = Math.round(x * 8) / 8;
+                }
+                shaper.curve = curve;
+                shaper.oversample = "2x";
+                bitcrusherNode = shaper;
+                bitcrusherGainNode = audioCtx.createGain();
+                bitcrusherGainNode.gain.value = 3.0;
+                bitcrusherNode.connect(bitcrusherGainNode);
+                bitcrusherGainNode.connect(audioCtx.destination);
+            }
+
+            function initPulseWave() {
+                if (!audioCtx) return;
+                if (pulseWave) return;
+                const real = new Float32Array([0, 0, 0, 0.5, 0.5, 0, 0, 0]);
+                const imag = new Float32Array([0, 0, 0, 0, 0, 0, 0, 0]);
+                pulseWave = audioCtx.createPeriodicWave(real, imag);
+            }
+
+            function play8BitNote(freq, startTime, duration, vol = 0.3) {
+                if (!audioCtx) return;
+                try {
+                    initPulseWave();
+                    const osc = audioCtx.createOscillator();
+                    const gain = audioCtx.createGain();
+                    osc.setPeriodicWave(pulseWave);
+                    osc.frequency.setValueAtTime(freq, startTime);
+                    gain.gain.setValueAtTime(0, startTime);
+                    gain.gain.linearRampToValueAtTime(vol, startTime + 0.005);
+                    gain.gain.exponentialRampToValueAtTime(0.001, startTime + duration);
+                    osc.connect(gain);
+                    if (bitcrusherNode) {
+                        gain.connect(bitcrusherNode);
+                    } else {
+                        gain.connect(audioCtx.destination);
+                    }
+                    osc.start(startTime);
+                    osc.stop(startTime + duration);
+                } catch (_) {}
+            }
+
+            function play8BitNoise(startTime, duration, vol = 0.1) {
+                if (!audioCtx) return;
+                try {
+                    const bufferSize = Math.ceil(audioCtx.sampleRate * duration);
+                    const buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+                    const data = buffer.getChannelData(0);
+                    for (let i = 0; i < bufferSize; i++) {
+                        data[i] = (Math.random() * 2 - 1) * (i / bufferSize);
+                    }
+                    const source = audioCtx.createBufferSource();
+                    source.buffer = buffer;
+                    const gain = audioCtx.createGain();
+                    gain.gain.setValueAtTime(vol, startTime);
+                    gain.gain.exponentialRampToValueAtTime(0.001, startTime + duration);
+                    source.connect(gain);
+                    if (bitcrusherNode) {
+                        gain.connect(bitcrusherNode);
+                    } else {
+                        gain.connect(audioCtx.destination);
+                    }
+                    source.start(startTime);
+                    source.stop(startTime + duration);
+                } catch (_) {}
+            }
+
+            function play8BitReadySound() {
+                if (!state.soundEnabled || !audioCtx || audioCtx.state === "suspended") return;
+                try {
+                    initBitcrusher();
+                    const t = audioCtx.currentTime;
+                    // First note of the 3-note start pattern
+                    play8BitNote(196.00, t, 0.9, 0.3);
+                } catch (_) {}
+            }
+
+            function play8BitSetSound() {
+                if (!state.soundEnabled || !audioCtx || audioCtx.state === "suspended") return;
+                try {
+                    initBitcrusher();
+                    const t = audioCtx.currentTime;
+                    // Second note of the 3-note start pattern
+                    play8BitNote(196.00, t, 0.9, 0.3);
+                } catch (_) {}
+            }
+
+            function play8BitGoSound() {
+                if (!state.soundEnabled || !audioCtx || audioCtx.state === "suspended") return;
+                try {
+                    initBitcrusher();
+                    const t = audioCtx.currentTime;
+                    // Third note of the 3-note start pattern — higher tone (2s)
+                    play8BitNote(392.00, t, 2.0, 0.3);
+                } catch (_) {}
+            }
+
+            function play8BitFinishSound() {
+                if (!state.soundEnabled || !audioCtx || audioCtx.state === "suspended") return;
+                try {
+                    initBitcrusher();
+                    const t = audioCtx.currentTime + 0.05;
+                    const notes = [783.99, 659.25, 523.25, 392.00, 261.63];
+                    notes.forEach((freq, i) => {
+                        play8BitNote(freq, t + i * 0.1, 0.15, 0.3);
+                    });
+                    play8BitNoise(t, 0.6, 0.3);
+                } catch (_) {}
+            }
+
+            function beep(freq, durationMs) {
+                if (!state.soundEnabled) return;
+                try {
+                    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                    if (audioCtx.state === "suspended") {
+                        audioCtx.resume().catch(() => {});
+                        return;
+                    }
+                    const t = audioCtx.currentTime;
+                    const osc = audioCtx.createOscillator();
+                    const gain = audioCtx.createGain();
+                    osc.type = "sine";
+                    osc.frequency.value = freq;
+                    gain.gain.setValueAtTime(0.4, t);
+                    gain.gain.exponentialRampToValueAtTime(0.001, t + durationMs / 1000);
+                    osc.connect(gain);
+                    gain.connect(audioCtx.destination);
+                    osc.start(t);
+                    osc.stop(t + durationMs / 1000);
+                } catch (_) {}
+            }
+
+            function playNote(freq, startTime, duration, type = "square", vol = 0.3) {
+                if (!audioCtx) return;
+                try {
+                    const osc = audioCtx.createOscillator();
+                    const gain = audioCtx.createGain();
+                    osc.type = type;
+                    osc.frequency.value = freq;
+                    gain.gain.setValueAtTime(0, startTime);
+                    gain.gain.linearRampToValueAtTime(vol, startTime + 0.01);
+                    gain.gain.exponentialRampToValueAtTime(0.001, startTime + duration);
+                    osc.connect(gain);
+                    gain.connect(audioCtx.destination);
+                    osc.start(startTime);
+                    osc.stop(startTime + duration);
+                } catch (_) {}
+            }
+
+            function playNoise(startTime, duration, vol = 0.15) {
+                if (!audioCtx) return;
+                try {
+                    const bufferSize = Math.ceil(audioCtx.sampleRate * duration);
+                    const buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+                    const data = buffer.getChannelData(0);
+                    for (let i = 0; i < bufferSize; i++) data[i] = Math.random() * 2 - 1;
+                    const source = audioCtx.createBufferSource();
+                    source.buffer = buffer;
+                    const gain = audioCtx.createGain();
+                    gain.gain.setValueAtTime(vol, startTime);
+                    gain.gain.exponentialRampToValueAtTime(0.001, startTime + duration);
+                    source.connect(gain);
+                    gain.connect(audioCtx.destination);
+                    source.start(startTime);
+                    source.stop(startTime + duration);
+                } catch (_) {}
+            }
+
+            function playReadySound() {
+                if (!state.soundEnabled || !audioCtx || audioCtx.state === "suspended") return;
+                try {
+                    const t = audioCtx.currentTime;
+                    for (const freq of [174.61, 220.00, 261.63, 349.23]) {
+                        const osc = audioCtx.createOscillator();
+                        const gain = audioCtx.createGain();
+                        osc.type = "square";
+                        osc.frequency.setValueAtTime(freq, t);
+                        gain.gain.setValueAtTime(0, t);
+                        gain.gain.linearRampToValueAtTime(0.25, t + 0.03);
+                        gain.gain.linearRampToValueAtTime(0, t + 0.9);
+                        osc.connect(gain);
+                        gain.connect(audioCtx.destination);
+                        osc.start(t);
+                        osc.stop(t + 0.9);
+                    }
+                } catch (_) {}
+            }
+
+            function playSetSound() {
+                if (!state.soundEnabled || !audioCtx || audioCtx.state === "suspended") return;
+                try {
+                    const t = audioCtx.currentTime;
+                    for (const freq of [174.61, 220.00, 261.63, 349.23]) {
+                        const osc = audioCtx.createOscillator();
+                        const gain = audioCtx.createGain();
+                        osc.type = "square";
+                        osc.frequency.setValueAtTime(freq, t);
+                        gain.gain.setValueAtTime(0, t);
+                        gain.gain.linearRampToValueAtTime(0.25, t + 0.03);
+                        gain.gain.linearRampToValueAtTime(0, t + 0.9);
+                        osc.connect(gain);
+                        gain.connect(audioCtx.destination);
+                        osc.start(t);
+                        osc.stop(t + 0.9);
+                    }
+                } catch (_) {}
+            }
+
+            function playGoSound() {
+                if (!state.soundEnabled || !audioCtx || audioCtx.state === "suspended") return;
+                try {
+                    const t = audioCtx.currentTime;
+                    for (const freq of [196.00, 246.94, 293.66, 392.00]) {
+                        const osc = audioCtx.createOscillator();
+                        const gain = audioCtx.createGain();
+                        osc.type = "square";
+                        osc.frequency.setValueAtTime(freq, t);
+                        gain.gain.setValueAtTime(0, t);
+                        gain.gain.linearRampToValueAtTime(0.3, t + 0.03);
+                        gain.gain.linearRampToValueAtTime(0, t + 2.0);
+                        osc.connect(gain);
+                        gain.connect(audioCtx.destination);
+                        osc.start(t);
+                        osc.stop(t + 2.0);
+                    }
+                } catch (_) {}
+            }
+
+            function playFinishSound() {
+                if (!state.soundEnabled || !audioCtx || audioCtx.state === "suspended") return;
+                try {
+                    const t = audioCtx.currentTime + 0.05;
+                    const notes = [783.99, 659.25, 523.25, 392.00, 261.63];
+                    notes.forEach((freq, i) => {
+                        playNote(freq, t + i * 0.08, 0.06, "square", 0.25);
+                    });
+                    playNoise(t, 0.4, 0.15);
+                    const hornStart = t + 0.55;
+                    for (const freq of [261.63, 329.63, 392.00, 523.25]) {
+                        const osc = audioCtx.createOscillator();
+                        const gain = audioCtx.createGain();
+                        osc.type = "square";
+                        osc.frequency.setValueAtTime(freq, hornStart);
+                        gain.gain.setValueAtTime(0, hornStart);
+                        gain.gain.linearRampToValueAtTime(0.25, hornStart + 0.05);
+                        gain.gain.linearRampToValueAtTime(0, hornStart + 2.0);
+                        osc.connect(gain);
+                        gain.connect(audioCtx.destination);
+                        osc.start(hornStart);
+                        osc.stop(hornStart + 2.0);
+                    }
+                } catch (_) {}
+            }
 
             function fmtTime(seconds) {
                 const n = Number(seconds);
@@ -363,7 +654,7 @@
 
             function setLights(pattern) {
                 const children = Array.from(el.lights.children);
-                if (children.length !== 4) return;
+                if (children.length !== 3) return;
                 children.forEach((node, idx) => {
                     node.className = `light ${pattern[idx]}`;
                 });
@@ -371,26 +662,27 @@
 
             function syncLightsForPhase() {
                 if (state.phase === "ready") {
-                    setLights(["yellow", "red", "red", "yellow"]);
+                    setLights(["green", "red", "red"]);
                     el.phaseText.textContent = "State: starting - ready";
                     return;
                 }
                 if (state.phase === "set") {
-                    setLights(["yellow", "yellow", "yellow", "yellow"]);
+                    setLights(["green", "green", "red"]);
                     el.phaseText.textContent = "State: starting - set";
                     return;
                 }
                 if (state.phase === "go" || state.phase === "running") {
-                    setLights(["green", "green", "green", "green"]);
+                    setLights(["green", "green", "green"]);
                     el.phaseText.textContent = "State: running";
                     return;
                 }
 
-                setLights(["red", "red", "red", "red"]);
+                setLights(["red", "red", "red"]);
                 el.phaseText.textContent = "State: waiting";
             }
 
             function applyRaceDerivedPhase() {
+                if (state.countdownActive) return;
                 const race = state.current?.race;
                 if (!race) {
                     state.phase = "waiting";
@@ -725,11 +1017,13 @@
                 return data.laps || [];
             }
 
-            async function renderAll() {
+            async function renderAll(skipPhaseDerive = false) {
                 await fetchCurrent();
                 renderRacerPicker();
                 renderHeader();
-                applyRaceDerivedPhase();
+                if (!skipPhaseDerive) {
+                    applyRaceDerivedPhase();
+                }
 
                 const mode = state.current?.mode || "unknown";
                 renderTopThreeStrip(
@@ -788,15 +1082,20 @@
                         const msg = JSON.parse(evt.data);
                         const type = msg?.type;
 
+                        const dbg = (msgType, detail) => console.log(`[WS ${msgType || "?"}]`, detail, `phase=${state.phase} cd=${state.countdownActive} rdy=${state.raceReady}`);
+
                         if (msg.snapshot_seq !== undefined) {
                             const raceState = String(msg.state || "").toLowerCase();
-                            if (raceState === "running") {
-                                state.phase = "running";
-                            } else {
-                                state.phase = "waiting";
+                            dbg("snapshot", `state=${raceState} skipByCountdown=${state.countdownActive}`);
+                            if (!state.countdownActive) {
+                                if (raceState === "running") {
+                                    state.phase = "running";
+                                } else {
+                                    state.phase = "waiting";
+                                }
+                                syncLightsForPhase();
                             }
-                            syncLightsForPhase();
-                            renderAll().catch((err) => {
+                            renderAll(true).catch((err) => {
                                 el.connection.textContent = `Refresh error: ${err.message}`;
                             });
                             return;
@@ -804,28 +1103,72 @@
 
                         if (type === "countdown_phase") {
                             const phase = String(msg.phase || "").toLowerCase();
-                            if (
-                                phase === "ready" ||
-                                phase === "set" ||
-                                phase === "go"
-                            ) {
-                                state.phase = phase;
+                            const atRaw = msg.at;
+                            const atEpoch = (typeof atRaw === "number" && Number.isFinite(atRaw)) ? atRaw : 0;
+                            dbg("countdown_phase", `phase=${phase} at=${atEpoch}`);
+                            if (phase === "ready" && !state.countdownActive && state.phase !== "running") {
+                                for (const t of state.countdownTimers) clearTimeout(t);
+                                state.countdownTimers = [];
+                                state.raceReady = false;
+                                state.countdownActive = true;
+                                state.countdownReadyAt = atEpoch;
+                                state.countdownReadyAtMs = Date.now();
+                                console.log("[COUNTDOWN] → ready (immediate)");
+                                if (state.soundStyle === "8bit") play8BitReadySound(); else playReadySound();
+                                state.phase = "ready";
                                 syncLightsForPhase();
+                            } else if (phase === "set" && state.countdownActive) {
+                                const totalMs = (atEpoch - state.countdownReadyAt) * 1000;
+                                const elapsedMs = Date.now() - state.countdownReadyAtMs;
+                                const remainingMs = Math.max(0, totalMs - elapsedMs);
+                                console.log(`[COUNTDOWN] set in ${remainingMs}ms (total=${totalMs} elapsed=${elapsedMs})`);
+                                state.countdownTimers.push(setTimeout(() => {
+                                    if (state.countdownActive) {
+                                        console.log("[COUNTDOWN] → set");
+                                        if (state.soundStyle === "8bit") play8BitSetSound(); else playSetSound();
+                                        state.phase = "set";
+                                        syncLightsForPhase();
+                                    }
+                                }, remainingMs));
+                            } else if (phase === "go" && state.countdownActive) {
+                                const totalMs = (atEpoch - state.countdownReadyAt) * 1000;
+                                const elapsedMs = Date.now() - state.countdownReadyAtMs;
+                                const remainingMs = Math.max(0, totalMs - elapsedMs);
+                                console.log(`[COUNTDOWN] go in ${remainingMs}ms (total=${totalMs} elapsed=${elapsedMs})`);
+                                state.countdownTimers.push(setTimeout(() => {
+                                    if (state.countdownActive) {
+                                        console.log("[COUNTDOWN] → go" + (state.raceReady ? " → running" : ""));
+                                        if (state.soundStyle === "8bit") play8BitGoSound(); else playGoSound();
+                                        state.phase = state.raceReady ? "running" : "go";
+                                        syncLightsForPhase();
+                                        state.countdownActive = false;
+                                        if (state.raceReady) {
+                                            renderAll(true).catch((err) => {
+                                                el.connection.textContent = `Refresh error: ${err.message}`;
+                                            });
+                                        }
+                                    }
+                                }, remainingMs));
                             }
                         }
 
                         if (type === "start_race") {
-                            state.phase = "running";
-                            syncLightsForPhase();
-                            renderAll().catch((err) => {
-                                el.connection.textContent = `Refresh error: ${err.message}`;
-                            });
+                            state.raceReady = true;
+                            dbg("start_race", `countdownActive=${state.countdownActive}`);
+                            if (!state.countdownActive) {
+                                state.phase = "running";
+                                syncLightsForPhase();
+                                renderAll(true).catch((err) => {
+                                    el.connection.textContent = `Refresh error: ${err.message}`;
+                                });
+                            }
                         }
 
                         if (type === "lap") {
                             if (
                                 Number(msg.racer_id) === state.selectedRacerId
                             ) {
+                                dbg("lap", `racer=${msg.racer_id}`);
                                 renderAll().catch((err) => {
                                     el.connection.textContent = `Refresh error: ${err.message}`;
                                 });
@@ -834,13 +1177,41 @@
 
                         if (type === "status") {
                             const txt = String(msg.message || "").toLowerCase();
+                            dbg("status", `msg=${txt} endsOrReset=${txt.includes("end") || txt.includes("reset")}`);
                             if (txt.includes("end") || txt.includes("reset")) {
+                                if (state.soundStyle === "8bit") play8BitFinishSound(); else playFinishSound();
+                                for (const t of state.countdownTimers) clearTimeout(t);
+                                state.countdownTimers = [];
+                                state.countdownActive = false;
+                                state.raceReady = false;
                                 state.phase = "waiting";
                                 syncLightsForPhase();
                                 renderAll().catch((err) => {
                                     el.connection.textContent = `Refresh error: ${err.message}`;
                                 });
                             }
+                        }
+
+                        if (type === "race_control") {
+                            const cmd = String(msg.command || "");
+                            if ((cmd === "end_race" || cmd === "reset_race") && msg.accepted) {
+                                dbg("race_control", `cmd=${cmd} accepted`);
+                                if (state.soundStyle === "8bit") play8BitFinishSound(); else playFinishSound();
+                                for (const t of state.countdownTimers) clearTimeout(t);
+                                state.countdownTimers = [];
+                                state.countdownActive = false;
+                                state.raceReady = false;
+                                state.phase = "waiting";
+                                syncLightsForPhase();
+                                renderAll().catch((err) => {
+                                    el.connection.textContent = `Refresh error: ${err.message}`;
+                                });
+                            }
+                        }
+
+                        // Log unhandled message types (skip noisy internal traffic)
+                        if (type && !["connected", "heartbeat"].includes(type)) {
+                            dbg("unhandled", JSON.stringify(msg));
                         }
                     } catch (_) {}
                 };
@@ -858,6 +1229,30 @@
                 renderAll().catch((err) => {
                     el.connection.textContent = `Refresh error: ${err.message}`;
                 });
+            });
+
+            el.soundBtn.addEventListener("click", async () => {
+                state.soundEnabled = !state.soundEnabled;
+                if (state.soundEnabled) {
+                    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                    if (audioCtx.state === "suspended") await audioCtx.resume();
+                    el.soundBtn.textContent = "Sound: on";
+                    beep(440, 120);
+                } else {
+                    el.soundBtn.textContent = "Sound: off";
+                }
+            });
+
+            el.soundStyleSelect.addEventListener("change", () => {
+                state.soundStyle = el.soundStyleSelect.value;
+                localStorage.setItem("franklin_sound_style", el.soundStyleSelect.value);
+            });
+
+            document.getElementById("audioOkBtn").addEventListener("click", async () => {
+                if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                if (audioCtx.state === "suspended") await audioCtx.resume();
+                document.getElementById("audioModal").remove();
+                beep(440, 120);
             });
 
             renderAll().catch((err) => {

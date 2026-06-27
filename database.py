@@ -493,6 +493,17 @@ class LapDatabase:
 
         return racer_stats
 
+    def get_disqualified_racers(self, race_id: int) -> list[int]:
+        """Return racer IDs that have been disqualified in the given race."""
+        assert self.conn is not None
+        cursor = self.conn.cursor()
+        cursor.execute(
+            """SELECT racer_id FROM race_control_actions
+               WHERE race_id = ? AND command = 'disqualify_racer' AND accepted = 1""",
+            (race_id,),
+        )
+        return [row["racer_id"] for row in cursor.fetchall()]
+
     def get_preference(self, key: str, default: Any = None) -> Any:
         """Get a JSON-decoded preference value by key"""
         if not self.conn:

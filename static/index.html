@@ -172,6 +172,16 @@
                 vertical-align: middle;
             }
 
+            .standings-table tr.disqualified {
+                opacity: 0.55;
+                text-decoration: line-through;
+            }
+
+            .standings-table td.dq-badge {
+                color: var(--error);
+                font-weight: 700;
+            }
+
             /* Event log */
             .event-log {
                 background-color: var(--panel-bg);
@@ -435,6 +445,7 @@
                 raceStats: null,
                 raceLaps: null,
                 lastUpdateTime: null,
+                disqualified: [],
             };
 
             // DOM elements
@@ -633,8 +644,11 @@
                         racer_id: parseInt(data.racer_id, 10),
                         lap_count: data.lap_count || 0,
                         best_lap_time: data.best_lap_time || null,
-                        last_lap_time: null, // Need to calculate from laps
-                        total_time: null, // Will be elapsed from most recent lap event
+                        last_lap_time: null,
+                        total_time: null,
+                        disqualified: state.disqualified.includes(
+                            parseInt(data.racer_id, 10),
+                        ),
                     }),
                 );
 
@@ -668,8 +682,12 @@
                     });
                 }
 
-                // Sort by lap count (descending), then by total time (ascending)
+                // Sort: active drivers by lap count (desc) then total time (asc),
+                // DQ'd drivers pushed to bottom sorted by racer_id.
                 leaderboard.sort((a, b) => {
+                    if (a.disqualified !== b.disqualified) {
+                        return a.disqualified ? 1 : -1;
+                    }
                     if (b.lap_count !== a.lap_count) {
                         return b.lap_count - a.lap_count;
                     }
@@ -697,10 +715,9 @@
 
                 // Create rows for each driver in the leaderboard
                 leaderboard.forEach((entry, index) => {
-                    const position = index + 1;
+                    const position = entry.disqualified ? "-" : index + 1;
                     const driverId = entry.racer_id;
                     const driverName = getDriverName(driverId);
-                    const lapCount = entry.lap_count || 0;
                     const lastLapTime = entry.last_lap_time
                         ? formatTime(entry.last_lap_time)
                         : "00:00:00";
@@ -717,15 +734,18 @@
                         Math.abs(entry.best_lap_time - bestLapTime) < 0.001;
 
                     const row = document.createElement("tr");
+                    if (entry.disqualified) {
+                        row.classList.add("disqualified");
+                    }
                     row.innerHTML = `
                         <td>${position}</td>
                         <td>
                             <span class="driver-color" style="background-color: ${getDriverColor(driverId)}"></span>
                             ${driverName}
                         </td>
-                        <td>${lapCount}</td>
+                        <td class="${entry.disqualified ? "dq-badge" : ""}">${entry.disqualified ? "DQ" : entry.lap_count}</td>
                         <td>${lastLapTime}</td>
-                        <td class="${hasBestLap ? "best-lap" : ""}">${bestLapTime}</td>
+                        <td class="${hasBestLap && !entry.disqualified ? "best-lap" : ""}">${bestLapTime}</td>
                         <td>${totalTime}</td>
                     `;
 
@@ -775,6 +795,14 @@
                     dataStr = Number.isFinite(at)
                         ? `Race start scheduled at ${new Date(at * 1000).toLocaleTimeString()}${eventData.simulated ? " [SIM]" : ""}`
                         : "Race start scheduled";
+                } else if (eventType === "race_control" && eventData.command === "disqualify_racer" && eventData.accepted) {
+                    const driverName = getDriverName(eventData.racer_id);
+                    dataStr = `${driverName} has been disqualified`;
+                    // Immediately reflect DQ in state without waiting for next fetch
+                    if (!state.disqualified.includes(eventData.racer_id)) {
+                        state.disqualified.push(eventData.racer_id);
+                        updateStandings();
+                    }
                 } else if (eventType === "error") {
                     dataStr = `Error: ${eventData.message || JSON.stringify(eventData)}`;
                 } else if (eventType === "connected") {
@@ -812,6 +840,7 @@
                 if (
                     eventType === "lap" ||
                     eventType === "start_race" ||
+                    eventType === "race_control" ||
                     (eventType === "status" &&
                         (dataStr.toLowerCase().includes("race") ||
                             dataStr.toLowerCase().includes("start") ||
@@ -894,7 +923,9 @@
                                 `/api/races/${latestRace.id}/stats`,
                             );
                             if (statsResponse.ok) {
-                                state.raceStats = await statsResponse.json();
+                                const statsData = await statsResponse.json();
+                                state.raceStats = statsData;
+                                state.disqualified = statsData.disqualified || [];
                             } else {
                                 console.warn(
                                     `Failed to fetch stats: ${statsResponse.status}`,
@@ -971,6 +1002,8 @@
                                 "Race snapshot received, state:",
                                 data.state,
                             );
+                            // Merge disqualification status from snapshot
+                            state.disqualified = data.disqualified || [];
                             fetchRaceData().catch((err) => {
                                 console.warn(
                                     "Refresh error after snapshot:",

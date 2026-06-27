@@ -281,6 +281,7 @@
             <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:24px;max-width:320px;text-align:center">
                 <p style="margin:0 0 12px;font-size:1.1rem">🔊 Audio is on</p>
                 <p style="margin:0 0 16px;color:var(--muted);font-size:0.9rem">Race sounds enabled</p>
+                <!-- <p style="margin:0;color:var(--muted);font-size:0.75rem"><a href="../docs/audio.md" target="_blank" style="color:var(--muted)">Audio design docs</a></p> -->
                 <button type="button" id="audioOkBtn" style="width:auto;min-width:100px;margin:0 auto">OK</button>
             </div>
         </div>
@@ -294,6 +295,10 @@
                     <select id="racerSelect"></select>
                     <button type="button" id="refreshBtn">Refresh</button>
                     <button type="button" id="soundBtn">Sound: on</button>
+                    <select id="soundStyleSelect" style="width:100%;min-width:120px">
+                        <option value="classic">Classic</option>
+                        <option value="8bit">8-Bit</option>
+                    </select>
                 </div>
             </div>
 
@@ -339,6 +344,7 @@
                 countdownReadyAtMs: 0,
                 raceReady: false,
                 soundEnabled: true,
+                soundStyle: localStorage.getItem("franklin_sound_style") || "classic",
             };
 
             const el = {
@@ -354,9 +360,132 @@
                 detailTitle: document.getElementById("detailTitle"),
                 detailContent: document.getElementById("detailContent"),
                 soundBtn: document.getElementById("soundBtn"),
+                soundStyleSelect: document.getElementById("soundStyleSelect"),
             };
 
+            // Sync the select element to the loaded setting
+            el.soundStyleSelect.value = state.soundStyle;
+
             let audioCtx = null;
+            let bitcrusherNode = null;
+            let bitcrusherGainNode = null;
+            let pulseWave = null;
+
+            function initBitcrusher() {
+                if (!audioCtx) return;
+                if (bitcrusherNode) return;
+                const shaper = audioCtx.createWaveShaper();
+                const curve = new Float32Array(2048);
+                for (let i = 0; i < 2048; i++) {
+                    let x = (i / 2047) * 2 - 1;
+                    curve[i] = Math.round(x * 8) / 8;
+                }
+                shaper.curve = curve;
+                shaper.oversample = "2x";
+                bitcrusherNode = shaper;
+                bitcrusherGainNode = audioCtx.createGain();
+                bitcrusherGainNode.gain.value = 3.0;
+                bitcrusherNode.connect(bitcrusherGainNode);
+                bitcrusherGainNode.connect(audioCtx.destination);
+            }
+
+            function initPulseWave() {
+                if (!audioCtx) return;
+                if (pulseWave) return;
+                const real = new Float32Array([0, 0, 0, 0.5, 0.5, 0, 0, 0]);
+                const imag = new Float32Array([0, 0, 0, 0, 0, 0, 0, 0]);
+                pulseWave = audioCtx.createPeriodicWave(real, imag);
+            }
+
+            function play8BitNote(freq, startTime, duration, vol = 0.3) {
+                if (!audioCtx) return;
+                try {
+                    initPulseWave();
+                    const osc = audioCtx.createOscillator();
+                    const gain = audioCtx.createGain();
+                    osc.setPeriodicWave(pulseWave);
+                    osc.frequency.setValueAtTime(freq, startTime);
+                    gain.gain.setValueAtTime(0, startTime);
+                    gain.gain.linearRampToValueAtTime(vol, startTime + 0.005);
+                    gain.gain.exponentialRampToValueAtTime(0.001, startTime + duration);
+                    osc.connect(gain);
+                    if (bitcrusherNode) {
+                        gain.connect(bitcrusherNode);
+                    } else {
+                        gain.connect(audioCtx.destination);
+                    }
+                    osc.start(startTime);
+                    osc.stop(startTime + duration);
+                } catch (_) {}
+            }
+
+            function play8BitNoise(startTime, duration, vol = 0.1) {
+                if (!audioCtx) return;
+                try {
+                    const bufferSize = Math.ceil(audioCtx.sampleRate * duration);
+                    const buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+                    const data = buffer.getChannelData(0);
+                    for (let i = 0; i < bufferSize; i++) {
+                        data[i] = (Math.random() * 2 - 1) * (i / bufferSize);
+                    }
+                    const source = audioCtx.createBufferSource();
+                    source.buffer = buffer;
+                    const gain = audioCtx.createGain();
+                    gain.gain.setValueAtTime(vol, startTime);
+                    gain.gain.exponentialRampToValueAtTime(0.001, startTime + duration);
+                    source.connect(gain);
+                    if (bitcrusherNode) {
+                        gain.connect(bitcrusherNode);
+                    } else {
+                        gain.connect(audioCtx.destination);
+                    }
+                    source.start(startTime);
+                    source.stop(startTime + duration);
+                } catch (_) {}
+            }
+
+            function play8BitReadySound() {
+                if (!state.soundEnabled || !audioCtx || audioCtx.state === "suspended") return;
+                try {
+                    initBitcrusher();
+                    const t = audioCtx.currentTime;
+                    // First note of the 3-note start pattern
+                    play8BitNote(196.00, t, 0.9, 0.3);
+                } catch (_) {}
+            }
+
+            function play8BitSetSound() {
+                if (!state.soundEnabled || !audioCtx || audioCtx.state === "suspended") return;
+                try {
+                    initBitcrusher();
+                    const t = audioCtx.currentTime;
+                    // Second note of the 3-note start pattern
+                    play8BitNote(196.00, t, 0.9, 0.3);
+                } catch (_) {}
+            }
+
+            function play8BitGoSound() {
+                if (!state.soundEnabled || !audioCtx || audioCtx.state === "suspended") return;
+                try {
+                    initBitcrusher();
+                    const t = audioCtx.currentTime;
+                    // Third note of the 3-note start pattern — higher tone (2s)
+                    play8BitNote(392.00, t, 2.0, 0.3);
+                } catch (_) {}
+            }
+
+            function play8BitFinishSound() {
+                if (!state.soundEnabled || !audioCtx || audioCtx.state === "suspended") return;
+                try {
+                    initBitcrusher();
+                    const t = audioCtx.currentTime + 0.05;
+                    const notes = [783.99, 659.25, 523.25, 392.00, 261.63];
+                    notes.forEach((freq, i) => {
+                        play8BitNote(freq, t + i * 0.1, 0.15, 0.3);
+                    });
+                    play8BitNoise(t, 0.6, 0.3);
+                } catch (_) {}
+            }
 
             function beep(freq, durationMs) {
                 if (!state.soundEnabled) return;
@@ -985,7 +1114,7 @@
                                 state.countdownReadyAt = atEpoch;
                                 state.countdownReadyAtMs = Date.now();
                                 console.log("[COUNTDOWN] → ready (immediate)");
-                                playReadySound();
+                                if (state.soundStyle === "8bit") play8BitReadySound(); else playReadySound();
                                 state.phase = "ready";
                                 syncLightsForPhase();
                             } else if (phase === "set" && state.countdownActive) {
@@ -996,7 +1125,7 @@
                                 state.countdownTimers.push(setTimeout(() => {
                                     if (state.countdownActive) {
                                         console.log("[COUNTDOWN] → set");
-                                        playSetSound();
+                                        if (state.soundStyle === "8bit") play8BitSetSound(); else playSetSound();
                                         state.phase = "set";
                                         syncLightsForPhase();
                                     }
@@ -1009,7 +1138,7 @@
                                 state.countdownTimers.push(setTimeout(() => {
                                     if (state.countdownActive) {
                                         console.log("[COUNTDOWN] → go" + (state.raceReady ? " → running" : ""));
-                                        playGoSound();
+                                        if (state.soundStyle === "8bit") play8BitGoSound(); else playGoSound();
                                         state.phase = state.raceReady ? "running" : "go";
                                         syncLightsForPhase();
                                         state.countdownActive = false;
@@ -1050,7 +1179,7 @@
                             const txt = String(msg.message || "").toLowerCase();
                             dbg("status", `msg=${txt} endsOrReset=${txt.includes("end") || txt.includes("reset")}`);
                             if (txt.includes("end") || txt.includes("reset")) {
-                                playFinishSound();
+                                if (state.soundStyle === "8bit") play8BitFinishSound(); else playFinishSound();
                                 for (const t of state.countdownTimers) clearTimeout(t);
                                 state.countdownTimers = [];
                                 state.countdownActive = false;
@@ -1067,7 +1196,7 @@
                             const cmd = String(msg.command || "");
                             if ((cmd === "end_race" || cmd === "reset_race") && msg.accepted) {
                                 dbg("race_control", `cmd=${cmd} accepted`);
-                                playFinishSound();
+                                if (state.soundStyle === "8bit") play8BitFinishSound(); else playFinishSound();
                                 for (const t of state.countdownTimers) clearTimeout(t);
                                 state.countdownTimers = [];
                                 state.countdownActive = false;
@@ -1112,6 +1241,11 @@
                 } else {
                     el.soundBtn.textContent = "Sound: off";
                 }
+            });
+
+            el.soundStyleSelect.addEventListener("change", () => {
+                state.soundStyle = el.soundStyleSelect.value;
+                localStorage.setItem("franklin_sound_style", el.soundStyleSelect.value);
             });
 
             document.getElementById("audioOkBtn").addEventListener("click", async () => {

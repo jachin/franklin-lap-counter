@@ -276,6 +276,15 @@
         </style>
         <a id="dashLink" class="dash-link" href="#">← Dashboard</a>
         <script>document.getElementById('dashLink').href = `${location.protocol}//${location.hostname}:8085/dashboard`</script>
+
+        <div id="audioModal" style="position:fixed;inset:0;background:rgba(0,0,0,0.7);display:flex;align-items:center;justify-content:center;z-index:999">
+            <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:24px;max-width:320px;text-align:center">
+                <p style="margin:0 0 12px;font-size:1.1rem">🔊 Audio is on</p>
+                <p style="margin:0 0 16px;color:var(--muted);font-size:0.9rem">Race sounds enabled</p>
+                <button type="button" id="audioOkBtn" style="width:auto;min-width:100px;margin:0 auto">OK</button>
+            </div>
+        </div>
+
         <div class="container">
             <div class="card">
                 <h1>Driver / Team View</h1>
@@ -284,7 +293,7 @@
                     <label for="racerSelect">Pick racer:</label>
                     <select id="racerSelect"></select>
                     <button type="button" id="refreshBtn">Refresh</button>
-                    <button type="button" id="soundBtn">Sound: off</button>
+                    <button type="button" id="soundBtn">Sound: on</button>
                 </div>
             </div>
 
@@ -329,7 +338,7 @@
                 countdownReadyAt: 0,
                 countdownReadyAtMs: 0,
                 raceReady: false,
-                soundEnabled: false,
+                soundEnabled: true,
             };
 
             const el = {
@@ -1103,6 +1112,13 @@
                 } else {
                     el.soundBtn.textContent = "Sound: off";
                 }
+            });
+
+            document.getElementById("audioOkBtn").addEventListener("click", async () => {
+                if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                if (audioCtx.state === "suspended") await audioCtx.resume();
+                document.getElementById("audioModal").remove();
+                beep(440, 120);
             });
 
             renderAll().catch((err) => {

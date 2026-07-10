@@ -1665,6 +1665,70 @@
         }
       }
     },
+    "python313Packages.sounddevice@latest": {
+      "last_modified": "2026-06-29T19:19:24Z",
+      "resolved": "github:NixOS/nixpkgs/7a1a64774a5fd0b0cd39ac95d0e170ace8b266a0#python313Packages.sounddevice",
+      "source": "devbox-search",
+      "version": "0.5.5",
+      "systems": {
+        "aarch64-darwin": {
+          "outputs": [
+            {
+              "name": "out",
+              "path": "/nix/store/0md7b906iqnypvps4q79wdrri6sz1g2i-python3.13-sounddevice-0.5.5",
+              "default": true
+            },
+            {
+              "name": "dist",
+              "path": "/nix/store/mq6fva2848ibshfyiv0mlir91bwif9n7-python3.13-sounddevice-0.5.5-dist"
+            }
+          ],
+          "store_path": "/nix/store/0md7b906iqnypvps4q79wdrri6sz1g2i-python3.13-sounddevice-0.5.5"
+        },
+        "aarch64-linux": {
+          "outputs": [
+            {
+              "name": "out",
+              "path": "/nix/store/0gvl94fbfqwqk3lk2dbi4calpb3537a8-python3.13-sounddevice-0.5.5",
+              "default": true
+            },
+            {
+              "name": "dist",
+              "path": "/nix/store/dfpg48y1519wyjlzsjwmjkyysz59kxrn-python3.13-sounddevice-0.5.5-dist"
+            }
+          ],
+          "store_path": "/nix/store/0gvl94fbfqwqk3lk2dbi4calpb3537a8-python3.13-sounddevice-0.5.5"
+        },
+        "x86_64-darwin": {
+          "outputs": [
+            {
+              "name": "out",
+              "path": "/nix/store/nlcnmawwxyj3kd2s4851si2ihrq4hsay-python3.13-sounddevice-0.5.5",
+              "default": true
+            },
+            {
+              "name": "dist",
+              "path": "/nix/store/v7hcajmbm8xx85yaa9af0z3jns7kzzxx-python3.13-sounddevice-0.5.5-dist"
+            }
+          ],
+          "store_path": "/nix/store/nlcnmawwxyj3kd2s4851si2ihrq4hsay-python3.13-sounddevice-0.5.5"
+        },
+        "x86_64-linux": {
+          "outputs": [
+            {
+              "name": "out",
+              "path": "/nix/store/wvxx8v1glngblczlr0dpnsqsvjmhfvjf-python3.13-sounddevice-0.5.5",
+              "default": true
+            },
+            {
+              "name": "dist",
+              "path": "/nix/store/416zdi7q1lr1pi3fdl2gd1nfmh4nr080-python3.13-sounddevice-0.5.5-dist"
+            }
+          ],
+          "store_path": "/nix/store/wvxx8v1glngblczlr0dpnsqsvjmhfvjf-python3.13-sounddevice-0.5.5"
+        }
+      }
+    },
     "python313Packages.textual@latest": {
       "last_modified": "2026-06-27T07:37:20Z",
       "resolved": "github:NixOS/nixpkgs/3d46470bb3030020f7e1361f33514854f5bfa86d#python313Packages.textual",

@@ -51,6 +51,7 @@ system_packages:
   - xwayland
   - seatd
   - libudev-dev
+  - libportaudio2
 
 # Python packages installed in the app venv
 python_packages:
@@ -60,6 +61,7 @@ python_packages:
   - aiohttp
   - pygments
   - rich
+  - sounddevice
 
 # Raspberry Pi AP/router (hotspot) settings
 # Set to false to disable the hotspot playbook entirely (skips hostapd, dnsmasq, nftables AP config).

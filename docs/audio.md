@@ -2,7 +2,7 @@
 
 ## Architecture
 
-Audio is **client-side only** — all sound is generated at runtime in the browser using the Web Audio API. No audio files are shipped.
+Audio is **client-side only** — all sound is generated at runtime (in the browser via the Web Audio API, and in the GTK GUI via synthesized WAV + ALSA `aplay`). No audio files are shipped. The tone definitions live in a single shared patch file, `static/sounds.json`, consumed by both `audio.js` and `franklin-gui.py`.
 
 The audio pipeline is:
 
@@ -21,7 +21,9 @@ Each static page has its own Python web app that subscribes to `hardware:out`, `
 
 | File | Type | Role |
 |------|------|------|
-| `static/audio.js` | Client-side JS module | **Single source of all audio code.** Generates all race sounds via Web Audio API. |
+| `static/audio.js` | Client-side JS module | **Reader of the shared patch.** Synthesizes all web race sounds via Web Audio API from `static/sounds.json`. |
+| `static/sounds.json` | Shared data (JSON) | **Single source of truth for all tone definitions** (classic + 8bit). Consumed by both `audio.js` and `franklin-gui.py`. |
+| `franklin-gui.py` | GTK4 GUI (Python) | Reads the `classic` block of `sounds.json`, synthesizes WAV with the stdlib, and plays it via ALSA `aplay` (background thread). No Web Audio API available in GTK. |
 | `static/driver.html` | Client-side page | Includes `audio.js`; triggers sounds from its WebSocket handler. |
 | `static/index.html` | Client-side page (scoreboard) | Includes `audio.js`; triggers sounds from its WebSocket handler. |
 | `static/referee.html` | Client-side page (ref) | Includes `audio.js`; triggers sounds from its WebSocket handler. |
@@ -230,34 +232,24 @@ Selection is persisted in `localStorage` under key `franklin_sound_style`.
 
 ### Adding a New Sound Style
 
-1. Open `static/audio.js`
-2. Create four `playXxxStyleSound()` functions following the existing pattern
-3. Add a new `case` branch in the `dispatch()` function for the new style
-4. Add the style name to the `<select id="soundStyleSelect">` dropdown on each page that needs it
+1. Open `static/sounds.json` and add a new top-level style key (e.g. `"chip"`) containing `ready`, `set`, `go`, `finish` entries. Each entry has a `voices` array; optionally a `"bitcrush": true` flag.
+2. Each voice is `{ "type": "square"|"sine"|"pulse"|"noise", "freq": <Hz>, "freq_end": <Hz optional ramp>, "start": <s>, "dur": <s>, "attack": <s>, "vol": <0..1> }`.
+3. Add the style name to the `<select id="soundStyleSelect">` dropdown on each page that needs it. `audio.js` picks it up automatically via `localStorage`. The GTK GUI only ever renders the `classic` block.
 
 ### Dispatch Wiring
 
-Dispatch is now internal to `FranklinAudio`:
+Dispatch is now internal to `FranklinAudio` and driven by the JSON patch:
 
 ```js
 function dispatch(name) {
-    if (soundStyle === "8bit") {
-        switch (name) {
-            case "ready": play8BitReadySound(); break;
-            case "set": play8BitSetSound(); break;
-            case "go": play8BitGoSound(); break;
-            case "finish": play8BitFinishSound(); break;
-        }
-    } else {
-        switch (name) {
-            case "ready": playReadySound(); break;
-            case "set": playSetSound(); break;
-            case "go": playGoSound(); break;
-            case "finish": playFinishSound(); break;
-        }
-    }
+    if (!soundEnabled || !audioCtx || audioCtx.state === "suspended") return;
+    const stylePatch = soundPatch && soundPatch[soundStyle];
+    const soundDef = stylePatch && stylePatch[name];
+    if (soundDef) playVoices(soundDef);
 }
 ```
+
+`playVoices()` builds one oscillator (or noise buffer) per voice, applies the linear attack/decay envelope, and routes through the bitcrusher chain when `bitcrush` is set. `audio.js` fetches `/static/sounds.json` once in `init()`.
 
 Pages call `FranklinAudio.playXxx()` and the module handles the rest.
 

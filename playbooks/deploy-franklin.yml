@@ -5,14 +5,31 @@
   become: true
   vars:
     project_root: "{{ playbook_dir }}/.."
-    rust_target: "aarch64-unknown-linux-gnu"
-    rust_deb_local: "{{ project_root }}/rust/target/debian/franklin-hardware-monitor_{{ pkg_version }}_arm64.deb"
 
   pre_tasks:
     - name: Verify SSH connectivity
       ansible.builtin.ping:
 
-    - name: Get local package version from Cargo.toml
+    - name: Detect Pi architecture
+      ansible.builtin.command: dpkg --print-architecture
+      register: pi_arch_cmd
+      changed_when: false
+
+    - name: Set detected arch fact
+      ansible.builtin.set_fact:
+        detected_arch: "{{ pi_arch_cmd.stdout | trim }}"
+
+    - name: Fail if Pi is not aarch64
+      ansible.builtin.fail:
+        msg: "Franklin requires a 64-bit Raspberry Pi. Detected arch={{ detected_arch }} but only arm64 is supported."
+      when: detected_arch != 'arm64'
+
+    - name: Set Rust target and Debian arch label
+      ansible.builtin.set_fact:
+        rust_target: "aarch64-unknown-linux-gnu"
+        arch_label: "arm64"
+
+    - name: Get package version from Cargo.toml
       ansible.builtin.shell:
         cmd: python3 -c "import re; m = re.search(r'\[workspace\.package\]\s*[\s\S]*?version\s*=\s*\"([^\"]+)\"', open('{{ project_root }}/rust/Cargo.toml').read()); print(m.group(1))"
       delegate_to: localhost
@@ -23,6 +40,10 @@
     - name: Set package version variable
       ansible.builtin.set_fact:
         pkg_version: "{{ local_version_cmd.stdout | trim }}"
+
+    - name: Set local paths for Debian package
+      ansible.builtin.set_fact:
+        rust_deb_local: "{{ project_root }}/rust/target/debian/franklin-hardware-monitor_{{ pkg_version }}_{{ arch_label }}.deb"
 
     - name: Check project root exists
       ansible.builtin.stat:
@@ -56,6 +77,29 @@
       delegate_to: localhost
       become: false
       register: systemd_dir_stat
+
+    - name: Compute requirements hash for pip skip
+      ansible.builtin.shell:
+        cmd: python3 -c "import hashlib; print(hashlib.sha1('{{ python_packages | sort | join(' ') }}'.encode()).hexdigest())"
+      delegate_to: localhost
+      become: false
+      register: req_hash_cmd
+      changed_when: false
+
+    - name: Set requirements hash fact
+      ansible.builtin.set_fact:
+        requirements_hash: "{{ req_hash_cmd.stdout | trim }}"
+
+    - name: Read stored requirements hash from Pi
+      ansible.builtin.slurp:
+        src: "{{ pi_dest_dir }}/.requirements.hash"
+      register: stored_hash
+      failed_when: false
+      changed_when: false
+
+    - name: Set pip_needed fact
+      ansible.builtin.set_fact:
+        pip_needed: "{{ (stored_hash.content | default('')) | b64decode != requirements_hash }}"
 
   tasks:
     - name: Ensure destination directory exists
@@ -138,11 +182,21 @@
           ansible.builtin.command:
             cmd: "python3 -m venv --system-site-packages {{ pi_dest_dir }}/.venv"
 
-    - name: Install/upgrade Python application dependencies in venv
+    - name: Install Python application dependencies in venv (skip if unchanged)
       ansible.builtin.pip:
         name: "{{ python_packages }}"
-        state: latest
+        state: present
         virtualenv: "{{ pi_dest_dir }}/.venv"
+      when: pip_needed
+
+    - name: Store updated requirements hash on Pi
+      ansible.builtin.copy:
+        content: "{{ requirements_hash }}"
+        dest: "{{ pi_dest_dir }}/.requirements.hash"
+        owner: "{{ franklin_user }}"
+        group: "{{ franklin_group }}"
+        mode: "0644"
+      when: pip_needed
 
     - name: Ensure franklin owns the virtual environment
       ansible.builtin.file:
@@ -329,17 +383,10 @@
         ('ARM aarch64' not in binary_file_info.stdout)
         and ('ARM 64-bit' not in binary_file_info.stdout)
 
-    - name: Restart web app services after deploy
+    - name: Restart all Franklin services via target
       ansible.builtin.systemd:
-        name: "{{ item }}"
+        name: franklin.target
         state: restarted
-      loop:
-        - franklin-web-scoreboard.service
-        - franklin-web-referee.service
-        - franklin-web-healthcheck.service
-        - franklin-web-driver.service
-      register: web_restart_result
-      changed_when: web_restart_result is changed
       ignore_errors: true
 
     - name: Deployment summary

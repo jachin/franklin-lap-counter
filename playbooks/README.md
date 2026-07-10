@@ -2,6 +2,15 @@
 
 These playbooks provide modular, idempotent infrastructure/setup and deployment for Franklin.
 
+## Prerequisites
+
+- **Raspberry Pi 3, 4, or 5** (64-bit)
+- **OS:** Raspberry Pi OS Lite (Bookworm) **or** Debian arm64 lite image (Bookworm/Trixie).
+  A full desktop variant ships with a display manager (GDM3, LightDM, etc.) that
+  conflicts with Franklin's boot-time console autologin and sway session. A lite
+  image is required.
+- **SSH access** to the Pi with a user that has sudo privileges.
+
 ## Playbook layout
 
 - `00-preflight.yml` - SSH/connectivity check
@@ -23,8 +32,7 @@ These playbooks provide modular, idempotent infrastructure/setup and deployment 
 - `63-reboot.yml` - reboot target host and wait for reconnect
 - `64-reset-database.yml` - stop Franklin tmux sessions and remove the SQLite database so it is recreated empty
 - `site.yml` - runs setup playbooks in order
-- `deploy-franklin.yml` - deploy app artifacts (`franklin-hardware-monitor`, Python apps, static/, tmuxinator/, systemd/ configs)
-- `update-franklin.yml` - build + deploy update: auto-detects Pi arch, builds `.deb`, rsyncs files, updates pip deps, restarts services
+- `deploy-franklin.yml` - deploy app artifacts (arch auto-detected, `.deb` install, rsyncs files, pip deps, restarts services)
 
 ## Files
 
@@ -60,12 +68,15 @@ Deploy Franklin artifacts:
 ansible-playbook -i playbooks/inventory.ini playbooks/deploy-franklin.yml
 ```
 
-Update a Pi (build + deploy in one step, arch auto-detected):
+Deploy to a Pi:
 
 ```bash
-ansible-playbook -i playbooks/inventory.ini playbooks/update-franklin.yml
-# Or via devbox:
-devbox run update:franklin
+# Build .deb first:
+devbox run hardware-monitor:build-deb
+# Then deploy:
+devbox run ansible:deploy
+# Or both in one step:
+devbox run deploy
 ```
 
 Override host/user/destination directory at runtime:

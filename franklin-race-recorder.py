@@ -330,6 +330,28 @@ class RaceRecorder:
         if isinstance(command_id, str) and command_id:
             self._pending_start_config[command_id] = config
 
+        # Announce the ready/set/go countdown only for FAKE races. For
+        # REAL/TRAINING the Rust hardware monitor owns the countdown and
+        # publishes countdown_phase itself, so announcing here too would
+        # duplicate the lights/sounds on the web clients.
+        ready_at = msg.get("ready_at")
+        set_at = msg.get("set_at")
+        go_at = msg.get("go_at")
+        if (
+            ready_at is not None
+            and set_at is not None
+            and go_at is not None
+            and config.get("race_mode") is RaceMode.FAKE
+        ):
+            self._publish_countdown_phases(
+                ready_at, set_at, go_at, command_id, msg.get("source")
+            )
+        else:
+            logging.info(
+                "Skipping countdown announce (mode=%s); hardware monitor owns REAL/TRAINING",
+                config.get("race_mode"),
+            )
+
         # The hardware monitor normally echoes a start_race event on
         # hardware:out after the countdown. Training mode should still work if
         # that echo is unavailable/stale, so schedule a recorder-owned fallback
@@ -583,6 +605,34 @@ class RaceRecorder:
             self.redis.publish(RACE_STATE_CHANNEL, payload)
         except Exception as exc:
             logging.error("Failed to publish snapshot: %s", exc)
+
+    def _publish_countdown_phases(
+        self,
+        ready_at: float,
+        set_at: float,
+        go_at: float,
+        command_id: str | None = None,
+        source: str | None = None,
+    ) -> None:
+        """Publish countdown_phase events to franklin:events so all clients
+        can display ready/set/go lights and play sounds even when the Rust
+        hardware monitor is not running."""
+        for phase, at in [("ready", ready_at), ("set", set_at), ("go", go_at)]:
+            event: dict[str, Any] = {
+                "type": "countdown_phase",
+                "phase": phase,
+                "at": at,
+                "recorded_at": time.time(),
+            }
+            if isinstance(command_id, str) and command_id:
+                event["command_id"] = command_id
+            if isinstance(source, str) and source:
+                event["source"] = source
+            try:
+                self.redis.publish(EVENTS_CHANNEL, json.dumps(event))
+                logging.info("Published countdown_phase (%s at %.3f)", phase, at)
+            except Exception as exc:
+                logging.error("Failed to publish countdown_phase (%s): %s", phase, exc)
 
     def _publish_end_race(self) -> None:
         try:

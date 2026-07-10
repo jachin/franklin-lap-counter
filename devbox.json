@@ -140,8 +140,8 @@
       "diagnose": [
         "python3 scripts/diagnose_via_ansible.py"
       ],
-      "update:franklin": [
-        "ansible-playbook -i playbooks/inventory.ini playbooks/update-franklin.yml"
+      "ansible:restart": [
+        "ansible-playbook -i playbooks/inventory.ini playbooks/62-bounce-web-apps.yml"
       ]
     }
   }

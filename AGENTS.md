@@ -9,5 +9,4 @@
 7. **Deploy commands to push fixes to the Pi:**
    - `devbox run deploy` — builds `.deb` then runs `ansible:deploy`
    - `devbox run ansible:deploy` — pushes files + `.deb` to Pi
-   - `devbox run update:franklin` — builds, deploys, restarts in one shot
 8. **Before running any deploy, restart, or diagnose on the Pi**, confirm with the user in that session that they want live testing. Do not push changes to the Pi without explicit confirmation.

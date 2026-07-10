@@ -514,6 +514,7 @@
     let countdownReadyAt = 0;
     let countdownReadyAtMs = 0;
     let currentSnapshot = null;
+    let lastRaceState = null;
     let currentRacers = [];
     let racerLookup = {};
     let debugVisible = false;
@@ -585,6 +586,15 @@
       document.getElementById('race-mode-label').textContent = modeInfo.join(' · ');
       updateClock(snapshot);
       setStartLights(snapshot.state, null);
+
+      // Play the finish/end sound when the race transitions into a finished
+      // state. The recorder reliably publishes this snapshot transition, so
+      // this works regardless of whether the hardware monitor is running.
+      if (snapshot.state === 'finished' && lastRaceState !== 'finished') {
+        FranklinAudio.init();
+        FranklinAudio.playFinish();
+      }
+      lastRaceState = snapshot.state;
     }
 
     /* ---- Clock ---- */
@@ -890,6 +900,7 @@
             countdownReadyAtMs = Date.now();
             setStartLights('not_started', 'ready');
             statusEl.textContent = 'Starting…';
+            FranklinAudio.init();
             FranklinAudio.playReady();
           } else if (phase === 'set' && countdownActive) {
             statusEl.textContent = 'Set…';

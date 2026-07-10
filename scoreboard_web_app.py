@@ -29,7 +29,7 @@ RACE_STATE_CHANNEL = "franklin:race_state"
 WEB_PORT = 8085
 WEB_HOST = "0.0.0.0"  # Bind to all network interfaces
 STATIC_DIR = Path(__file__).parent / "static"
-DB_PATH = Path(__file__).parent / "db" / "franklin.db"
+DB_PATH = str(Path(__file__).parent / "db" / "franklin.db")
 CONFIG_PATH = Path(__file__).parent / "franklin.config.json"
 
 # Logging setup

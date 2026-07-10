@@ -1,0 +1,221 @@
+---
+- name: Franklin Pi full diagnostic check
+  hosts: all
+  gather_facts: false
+  become: true
+  vars:
+    franklin_services:
+      - franklin-redis
+      - franklin-hardware-monitor
+      - franklin-race-recorder
+      - franklin-web-scoreboard
+      - franklin-web-referee
+      - franklin-web-healthcheck
+      - franklin-web-driver
+    web_app_ports:
+      scoreboard: 8085
+      referee: 8081
+      healthcheck: 8082
+      driver: 8083
+
+  tasks:
+    - name: Get Pi hostname
+      ansible.builtin.command: hostname
+      register: hostname_out
+      changed_when: false
+
+    - name: Collect system info
+      ansible.builtin.shell:
+        cmd: |
+          echo "=== UPTIME ==="; uptime
+          echo "=== MEMORY ==="; free -h
+          echo "=== DISK ==="; df -h "{{ pi_dest_dir }}" | tail -1
+          echo "=== LOAD ==="; cat /proc/loadavg
+      register: system_info
+      changed_when: false
+
+    - name: Show system info
+      ansible.builtin.debug:
+        msg:
+          - "Host: {{ hostname_out.stdout }}"
+          - "{{ system_info.stdout_lines[0] }}"
+          - "{{ system_info.stdout_lines[1] }}"
+          - "{{ system_info.stdout_lines[2] }}"
+          - "{{ system_info.stdout_lines[3] }}"
+
+    # ── franklin.target ────────────────────────────────────────────────
+
+    - name: Check franklin.target
+      ansible.builtin.systemd:
+        name: franklin.target
+      register: target_status
+      changed_when: false
+
+    - name: Report franklin.target status
+      ansible.builtin.debug:
+        msg: "franklin.target: {{ target_status.status.ActiveState | default('unknown') }} (SubState={{ target_status.status.SubState | default('unknown') }})"
+
+    # ── individual services ────────────────────────────────────────────
+
+    - name: Check each Franklin service
+      ansible.builtin.systemd:
+        name: "{{ item }}.service"
+      register: svc_statuses
+      loop: "{{ franklin_services }}"
+      changed_when: false
+
+    - name: Report service status table
+      ansible.builtin.debug:
+        msg: |-
+          {% for r in svc_statuses.results %}
+            {% set s = r.status %}
+            {% set name = r.item | default('?') %}
+            {% set load = s.LoadState | default('?') %}
+            {% set active = s.ActiveState | default('?') %}
+            {% set sub = s.SubState | default('?') %}
+            {% if active == 'active' %}  {{ '%22s' | format(name) }}  active      {{ sub }}
+            {% elif active == 'inactive' %}  {{ '%22s' | format(name) }}  inactive    —
+            {% elif active == 'failed' %}  {{ '%22s' | format(name) }}  FAILED      {{ sub }}
+            {% else %}  {{ '%22s' | format(name) }}  {{ '%10s' | format(active) }}  {{ sub }}{% endif %}
+          {% endfor %}
+        verbosity: 0
+
+    # ── recent logs for failed services ─────────────────────────────────
+
+    - name: Collect journalctl logs (last 15 lines) for each service
+      ansible.builtin.shell:
+        cmd: "journalctl -u {{ item }}.service --no-pager -n 15 --output=short 2>&1 || echo 'no logs'"
+      register: svc_logs
+      loop: "{{ franklin_services }}"
+      changed_when: false
+
+    - name: Print logs for inactive or failed services
+      ansible.builtin.debug:
+        msg: |-
+          ── {{ item.item }} ──
+          {{ item.stdout }}
+      loop: "{{ svc_logs.results }}"
+      loop_control:
+        label: "{{ item.item }}"
+      when: >
+        (svc_statuses.results | selectattr('item', 'equalto', item.item) | map(attribute='status.ActiveState') | first | default(''))
+        not in ('active',)
+
+    # ── file system checks ─────────────────────────────────────────────
+
+    - name: Check pi_dest_dir exists and list top-level contents
+      ansible.builtin.stat:
+        path: "{{ pi_dest_dir }}"
+      register: dest_dir_stat
+      changed_when: false
+
+    - name: Fail early if app dir is missing
+      ansible.builtin.fail:
+        msg: "CRITICAL: {{ pi_dest_dir }} does not exist on the Pi!"
+      when: not dest_dir_stat.stat.exists
+
+    - name: List critical files in app directory
+      ansible.builtin.shell:
+        cmd: "ls -lh {{ pi_dest_dir }}/{{ item }} 2>&1 || echo 'MISSING'"
+      register: critical_files
+      loop:
+        - ".venv/bin/python"
+        - "franklin-tui.py"
+        - "franklin-gui.py"
+        - "franklin-race-recorder.py"
+        - "driver_web_app.py"
+        - "referee_web_app.py"
+        - "scoreboard_web_app.py"
+        - "healthcheck_web_app.py"
+        - "redis_commands.py"
+        - "database.py"
+        - "race/"
+        - "static/"
+        - "start_franklin.py"
+        - "start_franklin_gui_session.py"
+      changed_when: false
+
+    - name: Print file check report
+      ansible.builtin.debug:
+        msg: |-
+          ── Critical file check @ {{ pi_dest_dir }} ──
+          {% for r in critical_files.results %}
+            {% set f = r.item | default('?') %}
+            {% set out = r.stdout | default('?') %}
+            {% if 'MISSING' in out or 'No such file' in out %}
+              {{ '%30s' | format(f) }}  ✗ MISSING
+            {% else %}
+              {{ '%30s' | format(f) }}  ✓ {{ out.split('\n')[0] | trim }}
+            {% endif %}
+          {% endfor %}
+      when: dest_dir_stat.stat.exists
+
+    - name: Check Redis socket
+      ansible.builtin.stat:
+        path: "{{ pi_dest_dir }}/run/redis.sock"
+      register: redis_sock
+      changed_when: false
+
+    - name: Report Redis socket
+      ansible.builtin.debug:
+        msg: "{{ 'redis.sock:  ✓ exists' if redis_sock.stat.exists else 'redis.sock:  ✗ MISSING — Redis may not be running' }}"
+
+    - name: Check /var/log/franklin/ for log files
+      ansible.builtin.shell:
+        cmd: "ls -lht /var/log/franklin/*.log 2>&1 | head -20 || echo '(no log files found)'"
+      register: log_files
+      changed_when: false
+
+    - name: Print log file listing
+      ansible.builtin.debug:
+        msg: "{{ log_files.stdout_lines }}"
+
+    # ── web app connectivity ───────────────────────────────────────────
+
+    - name: Check web apps on loopback
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:{{ port }}"
+        method: GET
+        status_code: [200, 302, 401, 403, 404, 500, 502, 503]
+        timeout: 5
+      register: web_checks
+      loop: "{{ web_app_ports | dict2items(key_name='name', value_name='port') }}"
+      changed_when: false
+      ignore_errors: true
+
+    - name: Print web app connectivity
+      ansible.builtin.debug:
+        msg: |-
+          ── Web app connectivity ──
+          {% for r in web_checks.results %}
+            {% set name = r.item.name %}
+            {% if r.failed %}
+              {{ '%15s' | format(name) }}  ✗ unreachable (port {{ r.item.port }})
+            {% else %}
+              {{ '%15s' | format(name) }}  ✓ HTTP {{ r.status }}
+            {% endif %}
+          {% endfor %}
+
+    # ── summary ────────────────────────────────────────────────────────
+
+    - name: Print final diagnostic summary
+      ansible.builtin.debug:
+        msg: |-
+          ═══════════════════════════════════════════
+            Franklin Diagnostic Summary
+            Host: {{ hostname_out.stdout }}
+          ═══════════════════════════════════════════
+
+          Target:  {{ target_status.status.ActiveState | default('unknown') }}
+          {% for r in svc_statuses.results %}
+          {% set name = r.item | default('?') %}
+          {% set active = r.status.ActiveState | default('?') %}
+          {% if active == 'active' %}  ✓{% else %}  ✗{% endif %} {{ name }}{% endfor %}
+
+          Redis socket: {{ '✓' if redis_sock.stat.exists else '✗' }}
+          App dir:      {{ '✓' if dest_dir_stat.stat.exists else '✗' }}
+          Web apps:
+          {% for r in web_checks.results %}
+            {{ '✓' if not r.failed else '✗' }} {{ r.item.name }} (port {{ r.item.port }}){% endfor %}
+
+          View full logs: journalctl -u franklin-redis -f

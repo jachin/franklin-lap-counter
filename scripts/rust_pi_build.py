@@ -6,7 +6,16 @@ import sys
 from datetime import datetime
 
 
-SUPPORTED_APPLE_CONTAINER_TARGETS = {"aarch64-unknown-linux-gnu": "arm64"}
+SUPPORTED_APPLE_CONTAINER_TARGETS = {
+    "aarch64-unknown-linux-gnu": "arm64",
+    "armv7-unknown-linux-gnueabihf": "arm",
+}
+SUPPORTED_TARGETS = {"aarch64-unknown-linux-gnu", "armv7-unknown-linux-gnueabihf"}
+
+APPLE_CONTAINER_PLATFORM_ARCH = {
+    "aarch64-unknown-linux-gnu": "arm64",
+    "armv7-unknown-linux-gnueabihf": "arm/v7",
+}
 
 
 def log(msg: str):
@@ -54,7 +63,7 @@ def apple_container_build(rust_target: str) -> bool:
         log(f"Unknown RUST_PI_APPLE_CONTAINER={mode!r}; skipping Apple container build.")
         return False
 
-    platform_arch = SUPPORTED_APPLE_CONTAINER_TARGETS.get(rust_target)
+    platform_arch = APPLE_CONTAINER_PLATFORM_ARCH.get(rust_target)
     if platform_arch is None:
         log(f"Apple container build is not configured for {rust_target}; skipping.")
         return False
@@ -73,11 +82,22 @@ def apple_container_build(rust_target: str) -> bool:
     log("Trying Apple container build before Docker/cross fallback...")
     log(f"Using image: {image}")
 
+    # Determine dpkg architecture and libudev package for the target
+    if rust_target == "aarch64-unknown-linux-gnu":
+        dpkg_arch = "arm64"
+        libudev_pkg = "libudev-dev:arm64"
+    elif rust_target == "armv7-unknown-linux-gnueabihf":
+        dpkg_arch = "armhf"
+        libudev_pkg = "libudev-dev:armhf"
+    else:
+        log(f"Unsupported target for Apple container: {rust_target}")
+        return False
+
     build_script = " && ".join(
         [
-            "dpkg --add-architecture arm64",
+            f"dpkg --add-architecture {dpkg_arch}",
             "apt-get update",
-            "apt-get --assume-yes install ca-certificates curl libudev-dev:arm64 pkg-config gcc",
+            f"apt-get --assume-yes install ca-certificates curl {libudev_pkg} pkg-config gcc",
             (
                 f"(test -x {container_cargo_home}/bin/rustup || "
                 f"(curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs -o {rustup_installer} && "

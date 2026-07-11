@@ -59,8 +59,14 @@ def main():
         log(f"❌ Build did not produce expected binary at {binary_path}")
         sys.exit(1)
 
-    # Map rust target to deb architecture label (only aarch64 supported)
-    arch_label = "arm64"
+    # Map rust target to deb architecture label
+    if rust_target == "aarch64-unknown-linux-gnu":
+        arch_label = "arm64"
+    elif rust_target == "armv7-unknown-linux-gnueabihf":
+        arch_label = "armhf"
+    else:
+        log(f"❌ Unsupported Rust target for deb packaging: {rust_target}")
+        sys.exit(1)
 
     pkg_name = "franklin-hardware-monitor"
     pkg_dir = f"rust/target/debian/{pkg_name}_{version}_{arch_label}"

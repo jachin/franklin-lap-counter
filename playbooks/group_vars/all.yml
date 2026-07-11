@@ -19,8 +19,8 @@ franklin_supplementary_groups:
 franklin_autologin_tty: tty1
 franklin_enable_autologin: true
 franklin_enable_autostart: true
-franklin_enable_wayland_boot: true
-franklin_enable_wayvnc: true
+franklin_enable_wayland_boot: false
+franklin_enable_wayvnc: false
 franklin_wayvnc_bind_address: 127.0.0.1
 franklin_wayvnc_port: 5900
 franklin_wayvnc_enable_auth: false
@@ -33,7 +33,7 @@ pi_firmware_config_path: /boot/firmware/config.txt
 # Default target app directory on the Pi
 pi_dest_dir: /opt/franklin-lap-counter
 
-# Apt packages required by Franklin setup
+# Apt packages required by Franklin setup (32-bit TUI mode)
 system_packages:
   - python3
   - python3-pip
@@ -42,14 +42,7 @@ system_packages:
   - tmux
   - zsh
   - ncurses-bin
-  - lnav
   - python3-gi
-  - gir1.2-gtk-4.0
-  - fonts-noto-color-emoji
-  - fontconfig
-  - sway
-  - xwayland
-  - seatd
   - libudev-dev
   - libportaudio2
 

@@ -19,15 +19,15 @@
       ansible.builtin.set_fact:
         detected_arch: "{{ pi_arch_cmd.stdout | trim }}"
 
-    - name: Fail if Pi is not aarch64
+    - name: Validate supported Pi architecture
       ansible.builtin.fail:
-        msg: "Franklin requires a 64-bit Raspberry Pi. Detected arch={{ detected_arch }} but only arm64 is supported."
-      when: detected_arch != 'arm64'
+        msg: "Franklin requires arm64 or armhf Raspberry Pi. Detected arch={{ detected_arch }}."
+      when: detected_arch not in ['arm64', 'armhf']
 
     - name: Set Rust target and Debian arch label
       ansible.builtin.set_fact:
-        rust_target: "aarch64-unknown-linux-gnu"
-        arch_label: "arm64"
+        rust_target: "{{ 'aarch64-unknown-linux-gnu' if detected_arch == 'arm64' else 'armv7-unknown-linux-gnueabihf' }}"
+        arch_label: "{{ 'arm64' if detected_arch == 'arm64' else 'armhf' }}"
 
     - name: Get package version from Cargo.toml
       ansible.builtin.shell:
@@ -314,9 +314,8 @@
         - "{{ project_root }}/systemd/franklin-hardware-monitor.service"
         - "{{ project_root }}/systemd/franklin-race-recorder.service"
         - "{{ project_root }}/systemd/franklin-web-driver.service"
-        - "{{ project_root }}/systemd/franklin-web-healthcheck.service"
         - "{{ project_root }}/systemd/franklin-web-referee.service"
-        - "{{ project_root }}/systemd/franklin-web-scoreboard.service"
+        - "{{ project_root }}/systemd/franklin-tui.service"
         - "{{ project_root }}/systemd/franklin.target"
       register: systemd_deploy
       when: systemd_dir_stat.stat.isdir
@@ -340,7 +339,6 @@
         mode: "0755"
       loop:
         - start_franklin.py
-        - start_franklin_gui_session.py
 
     - name: Verify deployed files on remote host
       ansible.builtin.stat:
@@ -349,17 +347,13 @@
       loop:
         - "/usr/bin/franklin-hardware-monitor"
         - "{{ pi_dest_dir }}/franklin-tui.py"
-        - "{{ pi_dest_dir }}/franklin-gui.py"
         - "{{ pi_dest_dir }}/franklin-race-recorder.py"
         - "{{ pi_dest_dir }}/gui_config.py"
-        - "{{ pi_dest_dir }}/scoreboard_web_app.py"
         - "{{ pi_dest_dir }}/referee_web_app.py"
-        - "{{ pi_dest_dir }}/healthcheck_web_app.py"
         - "{{ pi_dest_dir }}/driver_web_app.py"
         - "{{ pi_dest_dir }}/racer_colors.py"
         - "{{ pi_dest_dir }}/redis_commands.py"
         - "{{ pi_dest_dir }}/start_franklin.py"
-        - "{{ pi_dest_dir }}/start_franklin_gui_session.py"
 
     - name: Fail when deployed files are missing
       ansible.builtin.fail:
@@ -376,12 +370,12 @@
       ansible.builtin.debug:
         msg: "{{ binary_file_info.stdout }}"
 
-    - name: Warn when binary architecture may not be ARM64
+    - name: Warn when binary architecture may not match expected
       ansible.builtin.debug:
-        msg: "Warning: Could not verify ARM64 architecture in deployed binary output"
+        msg: "Warning: Could not verify {{ arch_label }} architecture in deployed binary output"
       when: >-
-        ('ARM aarch64' not in binary_file_info.stdout)
-        and ('ARM 64-bit' not in binary_file_info.stdout)
+        (arch_label == 'arm64' and 'ARM aarch64' not in binary_file_info.stdout and 'ARM 64-bit' not in binary_file_info.stdout)
+        or (arch_label == 'armhf' and 'ARM' not in binary_file_info.stdout)
 
     - name: Restart all Franklin services via target
       ansible.builtin.systemd:

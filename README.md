@@ -18,12 +18,32 @@ You need
 - Race Mode
 - Training Mode
 
-### Kisok Mode
+### Kiosk Mode
 
-Whe the PI boots up it auto logsin and starts up the Franklin Lap Couter.
+When the PI boots up it auto logins and starts up the Franklin Lap Counter.
 
-- TUI Interface
-- GUI Interface (GTK)
+- TUI Interface (default on 32-bit, optional on 64-bit)
+- GUI Interface (GTK, 64-bit only)
+
+### 32-bit Raspberry Pi OS Support (TUI-only)
+
+Franklin supports **Raspberry Pi OS Lite 32-bit (armhf)** on Pi 3, Pi 4, Pi Zero 2 W, and Pi 5. The 32-bit build uses the Textual TUI instead of the GTK4 GUI, providing significant memory savings (~400 MB less RAM).
+
+| Component | 64-bit (GUI) | 32-bit (TUI) |
+|-----------|--------------|--------------|
+| OS Base | Pi OS Lite 64-bit | Pi OS Lite 32-bit |
+| Display | Wayland/sway + GTK4 | Terminal (Textual) |
+| Memory (idle) | ~650 MB | ~240 MB |
+| Audio | sounddevice/aplay | Terminal bell only |
+| Start lights | Visual (GUI) | Status bar only |
+
+**To deploy on 32-bit Pi OS:**
+1. Flash Raspberry Pi OS Lite (32-bit) to SD card
+2. Configure `playbooks/inventory.ini` with your Pi's IP
+3. Run `devbox run ansible:setup` then `devbox run deploy`
+4. The playbook auto-detects `armhf` and builds/installs the correct `.deb`
+
+See `README-32bit-TUI.md` for detailed comparison and cross-compilation notes.
 
 ### Web Interface
 

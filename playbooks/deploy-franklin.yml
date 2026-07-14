@@ -377,10 +377,22 @@
         (arch_label == 'arm64' and 'ARM aarch64' not in binary_file_info.stdout and 'ARM 64-bit' not in binary_file_info.stdout)
         or (arch_label == 'armhf' and 'ARM' not in binary_file_info.stdout)
 
-    - name: Restart all Franklin services via target
+    # Restart the background services that hold Python application code so a
+    # deploy actually picks up changes. (Restarting franklin.target does NOT
+    # restart these services — they are WantedBy=multi-user.target, not
+    # PartOf=franklin.target — so an explicit restart is required.) We avoid
+    # restarting franklin-redis.service (would drop in-memory data) and
+    # franklin-tui.service (the user's active display session; use
+    # 59-restart-franklin-gui.yml for that).
+    - name: Restart Franklin background services
       ansible.builtin.systemd:
-        name: franklin.target
+        name: "{{ item }}"
         state: restarted
+      loop:
+        - franklin-hardware-monitor.service
+        - franklin-race-recorder.service
+        - franklin-web-driver.service
+        - franklin-web-referee.service
       ignore_errors: true
 
     - name: Deployment summary
@@ -389,4 +401,5 @@
           - "Deployment complete to {{ inventory_hostname }}:{{ pi_dest_dir }}"
           - "Deployed: franklin-hardware-monitor (Rust binary), application source files, static/, race/, tmuxinator/"
           - "Systemd unit files refreshed, daemon reloaded"
+          - "Restarted: franklin-hardware-monitor, franklin-race-recorder, franklin-web-driver, franklin-web-referee"
           - "Start on Pi with: cd {{ pi_dest_dir }} && ./start_franklin.py"

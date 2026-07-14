@@ -585,7 +585,13 @@
       }
       document.getElementById('race-mode-label').textContent = modeInfo.join(' · ');
       updateClock(snapshot);
-      setStartLights(snapshot.state, null);
+      // During a countdown, do NOT let incoming 'not_started' snapshots clobber
+      // the red→green start lights that the countdown_phase handler has painted.
+      // (Mirror of the race-status text guard above, and of the GUI's
+      // _start_sequence_running protection.)
+      if (!countdownActive) {
+        setStartLights(snapshot.state, null);
+      }
 
       // Play the finish/end sound when the race transitions into a finished
       // state. The recorder reliably publishes this snapshot transition, so

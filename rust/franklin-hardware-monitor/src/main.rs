@@ -1036,7 +1036,15 @@ async fn command_handler_task(hw: Arc<HardwareComm>, app: Arc<Mutex<App>>) -> Re
                         "start_race" => {
                             // Get simulation mode from app state and initialize race epoch.
                             let now = now_epoch_seconds();
-                            let start_epoch = start_at.or(go_at).unwrap_or(now);
+                            // Default the race start 2s in the future when no
+                            // explicit go/start time is given. This keeps the
+                            // ready/set/go countdown phases in the FUTURE (ready
+                            // = start - 2, set = start - 1, go = start) so web
+                            // clients schedule them with positive delays instead
+                            // of firing them all instantly. Mirrors the 2-second
+                            // countdown the FAKE race path uses. When go_at is
+                            // provided it is honoured as-is (may be future).
+                            let start_epoch = start_at.or(go_at).unwrap_or(now + 2.0);
                             let rt = tokio::runtime::Handle::current();
                             let is_simulation = rt.block_on(async {
                                 let mut app = app.lock().await;

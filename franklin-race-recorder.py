@@ -330,6 +330,20 @@ class RaceRecorder:
         if isinstance(command_id, str) and command_id:
             self._pending_start_config[command_id] = config
 
+        # Clear any stale finished/winner_declared/paused state from a previous
+        # race so the countdown shows a fresh "Ready to start" instead of the
+        # old "Race Finished" snapshot. The engine only transitions to running
+        # at go_at (via the start_race event), so until then it must be
+        # not_started. Without this, the periodic snapshot loop keeps publishing
+        # the previous finished state during the whole countdown window.
+        if self.engine.race.state in (
+            RaceState.FINISHED,
+            RaceState.WINNER_DECLARED,
+            RaceState.PAUSED,
+        ):
+            reset_result = self.engine.reset()
+            self._apply_and_publish(reset_result)
+
         # Announce the ready/set/go countdown only for FAKE races. For
         # REAL/TRAINING the Rust hardware monitor owns the countdown and
         # publishes countdown_phase itself, so announcing here too would

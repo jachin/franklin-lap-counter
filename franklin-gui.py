@@ -796,7 +796,9 @@ class FranklinGuiApp(Gtk.Application):
     _START_PHASE_ORDER = {"ready": 1, "set": 2, "go": 3, "running": 4}
 
     def _start_phase_level(self) -> int:
-        return self._START_PHASE_ORDER.get(self._start_sequence_phase or "", 0)
+        return self._START_PHASE_ORDER.get(
+            (self._start_sequence_phase or "").lower(), 0
+        )
 
     def _apply_start_lights(
         self, left_classes: list[str], right_classes: list[str] | None = None

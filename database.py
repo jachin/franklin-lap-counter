@@ -34,6 +34,17 @@ class LapDatabase:
         self.conn = sqlite3.connect(self.db_path)
         self.conn.row_factory = sqlite3.Row  # Enable column access by name
 
+        # Concurrency: multiple processes (recorder, web apps) share this file.
+        # WAL lets readers proceed while a writer finalizes a race, and
+        # busy_timeout makes contended operations wait instead of instantly
+        # raising "database is locked" (which surfaced as HTTP 500 on end_race).
+        # foreign_keys=ON keeps lap<->race integrity; synchronous=NORMAL is safe
+        # under WAL and much faster on the Pi's SD card.
+        self.conn.execute("PRAGMA journal_mode=WAL")
+        self.conn.execute("PRAGMA busy_timeout=5000")
+        self.conn.execute("PRAGMA foreign_keys=ON")
+        self.conn.execute("PRAGMA synchronous=NORMAL")
+
         cursor = self.conn.cursor()
 
         # Create preferences table

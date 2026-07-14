@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import argparse
 import os
 import re
 import shutil
@@ -12,6 +13,18 @@ def log(msg: str):
 
 
 def main():
+    parser = argparse.ArgumentParser(
+        description="Build a Debian package of the Franklin hardware monitor."
+    )
+    parser.add_argument(
+        "--target",
+        dest="rust_target",
+        help="Rust target triple (e.g. aarch64-unknown-linux-gnu). "
+        "Falls back to RUST_PI_TARGET / RUST_TARGET env vars, "
+        "then to aarch64-unknown-linux-gnu.",
+    )
+    args = parser.parse_args()
+
     # Ensure we are in the project root
     # (dirname of scripts/build_deb.py is scripts, parent is project root)
     script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -37,9 +50,12 @@ def main():
     version = match.group(1)
     log(f"Hardware monitor version detected: {version}")
 
-    # Determine target architecture from env var (same as rust_pi_build.py)
-    rust_target = os.environ.get(
-        "RUST_PI_TARGET", os.environ.get("RUST_TARGET", "aarch64-unknown-linux-gnu")
+    # Determine target architecture: --target flag > env vars > default
+    rust_target = (
+        args.rust_target
+        or os.environ.get("RUST_PI_TARGET")
+        or os.environ.get("RUST_TARGET")
+        or "aarch64-unknown-linux-gnu"
     )
 
     binary_path = f"rust/target/{rust_target}/release/franklin-hardware-monitor"
@@ -50,7 +66,13 @@ def main():
     # exists at binary_path.
     log("Building Pi binary before packaging...")
     try:
-        subprocess.run([sys.executable, "scripts/rust_pi_build.py"], check=True)
+        build_env = os.environ.copy()
+        build_env["RUST_PI_TARGET"] = rust_target
+        subprocess.run(
+            [sys.executable, "scripts/rust_pi_build.py"],
+            check=True,
+            env=build_env,
+        )
     except subprocess.CalledProcessError:
         log("❌ Local cross-build failed. Cannot build Debian package.")
         sys.exit(1)

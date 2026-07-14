@@ -37,7 +37,8 @@
     "python313Packages.sounddevice@latest"
   ],
   "env": {
-    "GI_TYPELIB_PATH": "$GI_TYPELIB_PATH:$(${pkgs.lib.makeSearchPathOutput \"lib\" \"lib/girepository-1.0\" [ pkgs.gtk4 pkgs.pango pkgs.gdk-pixbuf pkgs.gobject-introspection ]})"
+    "GI_TYPELIB_PATH": "$GI_TYPELIB_PATH:$(${pkgs.lib.makeSearchPathOutput \"lib\" \"lib/girepository-1.0\" [ pkgs.gtk4 pkgs.pango pkgs.gdk-pixbuf pkgs.gobject-introspection ]})",
+    "ANSIBLE_CONFIG": "playbooks/ansible.cfg"
   },
   "shell": {
     "init_hook": [
@@ -98,7 +99,7 @@
       "hardware-monitor:run": [
         "cargo run --manifest-path rust/Cargo.toml --bin franklin-hardware-monitor -- \"$@\""
       ],
-      "hardware-monitor:build-deb": ["python3 ./scripts/build_deb.py"],
+      "hardware-monitor:build-deb": ["python3 ./scripts/build_deb.py \"$@\""],
       "race-recorder:bump-version": [
         "python scripts/bump-version-recorder.py \"$@\""
       ],
@@ -117,7 +118,7 @@
       ],
       "vnc:connect": ["open vnc://127.0.0.1:5901"],
       "deploy": [
-        "devbox run hardware-monitor:build-deb",
+        "RUST_PI_TARGET=$(bash scripts/detect_pi_arch.sh) devbox run hardware-monitor:build-deb",
         "devbox run ansible:deploy"
       ],
       "ansible:deploy": [

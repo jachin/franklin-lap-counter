@@ -9,3 +9,9 @@ pre-build = [
     "dpkg --add-architecture $CROSS_DEB_ARCH",
     "apt-get update && apt-get --assume-yes install libudev-dev:$CROSS_DEB_ARCH pkg-config",
 ]
+
+[target.armv7-unknown-linux-gnueabihf]
+pre-build = [
+    "dpkg --add-architecture $CROSS_DEB_ARCH",
+    "apt-get update && apt-get --assume-yes install libudev-dev:$CROSS_DEB_ARCH pkg-config",
+]

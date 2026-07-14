@@ -33,3 +33,26 @@
         - franklin.yml
         - franklin-services.yml
         - franklin-simulator.yml
+        - franklin-tui.yml
+
+    - name: Ensure user tmuxinator config directory exists
+      ansible.builtin.file:
+        path: "{{ franklin_home }}/.config/tmuxinator"
+        state: directory
+        owner: "{{ franklin_user }}"
+        group: "{{ franklin_group }}"
+        mode: "0755"
+
+    - name: Symlink tmuxinator configs into user config directory
+      ansible.builtin.file:
+        src: "{{ pi_dest_dir }}/tmuxinator/{{ item }}"
+        dest: "{{ franklin_home }}/.config/tmuxinator/{{ item }}"
+        state: link
+        owner: "{{ franklin_user }}"
+        group: "{{ franklin_group }}"
+        force: true
+      loop:
+        - franklin.yml
+        - franklin-services.yml
+        - franklin-simulator.yml
+        - franklin-tui.yml

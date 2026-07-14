@@ -381,9 +381,9 @@
     # deploy actually picks up changes. (Restarting franklin.target does NOT
     # restart these services — they are WantedBy=multi-user.target, not
     # PartOf=franklin.target — so an explicit restart is required.) We avoid
-    # restarting franklin-redis.service (would drop in-memory data) and
-    # franklin-tui.service (the user's active display session; use
-    # 59-restart-franklin-gui.yml for that).
+    # restarting franklin-redis.service (would drop in-memory data). The TUI
+    # runs on the console (tty1) as a systemd service and is restarted here
+    # too; this briefly blanks the console while it reloads.
     - name: Restart Franklin background services
       ansible.builtin.systemd:
         name: "{{ item }}"
@@ -393,6 +393,7 @@
         - franklin-race-recorder.service
         - franklin-web-driver.service
         - franklin-web-referee.service
+        - franklin-tui.service
       ignore_errors: true
 
     - name: Deployment summary

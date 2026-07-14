@@ -1,6 +1,11 @@
 [Unit]
 Description=Franklin Lap Counter (all services)
 Documentation=https://github.com/jachinrupe/franklin-lap-counter
+# The TUI (franklin-tui.service) runs directly on the console (tty1) via a
+# real TTY; it declares Conflicts=getty@tty1.service, so the agetty on tty1
+# must be masked at install time or getty.target will respawn it and fight the
+# TUI for the VT. Do NOT also launch the TUI via tmuxinator/autologin — that
+# starts a second, redundant stack (and previously caused a 100% CPU spin).
 Requires=franklin-redis.service
 Wants=franklin-hardware-monitor.service franklin-race-recorder.service
 Wants=franklin-web-driver.service franklin-web-referee.service

@@ -2,7 +2,13 @@
 Description=Franklin TUI (terminal UI for lap counter)
 Documentation=https://github.com/jachinrupe/franklin-lap-counter
 After=franklin-redis.service franklin-race-recorder.service
-Wants=franklin-redis.service franklin-race-recorder.service
+Requires=franklin-redis.service franklin-race-recorder.service
+# The TUI owns the console (tty1). Declare a conflict with the agetty that
+# would otherwise occupy tty1 so systemd hands the VT to the TUI instead of
+# looping with both trying to use it. The getty must also be masked at install
+# time (see playbooks) or getty.target will just respawn it.
+Conflicts=getty@tty1.service
+After=getty@tty1.service
 
 [Service]
 Type=simple
@@ -10,15 +16,19 @@ User=franklin
 Group=franklin
 WorkingDirectory=/opt/franklin-lap-counter
 Environment=FRANKLIN_REDIS_SOCKET=/opt/franklin-lap-counter/run/redis.sock
+Environment=TERM=linux
 ExecStart=/opt/franklin-lap-counter/.venv/bin/python /opt/franklin-lap-counter/franklin-tui.py
 Restart=always
 RestartSec=3
 
-# Logging
-LogsDirectory=franklin
-LogsDirectoryMode=0755
-StandardOutput=append:/var/log/franklin/franklin-tui.log
-StandardError=inherit
+# Run directly on the console. A Textual TUI renders to its stdout, so stdout
+# MUST be the tty; do NOT point StandardOutput at a file or journald or the UI
+# will not appear. (This is also why it cannot run as a bare service with
+# stdin=/dev/null — that previously caused a 100% CPU EOF busy-loop.)
+TTYPath=/dev/tty1
+StandardInput=tty
+StandardOutput=tty
+StandardError=tty
 
 # Sandboxing
 PrivateTmp=yes

@@ -1,5 +1,5 @@
 ---
-- name: Configure boot-time autologin and Franklin autostart
+- name: Configure console for Franklin systemd TUI (no autologin/tmuxinator)
   hosts: all
   become: true
   vars:
@@ -8,77 +8,41 @@
     getty_override_file: "{{ getty_override_dir }}/autologin.conf"
 
   tasks:
-    - name: Ensure getty override directory exists
-      ansible.builtin.file:
-        path: "{{ getty_override_dir }}"
-        state: directory
-        mode: "0755"
-      when: franklin_enable_autologin
-
-    - name: Configure autologin for franklin on tty
-      ansible.builtin.copy:
-        dest: "{{ getty_override_file }}"
-        mode: "0644"
-        content: |
-          [Service]
-          ExecStart=
-          ExecStart=-/sbin/agetty --autologin {{ franklin_user }} --noclear %I $TERM
-      register: getty_override_result
-      when: franklin_enable_autologin
-
-    - name: Ensure getty service is enabled
+    # The Franklin TUI is launched by systemd (franklin-tui.service) directly on
+    # the console VT. It declares Conflicts=getty@tty1, so the agetty that would
+    # otherwise occupy tty1 must be masked; otherwise getty.target respawns it and
+    # the two fight for the VT. We do NOT use autologin/tmuxinator anymore — that
+    # path spawned a second, redundant stack and (headless) a 100% CPU spin.
+    - name: Mask the console agetty so the systemd TUI owns the VT
       ansible.builtin.systemd:
         name: "{{ getty_service }}"
-        enabled: true
-      when: franklin_enable_autologin
+        enabled: false
+        masked: true
+        state: stopped
+      register: getty_masked
 
-    - name: Reload systemd when autologin override changed
+    - name: Remove stale autologin override drop-in
+      ansible.builtin.file:
+        path: "{{ getty_override_file }}"
+        state: absent
+
+    - name: Reload systemd after masking getty
       ansible.builtin.systemd:
         daemon_reload: true
-      when:
-        - franklin_enable_autologin
-        - getty_override_result is changed
 
-    - name: Restart getty service when autologin override changed
-      ansible.builtin.systemd:
-        name: "{{ getty_service }}"
-        state: restarted
-      when:
-        - franklin_enable_autologin
-        - getty_override_result is changed
-
-    - name: Configure franklin zsh login autostart block
+    # Defense in depth: ensure nothing in the login shell auto-launches
+    # tmuxinator/tmux. The TUI is fully systemd-managed now.
+    - name: Remove franklin zsh login autostart block
       ansible.builtin.blockinfile:
         path: "{{ franklin_home }}/.zprofile"
-        create: true
-        owner: "{{ franklin_user }}"
-        group: "{{ franklin_group }}"
-        mode: "0644"
-        marker: "# {mark} ANSIBLE MANAGED FRANKLIN AUTOSTART"
-        block: |
-          # Auto-start Franklin on local boot console login only.
-          if [[ -z "${SSH_TTY:-}" ]] && [[ -z "${TMUX:-}" ]] && [[ "$(tty)" == "/dev/{{ franklin_autologin_tty }}" ]]; then
-            # Launch the TUI in a tmux session.
-            # Background services (redis, hardware monitor, race recorder,
-            # web apps) are managed by systemd; the TUI is the primary UI.
-            if command -v tmuxinator >/dev/null 2>&1; then
-              cd "{{ pi_dest_dir }}"
-              tmuxinator start franklin-tui 2>/dev/null || \
-                tmux new-session -s franklin-tui -d 'python franklin-tui.py' && \
-                tmux attach -t franklin-tui
-              exit
-            fi
-          fi
-      when: franklin_enable_autostart
-
-    - name: Remove franklin zsh login autostart block when disabled
-      ansible.builtin.blockinfile:
-        path: "{{ franklin_home }}/.zprofile"
-        create: true
         owner: "{{ franklin_user }}"
         group: "{{ franklin_group }}"
         mode: "0644"
         marker: "# {mark} ANSIBLE MANAGED FRANKLIN AUTOSTART"
         block: ""
         state: absent
-      when: not franklin_enable_autostart
+
+    - name: Ensure franklin.target is enabled
+      ansible.builtin.systemd:
+        name: franklin.target
+        enabled: true

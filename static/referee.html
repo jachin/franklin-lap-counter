@@ -909,23 +909,28 @@
             FranklinAudio.init();
             FranklinAudio.playReady();
           } else if (phase === 'set' && countdownActive) {
-            statusEl.textContent = 'Set…';
             const totalMs = (atEpoch - countdownReadyAt) * 1000;
             const elapsedMs = Date.now() - countdownReadyAtMs;
             const remainingMs = Math.max(0, totalMs - elapsedMs);
             countdownTimers.push(setTimeout(() => {
               if (countdownActive) {
+                // Set the label together with the lights so the READY/SET/GO
+                // text stays in sync with the start-light sequence. (The label
+                // was previously assigned immediately on message receipt, which
+                // made it jump straight to "Go!" because all three countdown
+                // phases arrive at once.)
+                statusEl.textContent = 'Set…';
                 setStartLights('not_started', 'set');
                 FranklinAudio.playSet();
               }
             }, remainingMs));
           } else if (phase === 'go' && countdownActive) {
-            statusEl.textContent = 'Go!';
             const totalMs = (atEpoch - countdownReadyAt) * 1000;
             const elapsedMs = Date.now() - countdownReadyAtMs;
             const remainingMs = Math.max(0, totalMs - elapsedMs);
             countdownTimers.push(setTimeout(() => {
               if (countdownActive) {
+                statusEl.textContent = 'Go!';
                 setStartLights('running', 'go');
                 FranklinAudio.playGo();
                 countdownActive = false;

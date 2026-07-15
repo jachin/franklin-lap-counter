@@ -28,6 +28,7 @@ StandardError=journal
 # discovers it.
 RuntimeDirectory=franklin
 Environment=XDG_RUNTIME_DIR=/run/franklin
+Environment=GDK_BACKEND=wayland
 ExecStart=/usr/bin/sway
 Restart=always
 RestartSec=3

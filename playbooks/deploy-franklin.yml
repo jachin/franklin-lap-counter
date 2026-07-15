@@ -346,6 +346,7 @@
         enabled: true
         state: started
       when: franklin_gui_enabled
+      ignore_errors: true
 
     - name: Enable + start Franklin sway (Wayland display) service
       ansible.builtin.systemd:

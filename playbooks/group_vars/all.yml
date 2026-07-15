@@ -17,6 +17,12 @@ franklin_enable_autologin: true
 franklin_enable_autostart: true
 franklin_enable_wayland_boot: false
 
+# Console UI mode. When true the deploy installs/starts the GTK GUI
+# (franklin-gui.service under sway/Wayland) instead of the TUI
+# (franklin-tui.service on tty1). Toggled per-host via group_vars or the
+# deploy:tui / deploy:gui devbox tasks.
+franklin_gui_enabled: false
+
 # Firmware config path for Raspberry Pi boot settings
 pi_firmware_config_path: /boot/firmware/config.txt
 
@@ -33,6 +39,8 @@ system_packages:
   - zsh
   - ncurses-bin
   - python3-gi
+  - gir1.2-gtk-4.0
+  - libgtk-4-1
   - libudev-dev
   - libportaudio2
 

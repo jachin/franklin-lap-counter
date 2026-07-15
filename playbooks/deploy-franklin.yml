@@ -315,10 +315,43 @@
         - "{{ project_root }}/systemd/franklin-race-recorder.service"
         - "{{ project_root }}/systemd/franklin-web-driver.service"
         - "{{ project_root }}/systemd/franklin-web-referee.service"
-        - "{{ project_root }}/systemd/franklin-tui.service"
+        - "{{ project_root }}/systemd/franklin-web-scoreboard.service"
         - "{{ project_root }}/systemd/franklin.target"
+        - "{{ project_root }}/systemd/franklin-tui.service"
+        - "{{ project_root }}/systemd/franklin-gui.service"
       register: systemd_deploy
       when: systemd_dir_stat.stat.isdir
+
+    # Console UI unit: only one of TUI (tty1) / GUI (sway/Wayland) runs per box.
+    # Enable + start the active one and make sure the other is disabled so the
+    # two never fight for the console/display.
+    - name: Enable + start Franklin TUI (console) service
+      ansible.builtin.systemd:
+        name: franklin-tui.service
+        enabled: true
+        state: started
+      when: not franklin_gui_enabled
+
+    - name: Disable Franklin TUI service in GUI mode
+      ansible.builtin.systemd:
+        name: franklin-tui.service
+        enabled: false
+        state: stopped
+      when: franklin_gui_enabled
+
+    - name: Enable + start Franklin GUI (sway/Wayland) service
+      ansible.builtin.systemd:
+        name: franklin-gui.service
+        enabled: true
+        state: started
+      when: franklin_gui_enabled
+
+    - name: Disable Franklin GUI service in TUI mode
+      ansible.builtin.systemd:
+        name: franklin-gui.service
+        enabled: false
+        state: stopped
+      when: not franklin_gui_enabled
 
     - name: Reload systemd daemon after deploying service files
       ansible.builtin.systemd:
@@ -393,7 +426,21 @@
         - franklin-race-recorder.service
         - franklin-web-driver.service
         - franklin-web-referee.service
-        - franklin-tui.service
+        - franklin-web-scoreboard.service
+      ignore_errors: true
+
+    - name: Restart Franklin TUI (console) service
+      ansible.builtin.systemd:
+        name: franklin-tui.service
+        state: restarted
+      when: not franklin_gui_enabled
+      ignore_errors: true
+
+    - name: Restart Franklin GUI (sway/Wayland) service
+      ansible.builtin.systemd:
+        name: franklin-gui.service
+        state: restarted
+      when: franklin_gui_enabled
       ignore_errors: true
 
     - name: Deployment summary
@@ -402,5 +449,6 @@
           - "Deployment complete to {{ inventory_hostname }}:{{ pi_dest_dir }}"
           - "Deployed: franklin-hardware-monitor (Rust binary), application source files, static/, race/, tmuxinator/"
           - "Systemd unit files refreshed, daemon reloaded"
+          - "Console UI: {{ 'franklin-gui.service (sway/Wayland)' if franklin_gui_enabled else 'franklin-tui.service (tty1)' }}"
           - "Restarted: franklin-hardware-monitor, franklin-race-recorder, franklin-web-driver, franklin-web-referee"
           - "Start on Pi with: cd {{ pi_dest_dir }} && ./start_franklin.py"

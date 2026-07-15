@@ -1,0 +1,30 @@
+[Unit]
+Description=Franklin GUI (GTK4 lap counter UI under sway/Wayland)
+Documentation=https://github.com/jachinrupe/franklin-lap-counter
+After=franklin-redis.service franklin-race-recorder.service franklin.target
+Requires=franklin-redis.service
+PartOf=franklin.target
+
+[Service]
+Type=simple
+User=franklin
+Group=franklin
+WorkingDirectory=/opt/franklin-lap-counter
+Environment=FRANKLIN_REDIS_SOCKET=/opt/franklin-lap-counter/run/redis.sock
+ExecStart=/opt/franklin-lap-counter/.venv/bin/python /opt/franklin-lap-counter/start_franklin_gui_session.py
+Restart=always
+RestartSec=3
+
+# The GUI renders under a sway/Wayland session. sway is started by the console
+# autologin (see 56-wayland-sway.yml) and exports WAYLAND_DISPLAY into the
+# franklin user's runtime dir; start_franklin_gui_session.py discovers that
+# socket and exports XDG_RUNTIME_DIR/WAYLAND_DISPLAY before launching the GUI,
+# so no display env needs to be hard-coded here.
+
+# Sandboxing
+PrivateTmp=yes
+ProtectSystem=full
+NoNewPrivileges=true
+
+[Install]
+WantedBy=franklin.target

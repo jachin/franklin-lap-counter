@@ -43,6 +43,32 @@ def wait_for_services() -> bool:
     return False
 
 
+def discover_wayland_env() -> dict:
+    """Find the franklin user's sway Wayland socket and export its env.
+
+    sway (started via console autologin) creates a wayland-N socket under the
+    user's XDG_RUNTIME_DIR (/run/user/<uid>). Mirrors the discovery done by the
+    ansible 59-restart-franklin-gui.yml playbook so the GUI can find the display
+    when launched by franklin-gui.service instead of from inside the sway session.
+    """
+    uid = os.getuid()
+    runtime_dir = f"/run/user/{uid}"
+    if not os.path.isdir(runtime_dir):
+        return {}
+    try:
+        sockets = sorted(
+            n for n in os.listdir(runtime_dir) if n.startswith("wayland-")
+        )
+    except OSError:
+        return {}
+    if not sockets:
+        return {}
+    return {
+        "XDG_RUNTIME_DIR": runtime_dir,
+        "WAYLAND_DISPLAY": sockets[0],
+    }
+
+
 def run_gui():
     os.chdir(APP_DIR)
     os.makedirs(os.path.dirname(GUI_LOG), exist_ok=True)
@@ -54,7 +80,11 @@ def run_gui():
         log("Starting Franklin GTK GUI...")
         try:
             with open(GUI_LOG, "a") as log_f:
-                gui_env = {**os.environ, "FRANKLIN_REDIS_SOCKET": REDIS_SOCKET}
+                gui_env = {
+                    **os.environ,
+                    "FRANKLIN_REDIS_SOCKET": REDIS_SOCKET,
+                    **discover_wayland_env(),
+                }
                 result = subprocess.run(
                     [python_bin, GUI_SCRIPT],
                     stdout=log_f,

@@ -458,6 +458,33 @@
       when: franklin_gui_enabled
       ignore_errors: true
 
+    # In GUI mode the Wayland display (sway) must be (re)started after the unit
+    # file is refreshed. Force a daemon reload so systemd picks up unit changes,
+    # clear any prior start-limit failure, then bring sway up before the GUI.
+    - name: Reload systemd after GUI unit changes
+      ansible.builtin.systemd:
+        daemon_reload: true
+      when: franklin_gui_enabled
+
+    - name: Clear start-limit failure for sway/GUI units
+      ansible.builtin.command: "systemctl reset-failed franklin-sway.service franklin-gui.service"
+      when: franklin_gui_enabled
+      changed_when: false
+
+    - name: Start Franklin sway (Wayland display) service
+      ansible.builtin.systemd:
+        name: franklin-sway.service
+        state: restarted
+      when: franklin_gui_enabled
+      ignore_errors: true
+
+    - name: Start Franklin GUI (sway/Wayland) service
+      ansible.builtin.systemd:
+        name: franklin-gui.service
+        state: restarted
+      when: franklin_gui_enabled
+      ignore_errors: true
+
     - name: Deployment summary
       ansible.builtin.debug:
         msg:

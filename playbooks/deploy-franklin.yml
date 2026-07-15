@@ -376,6 +376,19 @@
         - systemd_dir_stat.stat.isdir
         - systemd_deploy is changed
 
+    # GUI mode needs a fresh daemon reload + cleared start-limit before the
+    # sway/GUI units are (re)started, so systemd reads the latest unit files
+    # (a stale cached unit would keep failing the Wayland socket setup).
+    - name: Reload systemd + clear start-limit before GUI start
+      ansible.builtin.systemd:
+        daemon_reload: true
+      when: franklin_gui_enabled
+
+    - name: Clear start-limit failure for sway/GUI units
+      ansible.builtin.command: "systemctl reset-failed franklin-sway.service franklin-gui.service"
+      when: franklin_gui_enabled
+      changed_when: false
+
     # Startup scripts live under scripts/ in the repo but are expected at the
     # root of pi_dest_dir (referenced by systemd, wayland-sway, and users).
     # They are NOT rsynced to the correct location automatically.

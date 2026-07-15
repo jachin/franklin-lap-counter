@@ -188,11 +188,12 @@ class CountdownScreen(ModalScreen):
         self._lights: list[Static] = []
 
     def compose(self) -> ComposeResult:
-        with Horizontal(id="countdown_lights"):
-            yield Static("  ", id="countdown_light_0", classes="countdown-light")
-            yield Static("  ", id="countdown_light_1", classes="countdown-light")
-            yield Static("  ", id="countdown_light_2", classes="countdown-light")
-        yield Static("", id="countdown_phase_text")
+        with Vertical(id="countdown_body"):
+            with Horizontal(id="countdown_lights"):
+                yield Static("  ", id="countdown_light_0", classes="countdown-light")
+                yield Static("  ", id="countdown_light_1", classes="countdown-light")
+                yield Static("  ", id="countdown_light_2", classes="countdown-light")
+            yield Static("", id="countdown_phase_text")
 
     def on_mount(self) -> None:
         self._lights = [
@@ -337,6 +338,12 @@ class Franklin(App[Any]):  # type: ignore[type-arg]
         background: #000000;
     }
 
+    #countdown_body {
+        align: center middle;
+        height: auto;
+        width: auto;
+    }
+
     #countdown_lights {
         align: center middle;
         height: auto;
@@ -352,7 +359,7 @@ class Franklin(App[Any]):  # type: ignore[type-arg]
     }
 
     #countdown_phase_text {
-        width: 1fr;
+        width: auto;
         height: auto;
         text-align: center;
         padding: 1 2;

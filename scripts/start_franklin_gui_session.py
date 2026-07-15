@@ -68,6 +68,7 @@ def discover_wayland_env() -> dict:
                 "XDG_RUNTIME_DIR": runtime_dir,
                 "WAYLAND_DISPLAY": sockets[0],
                 "GDK_BACKEND": "wayland",
+                "GSK_RENDERER": "cairo",
             }
     return {}
 

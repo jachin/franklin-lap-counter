@@ -21,6 +21,10 @@ TTYPath=/dev/tty1
 StandardInput=tty
 StandardOutput=journal
 StandardError=journal
+# A Type=simple service with User=franklin gets no PAM session, so pam_systemd
+# never creates /run/user/<uid>. Create it ourselves so sway can open its
+# wayland-N socket there (otherwise: "Unable to open wayland socket").
+ExecStartPre=/usr/bin/install -d -m 700 -o franklin -g franklin /run/user/1001
 ExecStart=/usr/bin/sway
 Restart=always
 RestartSec=3

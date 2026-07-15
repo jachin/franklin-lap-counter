@@ -2,10 +2,24 @@
 - name: Configure sway Wayland session for Franklin GUI autostart
   hosts: all
   become: true
+  vars:
+    sway_packages:
+      - sway
+      - xwayland
+      - seatd
+    sway_config_dir: "{{ franklin_home }}/.config/sway"
+    zprofile: "{{ franklin_home }}/.zprofile"
+    getty_override_dir: "/etc/systemd/system/getty@{{ franklin_autologin_tty }}.service.d"
   tasks:
+    - name: Install sway + Wayland packages
+      ansible.builtin.apt:
+        name: "{{ sway_packages }}"
+        state: present
+      when: franklin_enable_wayland_boot
+
     - name: Ensure sway config directory exists
       ansible.builtin.file:
-        path: "{{ franklin_home }}/.config/sway"
+        path: "{{ sway_config_dir }}"
         state: directory
         owner: "{{ franklin_user }}"
         group: "{{ franklin_group }}"
@@ -14,7 +28,7 @@
 
     - name: Install sway config that auto-starts Franklin GUI session
       ansible.builtin.copy:
-        dest: "{{ franklin_home }}/.config/sway/config"
+        dest: "{{ sway_config_dir }}/config"
         owner: "{{ franklin_user }}"
         group: "{{ franklin_group }}"
         mode: "0644"
@@ -27,6 +41,56 @@
           default_border pixel 1
           output * bg #1e1e1e solid_color
 
-          # Start Franklin GUI stack once per sway session
-          exec {{ pi_dest_dir }}/start_franklin_gui_session.py
+          # The Franklin GUI is launched by franklin-gui.service (systemd,
+          # Restart=always) which discovers this Wayland session's socket. sway
+          # only provides the display server.
+      when: franklin_enable_wayland_boot
+
+    - name: Configure console autologin for franklin user
+      ansible.builtin.file:
+        path: "{{ getty_override_dir }}"
+        state: directory
+        mode: "0755"
+      when: franklin_enable_wayland_boot
+
+    # Reverse the TUI-mode getty masking (55-autologin-startup.yml) so the
+    # console can autologin and launch sway. In GUI mode the console is owned
+    # by sway, not franklin-tui.service.
+    - name: Unmask console getty so autologin can launch sway
+      ansible.builtin.systemd:
+        name: "getty@{{ franklin_autologin_tty }}.service"
+        masked: false
+        enabled: true
+      when: franklin_enable_wayland_boot
+
+    - name: Write autologin drop-in for getty on console
+      ansible.builtin.copy:
+        dest: "{{ getty_override_dir }}/autologin.conf"
+        owner: "root"
+        group: "root"
+        mode: "0644"
+        content: |
+          [Service]
+          ExecStart=
+          ExecStart=-/sbin/agetty -o '-p -f -- \u' --autologin {{ franklin_user }} --noclear %I $TERM
+      when: franklin_enable_wayland_boot
+
+    - name: Add sway autostart to franklin zprofile
+      ansible.builtin.blockinfile:
+        path: "{{ zprofile }}"
+        owner: "{{ franklin_user }}"
+        group: "{{ franklin_group }}"
+        mode: "0644"
+        create: true
+        marker: "# {mark} ANSIBLE MANAGED FRANKLIN SWAY AUTOLOGIN"
+        block: |
+          # Start sway on {{ franklin_autologin_tty }} if not already running
+          if [ -z "$WAYLAND_DISPLAY" ] && [ "$(tty)" = "/dev/{{ franklin_autologin_tty }}" ]; then
+              exec sway
+          fi
+      when: franklin_enable_wayland_boot
+
+    - name: Reload systemd after configuring autologin
+      ansible.builtin.systemd:
+        daemon_reload: true
       when: franklin_enable_wayland_boot

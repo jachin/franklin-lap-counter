@@ -1,0 +1,32 @@
+[Unit]
+Description=Franklin sway Wayland session (console tty1)
+Documentation=https://github.com/jachinrupe/franklin-lap-counter
+After=franklin-redis.service
+Before=franklin-gui.service
+PartOf=franklin.target
+Wants=franklin-gui.service
+
+[Service]
+Type=simple
+User=franklin
+Group=franklin
+WorkingDirectory=/opt/franklin-lap-counter
+# sway owns the console VT (tty1) directly, the same way franklin-tui.service
+# used to own it. It provides the Wayland display that franklin-gui.service
+# renders into. XDG_RUNTIME_DIR must point at the franklin user's runtime dir
+# so the wayland-N socket lands where the GUI discovers it.
+Environment=XDG_RUNTIME_DIR=/run/user/1001
+Environment=XKB_DEFAULT_LAYOUT=us
+TTYPath=/dev/tty1
+StandardInput=tty
+StandardOutput=journal
+StandardError=journal
+ExecStart=/usr/bin/sway
+Restart=always
+RestartSec=3
+
+# Sandboxing
+NoNewPrivileges=true
+
+[Install]
+WantedBy=franklin.target

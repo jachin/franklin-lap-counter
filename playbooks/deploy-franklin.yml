@@ -319,6 +319,7 @@
         - "{{ project_root }}/systemd/franklin.target"
         - "{{ project_root }}/systemd/franklin-tui.service"
         - "{{ project_root }}/systemd/franklin-gui.service"
+        - "{{ project_root }}/systemd/franklin-sway.service"
       register: systemd_deploy
       when: systemd_dir_stat.stat.isdir
 
@@ -346,9 +347,23 @@
         state: started
       when: franklin_gui_enabled
 
+    - name: Enable + start Franklin sway (Wayland display) service
+      ansible.builtin.systemd:
+        name: franklin-sway.service
+        enabled: true
+        state: started
+      when: franklin_gui_enabled
+
     - name: Disable Franklin GUI service in TUI mode
       ansible.builtin.systemd:
         name: franklin-gui.service
+        enabled: false
+        state: stopped
+      when: not franklin_gui_enabled
+
+    - name: Disable Franklin sway service in TUI mode
+      ansible.builtin.systemd:
+        name: franklin-sway.service
         enabled: false
         state: stopped
       when: not franklin_gui_enabled

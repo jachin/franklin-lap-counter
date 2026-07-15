@@ -46,27 +46,29 @@ def wait_for_services() -> bool:
 def discover_wayland_env() -> dict:
     """Find the franklin user's sway Wayland socket and export its env.
 
-    sway (started via console autologin) creates a wayland-N socket under the
-    user's XDG_RUNTIME_DIR (/run/user/<uid>). Mirrors the discovery done by the
-    ansible 59-restart-franklin-gui.yml playbook so the GUI can find the display
-    when launched by franklin-gui.service instead of from inside the sway session.
+    sway creates a wayland-N socket under XDG_RUNTIME_DIR (set to
+    /run/franklin by franklin-sway.service, or /run/user/<uid> when launched
+    via console autologin). Mirrors the discovery done by the ansible
+    59-restart-franklin-gui.yml playbook so the GUI can find the display when
+    launched by franklin-gui.service instead of from inside the sway session.
     """
     uid = os.getuid()
-    runtime_dir = f"/run/user/{uid}"
-    if not os.path.isdir(runtime_dir):
-        return {}
-    try:
-        sockets = sorted(
-            n for n in os.listdir(runtime_dir) if n.startswith("wayland-")
-        )
-    except OSError:
-        return {}
-    if not sockets:
-        return {}
-    return {
-        "XDG_RUNTIME_DIR": runtime_dir,
-        "WAYLAND_DISPLAY": sockets[0],
-    }
+    candidates = [os.environ.get("XDG_RUNTIME_DIR"), f"/run/user/{uid}"]
+    for runtime_dir in candidates:
+        if not runtime_dir or not os.path.isdir(runtime_dir):
+            continue
+        try:
+            sockets = sorted(
+                n for n in os.listdir(runtime_dir) if n.startswith("wayland-")
+            )
+        except OSError:
+            continue
+        if sockets:
+            return {
+                "XDG_RUNTIME_DIR": runtime_dir,
+                "WAYLAND_DISPLAY": sockets[0],
+            }
+    return {}
 
 
 def run_gui():

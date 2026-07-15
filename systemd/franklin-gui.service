@@ -11,7 +11,7 @@ User=franklin
 Group=franklin
 WorkingDirectory=/opt/franklin-lap-counter
 Environment=FRANKLIN_REDIS_SOCKET=/opt/franklin-lap-counter/run/redis.sock
-Environment=XDG_RUNTIME_DIR=/run/user/1001
+Environment=XDG_RUNTIME_DIR=/run/franklin
 ExecStart=/opt/franklin-lap-counter/.venv/bin/python /opt/franklin-lap-counter/start_franklin_gui_session.py
 Restart=always
 RestartSec=3

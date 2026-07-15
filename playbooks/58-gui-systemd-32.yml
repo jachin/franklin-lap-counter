@@ -1,0 +1,33 @@
+---
+- name: Restart Franklin GUI stack (sway + GUI) on Wayland Pi
+  hosts: all
+  become: true
+  tasks:
+    - name: Reload systemd daemon
+      ansible.builtin.systemd:
+        daemon_reload: true
+
+    - name: Clear start-limit failure for sway/GUI units
+      ansible.builtin.command: "systemctl reset-failed franklin-sway.service franklin-gui.service"
+      changed_when: false
+
+    - name: Start Franklin sway (Wayland display) service
+      ansible.builtin.systemd:
+        name: franklin-sway.service
+        state: restarted
+      ignore_errors: true
+
+    - name: Start Franklin GUI (sway/Wayland) service
+      ansible.builtin.systemd:
+        name: franklin-gui.service
+        state: restarted
+      ignore_errors: true
+
+    - name: GUI stack status
+      ansible.builtin.command: "systemctl is-active franklin-sway.service franklin-gui.service"
+      register: gui_status
+      changed_when: false
+
+    - name: Report status
+      ansible.builtin.debug:
+        msg: "{{ gui_status.stdout }}"

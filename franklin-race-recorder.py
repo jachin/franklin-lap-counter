@@ -351,14 +351,18 @@ class RaceRecorder:
         ready_at = msg.get("ready_at")
         set_at = msg.get("set_at")
         go_at = msg.get("go_at")
+        starting_at = msg.get("starting_at")
+        if starting_at is None and ready_at is not None:
+            starting_at = ready_at - 2.0
         if (
             ready_at is not None
             and set_at is not None
             and go_at is not None
+            and starting_at is not None
             and config.get("race_mode") is RaceMode.FAKE
         ):
             self._publish_countdown_phases(
-                ready_at, set_at, go_at, command_id, msg.get("source")
+                starting_at, ready_at, set_at, go_at, command_id, msg.get("source")
             )
         else:
             logging.info(
@@ -622,6 +626,7 @@ class RaceRecorder:
 
     def _publish_countdown_phases(
         self,
+        starting_at: float,
         ready_at: float,
         set_at: float,
         go_at: float,
@@ -629,9 +634,18 @@ class RaceRecorder:
         source: str | None = None,
     ) -> None:
         """Publish countdown_phase events to franklin:events so all clients
-        can display ready/set/go lights and play sounds even when the Rust
-        hardware monitor is not running."""
-        for phase, at in [("ready", ready_at), ("set", set_at), ("go", go_at)]:
+        can display the starting/ready/set/go lights and play sounds even when
+        the Rust hardware monitor is not running.
+
+        ``starting`` is a 2-second pre-hold shown before ``ready`` so every
+        client reaches the same state before the ready/set/go sequence begins.
+        """
+        for phase, at in [
+            ("starting", starting_at),
+            ("ready", ready_at),
+            ("set", set_at),
+            ("go", go_at),
+        ]:
             event: dict[str, Any] = {
                 "type": "countdown_phase",
                 "phase": phase,

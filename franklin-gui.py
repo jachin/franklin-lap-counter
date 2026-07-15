@@ -793,7 +793,7 @@ class FranklinGuiApp(Gtk.Application):
     # ``countdown_phase`` event (or a stale local timer) can never regress the
     # GUI from a later phase back to an earlier one — that regression used to
     # make the GUI look like it paused/re-started late.
-    _START_PHASE_ORDER = {"ready": 1, "set": 2, "go": 3, "running": 4}
+    _START_PHASE_ORDER = {"starting": 0, "ready": 1, "set": 2, "go": 3, "running": 4}
 
     def _start_phase_level(self) -> int:
         return self._START_PHASE_ORDER.get(
@@ -1116,16 +1116,20 @@ class FranklinGuiApp(Gtk.Application):
             self._sync_controls_with_race_state()
             return
 
+        # A 2-second "starting" hold precedes "ready" so every client shows the
+        # same pre-countdown state before the ready/set/go sequence begins.
         base = time.time() + 0.25
-        ready_at = base
-        set_at = base + 1.0
-        go_at = base + 2.0
+        starting_at = base
+        ready_at = base + 2.0
+        set_at = base + 3.0
+        go_at = base + 4.0
 
         # The recorder owns the race; we only request a start (with config) and
         # render the snapshot it publishes. The countdown visuals below are a
         # local preview that the authoritative snapshot supersedes once running.
         self.publish_command(
             "start_race",
+            starting_at=starting_at,
             ready_at=ready_at,
             set_at=set_at,
             go_at=go_at,
@@ -1163,10 +1167,17 @@ class FranklinGuiApp(Gtk.Application):
             return False
 
         now_epoch = time.time()
+        starting_delay_ms = max(0, int((starting_at - now_epoch) * 1000))
         ready_delay_ms = max(0, int((ready_at - now_epoch) * 1000))
         set_delay_ms = max(0, int((set_at - now_epoch) * 1000))
         go_delay_ms = max(0, int((go_at - now_epoch) * 1000))
 
+        GLib.timeout_add(
+            starting_delay_ms,
+            show_phase_local,
+            "starting",
+            ["start-light-green", "start-light-red", "start-light-red"],
+        )
         GLib.timeout_add(
             ready_delay_ms,
             show_phase_local,
@@ -2451,14 +2462,15 @@ class FranklinGuiApp(Gtk.Application):
 
             # Anchor-based scheduling: mirror the web pages' algorithm so that
             # network latency does not compress or stretch the countdown interval.
-            # When "ready" arrives we store the epoch time and the local monotonic
-            # clock.  For "set" and "go" we compute the remaining delay as:
-            #   (at - ready_at) - (now_monotonic - ready_at_monotonic)
+            # When "starting" (the first phase) arrives we store the epoch time
+            # and the local monotonic clock.  For "set" and "go" we compute the
+            # remaining delay as:
+            #   (at - starting_at) - (now_monotonic - starting_at_monotonic)
             # which preserves the intended spacing regardless of delivery delay.
-            if phase == "ready":
+            if phase in ("starting", "ready"):
                 self._countdown_ready_at_epoch = at_epoch
                 self._countdown_ready_at_monotonic = time.monotonic()
-                delay_ms = 0
+                delay_ms = max(0, int((at_epoch - time.time()) * 1000))
             elif phase in ("set", "go") and self._countdown_ready_at_epoch is not None and self._countdown_ready_at_monotonic is not None:
                 anchor_mono = self._countdown_ready_at_monotonic
                 anchor_epoch = self._countdown_ready_at_epoch
@@ -2480,7 +2492,18 @@ class FranklinGuiApp(Gtk.Application):
 
                 self._countdown_event_seen = True
                 self._start_sequence_running = True
-                if phase == "ready":
+                if phase == "starting":
+                    # "starting" is a 2-second pre-hold shown before "ready".
+                    self._set_start_sequence_phase("Starting")
+                    self._apply_start_lights(
+                        [
+                            "start-light-green",
+                            "start-light-red",
+                            "start-light-red",
+                        ]
+                    )
+                    self.append_event("Starting")
+                elif phase == "ready":
                     self._set_start_sequence_phase("Ready")
                     self._apply_start_lights(
                         [

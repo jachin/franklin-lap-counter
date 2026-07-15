@@ -165,12 +165,16 @@ class RefereeWebAppServer:
                 {"ok": False, "error": "A race is already in progress"},
                 status=409,
             )
+        # A 2-second "starting" hold precedes "ready" so every client shows the
+        # same pre-countdown state before the ready/set/go sequence begins.
         base = time.time() + 0.25
-        ready_at = base
-        set_at = base + 1.0
-        go_at = base + 2.0
+        starting_at = base
+        ready_at = base + 2.0
+        set_at = base + 3.0
+        go_at = base + 4.0
         payload: dict[str, Any] = {
             "command": "start_race",
+            "starting_at": starting_at,
             "ready_at": ready_at,
             "set_at": set_at,
             "go_at": go_at,

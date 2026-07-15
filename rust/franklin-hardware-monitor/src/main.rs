@@ -139,6 +139,8 @@ enum InMessage {
         #[serde(skip_serializing_if = "Option::is_none")]
         go_at: Option<f64>,
         #[serde(skip_serializing_if = "Option::is_none")]
+        starting_at: Option<f64>,
+        #[serde(skip_serializing_if = "Option::is_none")]
         penalty_seconds: Option<u32>,
         #[serde(skip_serializing_if = "Option::is_none")]
         reason: Option<String>,
@@ -1029,6 +1031,7 @@ async fn command_handler_task(hw: Arc<HardwareComm>, app: Arc<Mutex<App>>) -> Re
                         ready_at,
                         set_at,
                         go_at,
+                        starting_at,
                         penalty_seconds,
                         reason,
                         lap_number,
@@ -1065,7 +1068,18 @@ async fn command_handler_task(hw: Arc<HardwareComm>, app: Arc<Mutex<App>>) -> Re
                             let ready_epoch = ready_at.unwrap_or(start_epoch - 2.0);
                             let set_epoch = set_at.unwrap_or(start_epoch - 1.0);
                             let go_epoch = go_at.unwrap_or(start_epoch);
+                            let starting_epoch = starting_at.unwrap_or(ready_epoch - 2.0);
 
+                            // A 2-second "starting" pre-hold precedes "ready"
+                            // so every client reaches the same state before the
+                            // ready/set/go sequence begins.
+                            let _ = hw.send_message(&OutMessage::CountdownPhase {
+                                phase: "starting".to_string(),
+                                at: starting_epoch,
+                                recorded_at: now_epoch_seconds(),
+                                command_id: command_id.clone(),
+                                source: source.clone(),
+                            });
                             let _ = hw.send_message(&OutMessage::CountdownPhase {
                                 phase: "ready".to_string(),
                                 at: ready_epoch,

@@ -174,7 +174,12 @@ Emitted by any client (such as `franklin-gui` or `franklin-tui` via `gui_config.
 {"type":"countdown_phase","phase":"ready","at":1736200000.250,"recorded_at":1736199998.250,"command_id":"optional-id","source":"franklin_tui"}
 ```
 
-Phases emitted for scheduled starts: `ready`, `set`, `go`.
+Phases emitted for scheduled starts: `starting`, `ready`, `set`, `go`.
+
+- `starting` — a 2-second pre-hold shown **before** `ready` so every client
+  reaches the same state before the ready/set/go sequence begins. It carries no
+  sound; the start lights show green/red/red (same as `ready`).
+- `ready` / `set` / `go` — the classic start sequence, each paired with a sound.
 
 ### `race_control`
 

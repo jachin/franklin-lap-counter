@@ -349,6 +349,46 @@
                 font-weight: 700;
                 font-family: "Roboto Mono", monospace;
             }
+
+            /* Countdown overlay (parity with referee/driver pages) */
+            .countdown-overlay {
+                position: fixed;
+                inset: 0;
+                z-index: 1000;
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                justify-content: center;
+                gap: 28px;
+                background: rgba(0, 0, 0, 0.82);
+                transition: opacity 0.4s ease;
+            }
+            .countdown-overlay.hidden {
+                opacity: 0;
+                pointer-events: none;
+            }
+            .countdown-lights {
+                display: flex;
+                gap: 22px;
+            }
+            .countdown-light {
+                width: 92px;
+                height: 92px;
+                border-radius: 50%;
+                background: #333;
+                transition: background 0.3s, box-shadow 0.3s;
+            }
+            .countdown-light.red { background: #e53935; box-shadow: 0 0 24px 4px #e53935; }
+            .countdown-light.yellow { background: #fdd835; box-shadow: 0 0 24px 4px #fdd835; }
+            .countdown-light.green { background: #43a047; box-shadow: 0 0 24px 4px #43a047; }
+            .countdown-text {
+                font-size: 5rem;
+                font-weight: 800;
+                letter-spacing: 0.04em;
+                text-transform: uppercase;
+                color: #fff;
+                text-shadow: 0 0 18px rgba(0, 0, 0, 0.6);
+            }
         </style>
     </head>
     <body>
@@ -371,6 +411,16 @@
                 <p style="margin:0 0 16px;color:var(--muted-text);font-size:0.9rem">Race sounds enabled</p>
                 <button type="button" id="audioOkBtn" style="width:auto;min-width:100px;margin:0 auto">OK</button>
             </div>
+        </div>
+
+        <!-- Countdown Overlay (parity with referee/driver pages) -->
+        <div id="countdownOverlay" class="countdown-overlay hidden">
+            <div class="countdown-lights" id="countdown-overlay-lights">
+                <div class="countdown-light red"></div>
+                <div class="countdown-light red"></div>
+                <div class="countdown-light red"></div>
+            </div>
+            <div class="countdown-text" id="countdown-overlay-text"></div>
         </div>
 
         <h1>Franklin RC Lap Counter</h1>
@@ -463,8 +513,6 @@
                 disqualified: [],
                 countdownTimers: [],
                 countdownActive: false,
-                countdownReadyAt: 0,
-                countdownReadyAtMs: 0,
                 raceReady: false,
                 snapshotRaceState: null,
             };
@@ -487,6 +535,31 @@
             };
 
             elements.soundStyleSelect.value = FranklinAudio.getStyle();
+
+            // Countdown overlay (parity with referee/driver pages)
+            const overlayEl = document.getElementById("countdownOverlay");
+            const overlayLights = document.getElementById("countdown-overlay-lights").children;
+            const overlayTextEl = document.getElementById("countdown-overlay-text");
+
+            function setOverlayLights(phase) {
+                let colors;
+                if (phase === "starting") colors = ["red", "red", "red"];
+                else if (phase === "ready") colors = ["green", "red", "red"];
+                else if (phase === "set") colors = ["green", "green", "red"];
+                else colors = ["green", "green", "green"];
+                for (let i = 0; i < overlayLights.length; i++) {
+                    overlayLights[i].className = "countdown-light " + colors[i];
+                }
+            }
+
+            function showOverlay(text) {
+                overlayTextEl.textContent = text;
+                overlayEl.classList.remove("hidden");
+            }
+
+            function hideOverlay() {
+                overlayEl.classList.add("hidden");
+            }
 
             // Helper functions
             function formatTime(timeInSeconds) {
@@ -1059,6 +1132,7 @@
                                 state.countdownTimers = [];
                                 state.countdownActive = false;
                                 state.raceReady = false;
+                                hideOverlay();
                             }
                             // For any status message, refresh after a short delay
                             // This ensures we catch all race state changes
@@ -1082,33 +1156,58 @@
                             const phase = String(data.phase || "").toLowerCase();
                             const atRaw = data.at;
                             const atEpoch = (typeof atRaw === "number" && Number.isFinite(atRaw)) ? atRaw : 0;
-                            if (phase === "ready" && !state.countdownActive) {
+                            // Schedule each phase by its own timestamp so the
+                            // starting/ready/set/go spacing (including the 2-second
+                            // "starting" hold) is preserved exactly, regardless of
+                            // when the messages arrive.
+                            const delayMs = Math.max(0, Math.round((atEpoch - Date.now() / 1000) * 1000));
+                            if (phase === "starting" || (phase === "ready" && !state.countdownActive)) {
                                 for (const t of state.countdownTimers) clearTimeout(t);
                                 state.countdownTimers = [];
                                 state.raceReady = false;
                                 state.countdownActive = true;
-                                state.countdownReadyAt = atEpoch;
-                                state.countdownReadyAtMs = Date.now();
-                                FranklinAudio.playReady();
+                                const firstPhase = phase === "starting" ? "starting" : "ready";
+                                state.countdownTimers.push(setTimeout(() => {
+                                    if (!state.countdownActive) return;
+                                    if (firstPhase === "starting") {
+                                        // "starting" is a 2-second pre-hold shown before "ready".
+                                        FranklinAudio.init();
+                                        showOverlay("Starting…");
+                                        setOverlayLights("starting");
+                                    } else {
+                                        FranklinAudio.playReady();
+                                        showOverlay("Ready");
+                                        setOverlayLights("ready");
+                                    }
+                                }, delayMs));
+                            } else if (phase === "ready" && state.countdownActive) {
+                                state.countdownTimers.push(setTimeout(() => {
+                                    if (state.countdownActive) {
+                                        FranklinAudio.playReady();
+                                        showOverlay("Ready");
+                                        setOverlayLights("ready");
+                                    }
+                                }, delayMs));
                             } else if (phase === "set" && state.countdownActive) {
-                                const totalMs = (atEpoch - state.countdownReadyAt) * 1000;
-                                const elapsedMs = Date.now() - state.countdownReadyAtMs;
-                                const remainingMs = Math.max(0, totalMs - elapsedMs);
                                 state.countdownTimers.push(setTimeout(() => {
                                     if (state.countdownActive) {
                                         FranklinAudio.playSet();
+                                        showOverlay("Set");
+                                        setOverlayLights("set");
                                     }
-                                }, remainingMs));
+                                }, delayMs));
                             } else if (phase === "go" && state.countdownActive) {
-                                const totalMs = (atEpoch - state.countdownReadyAt) * 1000;
-                                const elapsedMs = Date.now() - state.countdownReadyAtMs;
-                                const remainingMs = Math.max(0, totalMs - elapsedMs);
                                 state.countdownTimers.push(setTimeout(() => {
                                     if (state.countdownActive) {
                                         FranklinAudio.playGo();
+                                        showOverlay("Go!");
+                                        setOverlayLights("go");
                                         state.countdownActive = false;
+                                        // Keep "Go!" on screen for a full second so it
+                                        // lines up with the actual timer start.
+                                        setTimeout(hideOverlay, 1000);
                                     }
-                                }, remainingMs));
+                                }, delayMs));
                             }
                         }
 
@@ -1120,6 +1219,7 @@
                                 state.countdownTimers = [];
                                 state.countdownActive = false;
                                 state.raceReady = false;
+                                hideOverlay();
                             }
                         }
 

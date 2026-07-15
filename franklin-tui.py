@@ -2,6 +2,7 @@ import argparse
 import asyncio
 import json
 import logging
+import os
 import time
 from pathlib import Path
 from typing import Any
@@ -34,6 +35,25 @@ from race.race_snapshot import RaceSnapshot, SnapshotLap, idle_snapshot
 from race.race_state import RaceEndMode
 from racer_colors import RacerColorScheme, assign_random_scheme
 from redis_commands import build_command_envelope, parse_command_envelope
+
+# Vibrant theme so the console UI is not a single flat dark color. Guarded so a
+# different Textual version (or missing Theme API) can't break startup — the
+# TUI simply falls back to the default theme.
+try:
+    from textual.theme import Theme
+
+    FRANKLIN_THEME = Theme(
+        name="franklin",
+        primary="#4ea1ff",
+        secondary="#36c692",
+        accent="#ffb454",
+        background="#0d1117",
+        surface="#161b22",
+        panel="#1c2230",
+        dark=True,
+    )
+except Exception:  # pragma: no cover - Theme API differs across Textual versions
+    FRANKLIN_THEME = None
 
 
 def format_time_cs(seconds_value: float | None) -> str:
@@ -105,6 +125,90 @@ class RaceStatusDisplay(Static):
         else:
             status.append("Ready to start")
         return "\n".join(status)
+
+
+class CountdownScreen(ModalScreen):
+    """Full-screen start-light countdown, mirroring the web overlays.
+
+    Shows three start lights that fill red, then turn green one-by-one as the
+    ready/set/go sequence progresses, with the phase word rendered large below
+    them (Textual has no text-scaling in this version, so we use a block font).
+    """
+
+    PHASE_COLORS = {
+        "starting": ["red", "red", "red"],
+        "ready": ["green", "red", "red"],
+        "set": ["green", "green", "red"],
+        "go": ["green", "green", "green"],
+    }
+    PHASE_LABELS = {
+        "starting": "STARTING",
+        "ready": "READY",
+        "set": "SET",
+        "go": "GO!",
+    }
+    # Bright text color per phase (lights convey the full color progression).
+    PHASE_TEXT_COLOR = {
+        "starting": "#ffffff",
+        "ready": "#36c692",
+        "set": "#36c692",
+        "go": "#ffb454",
+    }
+    # 7-row x 5-col block font (use "#" for a lit pixel). Only the glyphs used
+    # by the phase words are defined.
+    _FONT: dict[str, list[str]] = {
+        "A": ["  #  ", " # # ", "#   #", "#####", "#   #", "#   #", "#   #"],
+        "D": ["#####", "#   #", "#   #", "#   #", "#   #", "#   #", "#####"],
+        "E": ["#####", "#    ", "#####", "#    ", "#    ", "#    ", "#####"],
+        "G": [" ### ", "#   #", "#    ", "# ## ", "#   #", "#   #", " ### "],
+        "I": ["#####", "  #  ", "  #  ", "  #  ", "  #  ", "  #  ", "#####"],
+        "N": ["#   #", "##  #", "# # #", "#  ##", "#   #", "#   #", "#   #"],
+        "O": [" ### ", "#   #", "#   #", "#   #", "#   #", "#   #", " ### "],
+        "R": ["#### ", "#   #", "#   #", "#### ", "#  # ", "#   #", "#   #"],
+        "S": [" ####", "#    ", "#    ", " ### ", "    #", "    #", "#### "],
+        "T": ["#####", "  #  ", "  #  ", "  #  ", "  #  ", "  #  ", "  #  "],
+        "Y": ["#   #", "#   #", " # # ", "  #  ", "  #  ", "  #  ", "  #  "],
+        "!": ["  #  ", "  #  ", "  #  ", "  #  ", "  #  ", "     ", "  #  "],
+        " ": ["     ", "     ", "     ", "     ", "     ", "     ", "     "],
+    }
+
+    @classmethod
+    def _render_big_text(cls, word: str) -> str:
+        rows: list[str] = []
+        for row in range(7):
+            line = ""
+            for ch in word.upper():
+                glyph = cls._FONT.get(ch, cls._FONT[" "])
+                line += glyph[row].replace("#", "█").replace(" ", " ") + "  "
+            rows.append(line)
+        return "\n".join(rows)
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._lights: list[Static] = []
+
+    def compose(self) -> ComposeResult:
+        with Horizontal(id="countdown_lights"):
+            yield Static("  ", id="countdown_light_0", classes="countdown-light")
+            yield Static("  ", id="countdown_light_1", classes="countdown-light")
+            yield Static("  ", id="countdown_light_2", classes="countdown-light")
+        yield Static("", id="countdown_phase_text")
+
+    def on_mount(self) -> None:
+        self._lights = [
+            self.query_one(f"#countdown_light_{i}", Static) for i in range(3)
+        ]
+
+    def set_phase(self, phase: str) -> None:
+        if not self.is_attached:
+            return
+        colors = self.PHASE_COLORS.get(phase, ["red", "red", "red"])
+        for light, color in zip(self._lights, colors):
+            light.styles.background = color
+        text = self.PHASE_LABELS.get(phase, phase.upper())
+        widget = self.query_one("#countdown_phase_text", Static)
+        widget.update(self._render_big_text(text))
+        widget.styles.color = self.PHASE_TEXT_COLOR.get(phase, "#ffffff")
 
 
 class LeaderboardDisplay(DataTable[Any]):  # type: ignore[type-arg]
@@ -226,6 +330,32 @@ class Franklin(App[Any]):  # type: ignore[type-arg]
 
     LeaderboardDisplay {
         color: $text-primary;
+    }
+
+    CountdownScreen {
+        align: center middle;
+        background: #000000;
+    }
+
+    #countdown_lights {
+        align: center middle;
+        height: auto;
+        width: auto;
+    }
+
+    .countdown-light {
+        width: 12;
+        height: 6;
+        margin: 1 2;
+        background: #222222;
+        content-align: center middle;
+    }
+
+    #countdown_phase_text {
+        width: 1fr;
+        height: auto;
+        text-align: center;
+        padding: 1 2;
     }
 
     """
@@ -563,16 +693,12 @@ class Franklin(App[Any]):  # type: ignore[type-arg]
         elif msg_type == "countdown_phase":
             phase = str(msg.get("phase", "")).lower()
             at_raw = msg.get("at")
+            delay = 0.0
             if isinstance(at_raw, (int, float)):
                 delay = max(0.0, float(at_raw) - time.time())
-                self.set_timer(
-                    delay,
-                    lambda phase=phase: self.notify(
-                        f"Countdown: {phase.title()}", severity="information"
-                    ),
-                )
-            else:
-                self.notify(f"Countdown: {phase.title()}", severity="information")
+            self.set_timer(
+                delay, lambda phase=phase: self._show_countdown_phase(phase)
+            )
 
         elif msg_type == "start_race":
             at_raw = msg.get("at")
@@ -598,6 +724,9 @@ class Franklin(App[Any]):  # type: ignore[type-arg]
                 "Simulated" if simulated else "Hardware",
                 msg.get("message", ""),
             )
+            text = str(msg.get("message", "")).lower()
+            if "end" in text or "reset" in text:
+                self._dismiss_countdown()
 
         elif msg_type == "hardware_status":
             version = msg.get("version")
@@ -614,6 +743,8 @@ class Franklin(App[Any]):  # type: ignore[type-arg]
                 msg.get("racer_id"),
                 msg.get("message", ""),
             )
+            if str(msg.get("command", "")) in ("end_race", "reset_race"):
+                self._dismiss_countdown()
 
         elif msg_type == "raw":
             logging.debug(f"Raw message: {msg.get('line', '')}")
@@ -701,15 +832,19 @@ class Franklin(App[Any]):  # type: ignore[type-arg]
         if self.snapshot.is_going:
             return
 
+        # A 2-second "starting" hold precedes "ready" so every client shows the
+        # same pre-countdown state before the ready/set/go sequence begins.
         base = time.time() + 0.25
-        ready_at = base
-        set_at = base + 1.0
-        go_at = base + 2.0
+        starting_at = base
+        ready_at = base + 2.0
+        set_at = base + 3.0
+        go_at = base + 4.0
 
         # Publishes a start_race command (with config) for the recorder; the
         # authoritative race appears via the snapshot.
         if self._publish_command(
             "start_race",
+            starting_at=starting_at,
             ready_at=ready_at,
             set_at=set_at,
             go_at=go_at,
@@ -784,7 +919,32 @@ class Franklin(App[Any]):  # type: ignore[type-arg]
             display.contestants = self.global_contestants
             display.refresh_display()
 
+    def _show_countdown_phase(self, phase: str) -> None:
+        """Push or update the full-screen start-light countdown overlay."""
+        screen = next(
+            (s for s in self.screen_stack if isinstance(s, CountdownScreen)), None
+        )
+        if screen is None:
+            screen = CountdownScreen()
+            self.push_screen(screen)
+        screen.set_phase(phase)
+        if phase == "go":
+            self.set_timer(1.0, self._dismiss_countdown)
+
+    def _dismiss_countdown(self) -> None:
+        """Remove the countdown overlay if it is still showing."""
+        for screen in list(self.screen_stack):
+            if isinstance(screen, CountdownScreen):
+                screen.dismiss()
+                break
+
     async def on_mount(self) -> None:
+        if FRANKLIN_THEME is not None:
+            try:
+                self.register_theme(FRANKLIN_THEME)
+                self.theme = "franklin"
+            except Exception:
+                logging.debug("Could not apply franklin theme, using default")
         asyncio.create_task(self.refresh_lap_data())
         asyncio.create_task(self.hardware_monitor_task())
         self.set_interval(2.0, self._update_recorder_banner)
@@ -1034,5 +1194,6 @@ if __name__ == "__main__":
         race_end_mode=race_end_mode,
         last_race_contestant_ids=last_race_contestant_ids,
         racer_color_assignments=racer_color_assignments,
+        redis_socket=os.environ.get("FRANKLIN_REDIS_SOCKET", "./redis.sock"),
     )
     app.run()

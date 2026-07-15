@@ -6,7 +6,7 @@
 
   vars:
     franklin_web_services:
-      - franklin-scoreboard
+      - franklin-web-scoreboard
       - franklin-referee
       - franklin-healthcheck
       - franklin-driver

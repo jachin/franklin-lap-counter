@@ -8,7 +8,7 @@ Documentation=https://github.com/jachinrupe/franklin-lap-counter
 # starts a second, redundant stack (and previously caused a 100% CPU spin).
 Requires=franklin-redis.service
 Wants=franklin-hardware-monitor.service franklin-race-recorder.service
-Wants=franklin-web-driver.service franklin-web-referee.service
+Wants=franklin-web-driver.service franklin-web-referee.service franklin-web-scoreboard.service
 Wants=franklin-tui.service
 After=franklin-redis.service
 

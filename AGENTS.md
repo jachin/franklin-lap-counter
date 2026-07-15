@@ -11,7 +11,22 @@
    - `devbox run ansible:deploy` — pushes files + `.deb` to Pi
 8. **Before running any deploy, restart, or diagnose on the Pi**, confirm with the user in that session that they want live testing. Do not push changes to the Pi without explicit confirmation.
 
-9. **Debugging the GUI / race on the Pi without a display or audio output:**
+9. **Runtime architecture (Pi):** A single systemd stack is the only runtime.
+   `franklin.target` starts `franklin-redis` (unix socket
+   `/opt/franklin-lap-counter/run/redis.sock`), `franklin-hardware-monitor`,
+   `franklin-race-recorder`, `franklin-web-referee`, `franklin-web-driver`, and
+   `franklin-tui`. The TUI runs **directly on the console (`/dev/tty1`)** via a
+   real TTY (`franklin-tui.service`: `TTYPath=/dev/tty1`, `StandardInput=tty`,
+   `Conflicts=getty@tty1.service`); the console agetty is masked so it can't
+   respawn and fight the TUI for the VT. There is NO tmuxinator/autologin
+   launch — that was retired because it started a second redundant copy of every
+   service. **Do not run the TUI without a TTY**: stdin=/dev/null makes Textual
+   busy-loop on EOF at 100% CPU. Restart the TUI with
+   `systemctl restart franklin-tui` (briefly blanks the console). To get a login
+   shell on the console instead, `systemctl stop franklin-tui` + unmask/start
+   `getty@tty1`.
+
+10. **Debugging the GUI / race on the Pi without a display or audio output:**
    - You can drive a race headlessly by publishing command envelopes to the
      recorder's input channel (currently `hardware:in`; check
      `self.redis_in_channel` in `franklin-gui.py`). Use the
@@ -21,13 +36,15 @@
      `/opt/franklin-lap-counter/run/redis.sock` (owned by `franklin` — run as the
      `franklin` user via `ansible ... -b --become-user=franklin`, NOT as
      `dadisc01`, or you'll get "Permission denied" on the socket).
-   - **FAKE race (no hardware needed):** publish `start_race` with
-     `race_mode:"Fake Race Mode"`, `ready_at`/`set_at`/`go_at`/`start_at`
-     (epoch seconds, e.g. `now+2/+3/+4`), `total_laps`, `race_end_mode`. The
-     recorder publishes `countdown_phase` events on `franklin:events` for FAKE
-     races only (for REAL/TRAINING the Rust hardware monitor owns the countdown,
-     so the same `start_race` command works if the hardware is attached). Publish
-     `end_race` / `reset_race` the same way to finish or return to idle.
+    - **FAKE race (no hardware needed):** publish `start_race` with
+      `race_mode:"Fake Race Mode"`, `starting_at`/`ready_at`/`set_at`/`go_at`/`start_at`
+      (epoch seconds, e.g. `now+2/+4/+5/+6`), `total_laps`, `race_end_mode`. The
+      recorder publishes `countdown_phase` events on `franklin:events` for FAKE
+      races only (for REAL/TRAINING the Rust hardware monitor owns the countdown,
+      so the same `start_race` command works if the hardware is attached). The
+      countdown phases are `starting` → `ready` → `set` → `go` (`starting` is a
+      2-second pre-hold before `ready`). Publish `end_race` / `reset_race` the same
+      way to finish or return to idle.
    - **Verify sounds:** `franklin-gui.py` plays each `countdown_phase`
      (ready/set/go) and the finish transition by running `aplay -q` in a
      background thread. Poll `pgrep -af aplay` on the Pi during a race — each

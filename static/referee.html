@@ -370,11 +370,62 @@
       .leaderboard-table td { padding: 5px 4px; font-size: 0.75rem; }
     }
 
+    /* Countdown overlay */
+    .countdown-overlay {
+      position: fixed;
+      inset: 0;
+      z-index: 1000;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 28px;
+      background: rgba(0, 0, 0, 0.78);
+      backdrop-filter: blur(2px);
+      transition: opacity 0.4s ease;
+    }
+    .countdown-overlay.hidden {
+      opacity: 0;
+      pointer-events: none;
+    }
+    .countdown-lights {
+      display: flex;
+      gap: 22px;
+    }
+    .countdown-light {
+      width: 92px;
+      height: 92px;
+      border-radius: 50%;
+      background: #30363d;
+      transition: background 0.3s, box-shadow 0.3s;
+    }
+    .countdown-light.red { background: var(--red); box-shadow: 0 0 24px 4px var(--red); }
+    .countdown-light.yellow { background: var(--yellow); box-shadow: 0 0 24px 4px var(--yellow); }
+    .countdown-light.green { background: var(--green); box-shadow: 0 0 24px 4px var(--green); }
+    .countdown-text {
+      font-size: 5rem;
+      font-weight: 800;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      color: var(--text);
+      text-shadow: 0 0 18px rgba(0, 0, 0, 0.6);
+    }
+
     /* Utility */
     .hidden { display: none !important; }
   </style>
 </head>
 <body>
+  <!-- Countdown Overlay -->
+  <div id="countdownOverlay" class="countdown-overlay hidden">
+    <div class="countdown-lights" id="countdown-overlay-lights">
+      <div class="countdown-light red"></div>
+      <div class="countdown-light red"></div>
+      <div class="countdown-light red"></div>
+    </div>
+    <div class="countdown-text" id="countdown-overlay-text"></div>
+  </div>
+
   <!-- Setup Modal -->
   <div id="setupModal" style="position:fixed;inset:0;background:rgba(0,0,0,0.7);display:flex;align-items:center;justify-content:center;z-index:999">
     <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:24px;max-width:320px;width:90vw;text-align:center">
@@ -511,8 +562,6 @@
     const allEntries = [];
     const countdownTimers = [];
     let countdownActive = false;
-    let countdownReadyAt = 0;
-    let countdownReadyAtMs = 0;
     let currentSnapshot = null;
     let lastRaceState = null;
     let currentRacers = [];
@@ -543,7 +592,7 @@
     function setStartLights(state, phase) {
       const lights = document.querySelectorAll('.status-light');
       let colors;
-      if (phase === 'ready') colors = ['green', 'red', 'red'];
+      if (phase === 'starting' || phase === 'ready') colors = ['green', 'red', 'red'];
       else if (phase === 'set') colors = ['green', 'green', 'red'];
       else if (phase === 'go' || state === 'running' || state === 'winner_declared') colors = ['green', 'green', 'green'];
       else if (state === 'paused') colors = ['yellow', 'yellow', 'yellow'];
@@ -551,6 +600,31 @@
       lights.forEach((el, i) => {
         el.className = 'status-light status-light-' + colors[i];
       });
+    }
+
+    /* ---- Countdown overlay ---- */
+    const overlayEl = document.getElementById('countdownOverlay');
+    const overlayLights = document.getElementById('countdown-overlay-lights').children;
+    const overlayTextEl = document.getElementById('countdown-overlay-text');
+
+    function setOverlayLights(phase) {
+      let colors;
+      if (phase === 'starting') colors = ['red', 'red', 'red'];
+      else if (phase === 'ready') colors = ['green', 'red', 'red'];
+      else if (phase === 'set') colors = ['green', 'green', 'red'];
+      else colors = ['green', 'green', 'green'];
+      for (let i = 0; i < overlayLights.length; i++) {
+        overlayLights[i].className = 'countdown-light ' + colors[i];
+      }
+    }
+
+    function showOverlay(text) {
+      overlayTextEl.textContent = text;
+      overlayEl.classList.remove('hidden');
+    }
+
+    function hideOverlay() {
+      overlayEl.classList.add('hidden');
     }
 
     /* ---- Race status ---- */
@@ -585,6 +659,10 @@
       }
       document.getElementById('race-mode-label').textContent = modeInfo.join(' · ');
       updateClock(snapshot);
+      // Note: the countdown overlay is dismissed by the go phase's own timer
+      // (so "Go!" stays on screen for a full second past the start), not by the
+      // running snapshot — hiding on running would cut "Go!" short. End/Reset
+      // still clear it via the status/race_control handlers.
       // During a countdown, do NOT let incoming 'not_started' snapshots clobber
       // the red→green start lights that the countdown_phase handler has painted.
       // (Mirror of the race-status text guard above, and of the GUI's
@@ -897,45 +975,71 @@
           const phase = String(msg.phase || '').toLowerCase();
           const atEpoch = Number.isFinite(at) ? at : 0;
           const statusEl = document.getElementById('race-status');
+          // Schedule each phase by its own timestamp so the starting/ready/set/go
+          // spacing (including the 2-second "starting" hold) is preserved exactly,
+          // regardless of when the messages arrive.
+          const delayMs = Math.max(0, Math.round((atEpoch - Date.now() / 1000) * 1000));
 
-          if (phase === 'ready' && !countdownActive) {
+          if (phase === 'starting' || (phase === 'ready' && !countdownActive)) {
             for (const t of countdownTimers) clearTimeout(t);
             countdownTimers.length = 0;
             countdownActive = true;
-            countdownReadyAt = atEpoch;
-            countdownReadyAtMs = Date.now();
-            setStartLights('not_started', 'ready');
-            statusEl.textContent = 'Starting…';
-            FranklinAudio.init();
-            FranklinAudio.playReady();
-          } else if (phase === 'set' && countdownActive) {
-            const totalMs = (atEpoch - countdownReadyAt) * 1000;
-            const elapsedMs = Date.now() - countdownReadyAtMs;
-            const remainingMs = Math.max(0, totalMs - elapsedMs);
+            const firstPhase = phase === 'starting' ? 'starting' : 'ready';
+            countdownTimers.push(setTimeout(() => {
+              if (!countdownActive) return;
+              // "starting" is a 2-second pre-hold shown before "ready".
+              if (firstPhase === 'starting') {
+                statusEl.textContent = 'Starting…';
+                showOverlay('Starting…');
+              } else {
+                statusEl.textContent = 'Ready';
+                showOverlay('Ready');
+              }
+              setStartLights('not_started', firstPhase);
+              setOverlayLights(firstPhase);
+              FranklinAudio.init();
+            }, delayMs));
+          } else if (phase === 'ready' && countdownActive) {
             countdownTimers.push(setTimeout(() => {
               if (countdownActive) {
-                // Set the label together with the lights so the READY/SET/GO
+                statusEl.textContent = 'Ready';
+                setStartLights('not_started', 'ready');
+                overlayTextEl.textContent = 'Ready';
+                setOverlayLights('ready');
+                FranklinAudio.playReady();
+              }
+            }, delayMs));
+          } else if (phase === 'set' && countdownActive) {
+            countdownTimers.push(setTimeout(() => {
+              if (countdownActive) {
+                // Set the label together with the lights so the STARTING/READY/SET/GO
                 // text stays in sync with the start-light sequence. (The label
                 // was previously assigned immediately on message receipt, which
                 // made it jump straight to "Go!" because all three countdown
                 // phases arrive at once.)
                 statusEl.textContent = 'Set…';
                 setStartLights('not_started', 'set');
+                overlayTextEl.textContent = 'Set';
+                setOverlayLights('set');
                 FranklinAudio.playSet();
               }
-            }, remainingMs));
+            }, delayMs));
           } else if (phase === 'go' && countdownActive) {
-            const totalMs = (atEpoch - countdownReadyAt) * 1000;
-            const elapsedMs = Date.now() - countdownReadyAtMs;
-            const remainingMs = Math.max(0, totalMs - elapsedMs);
             countdownTimers.push(setTimeout(() => {
               if (countdownActive) {
                 statusEl.textContent = 'Go!';
                 setStartLights('running', 'go');
+                overlayTextEl.textContent = 'Go!';
+                setOverlayLights('go');
                 FranklinAudio.playGo();
                 countdownActive = false;
+                // Keep "Go!" on screen for a full second so it lines up with the
+                // actual timer start (the race goes running at go_at). For a
+                // hardware race the go phase's `at` is the real start, so this
+                // also covers "show Go until the timer reaches its end".
+                setTimeout(hideOverlay, 1000);
               }
-            }, remainingMs));
+            }, delayMs));
           }
         } else if (msg.type === 'start_race') {
           const at = Number(msg.at);
@@ -948,6 +1052,7 @@
             for (const t of countdownTimers) clearTimeout(t);
             countdownTimers.length = 0;
             countdownActive = false;
+            hideOverlay();
           }
           log(JSON.stringify(msg), msg);
         } else if (msg.type === 'race_control') {
@@ -957,6 +1062,7 @@
             for (const t of countdownTimers) clearTimeout(t);
             countdownTimers.length = 0;
             countdownActive = false;
+            hideOverlay();
           }
           log(JSON.stringify(msg), msg);
         } else if (msg.type === 'preferences_changed') {

@@ -260,6 +260,46 @@
                     grid-template-columns: repeat(4, minmax(0, 1fr));
                 }
             }
+
+            /* Countdown overlay (parity with referee page) */
+            .countdown-overlay {
+                position: fixed;
+                inset: 0;
+                z-index: 1000;
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                justify-content: center;
+                gap: 28px;
+                background: rgba(0, 0, 0, 0.82);
+                transition: opacity 0.4s ease;
+            }
+            .countdown-overlay.hidden {
+                opacity: 0;
+                pointer-events: none;
+            }
+            .countdown-lights {
+                display: flex;
+                gap: 22px;
+            }
+            .countdown-light {
+                width: 92px;
+                height: 92px;
+                border-radius: 50%;
+                background: #333;
+                transition: background 0.3s, box-shadow 0.3s;
+            }
+            .countdown-light.red { background: var(--bad); box-shadow: 0 0 24px 4px var(--bad); }
+            .countdown-light.yellow { background: var(--warn); box-shadow: 0 0 24px 4px var(--warn); }
+            .countdown-light.green { background: var(--good); box-shadow: 0 0 24px 4px var(--good); }
+            .countdown-text {
+                font-size: 5rem;
+                font-weight: 800;
+                letter-spacing: 0.04em;
+                text-transform: uppercase;
+                color: var(--text);
+                text-shadow: 0 0 18px rgba(0, 0, 0, 0.6);
+            }
         </style>
     </head>
     <body>
@@ -284,6 +324,16 @@
                 <!-- <p style="margin:0;color:var(--muted);font-size:0.75rem"><a href="../docs/audio.md" target="_blank" style="color:var(--muted)">Audio design docs</a></p> -->
                 <button type="button" id="audioOkBtn" style="width:auto;min-width:100px;margin:0 auto">OK</button>
             </div>
+        </div>
+
+        <!-- Countdown Overlay (parity with referee page) -->
+        <div id="countdownOverlay" class="countdown-overlay hidden">
+            <div class="countdown-lights" id="countdown-overlay-lights">
+                <div class="countdown-light red"></div>
+                <div class="countdown-light red"></div>
+                <div class="countdown-light red"></div>
+            </div>
+            <div class="countdown-text" id="countdown-overlay-text"></div>
         </div>
 
         <div class="container">
@@ -347,8 +397,6 @@
                 reconnectTimer: null,
                 countdownTimers: [],
                 countdownActive: false,
-                countdownReadyAt: 0,
-                countdownReadyAtMs: 0,
                 raceReady: false,
             };
 
@@ -374,6 +422,31 @@
 
             // Sync the select element to the loaded setting
             el.soundStyleSelect.value = FranklinAudio.getStyle();
+
+            // Countdown overlay (parity with referee page)
+            const overlayEl = document.getElementById("countdownOverlay");
+            const overlayLights = document.getElementById("countdown-overlay-lights").children;
+            const overlayTextEl = document.getElementById("countdown-overlay-text");
+
+            function setOverlayLights(phase) {
+                let colors;
+                if (phase === "starting") colors = ["red", "red", "red"];
+                else if (phase === "ready") colors = ["green", "red", "red"];
+                else if (phase === "set") colors = ["green", "green", "red"];
+                else colors = ["green", "green", "green"];
+                for (let i = 0; i < overlayLights.length; i++) {
+                    overlayLights[i].className = "countdown-light " + colors[i];
+                }
+            }
+
+            function showOverlay(text) {
+                overlayTextEl.textContent = text;
+                overlayEl.classList.remove("hidden");
+            }
+
+            function hideOverlay() {
+                overlayEl.classList.add("hidden");
+            }
 
             function fmtTime(seconds) {
                 const n = Number(seconds);
@@ -405,6 +478,11 @@
             }
 
             function syncLightsForPhase() {
+                if (state.phase === "starting") {
+                    setLights(["red", "red", "red"]);
+                    el.phaseText.textContent = "State: starting";
+                    return;
+                }
                 if (state.phase === "ready") {
                     setLights(["green", "red", "red"]);
                     el.phaseText.textContent = "State: starting - ready";
@@ -856,50 +934,78 @@
                             const phase = String(msg.phase || "").toLowerCase();
                             const atRaw = msg.at;
                             const atEpoch = (typeof atRaw === "number" && Number.isFinite(atRaw)) ? atRaw : 0;
-                            dbg("countdown_phase", `phase=${phase} at=${atEpoch}`);
-                            if (phase === "ready" && !state.countdownActive && state.phase !== "running") {
+                            // Schedule each phase by its own timestamp so the
+                            // starting/ready/set/go spacing (including the 2-second
+                            // "starting" hold) is preserved exactly, regardless of
+                            // when the messages arrive.
+                            const delayMs = Math.max(0, Math.round((atEpoch - Date.now() / 1000) * 1000));
+                            dbg("countdown_phase", `phase=${phase} at=${atEpoch} delay=${delayMs}`);
+                            if (phase === "starting" || (phase === "ready" && !state.countdownActive && state.phase !== "running")) {
                                 for (const t of state.countdownTimers) clearTimeout(t);
                                 state.countdownTimers = [];
                                 state.raceReady = false;
                                 state.countdownActive = true;
-                                state.countdownReadyAt = atEpoch;
-                                state.countdownReadyAtMs = Date.now();
-                                console.log("[COUNTDOWN] → ready (immediate)");
-                                FranklinAudio.playReady();
-                                state.phase = "ready";
-                                syncLightsForPhase();
+                                const firstPhase = phase === "starting" ? "starting" : "ready";
+                                state.countdownTimers.push(setTimeout(() => {
+                                    if (state.countdownActive) {
+                                        console.log(`[COUNTDOWN] → ${firstPhase}`);
+                                        if (firstPhase === "starting") {
+                                            // "starting" is a 2-second pre-hold shown before "ready".
+                                            state.phase = "starting";
+                                            FranklinAudio.init();
+                                            showOverlay("Starting…");
+                                            setOverlayLights("starting");
+                                        } else {
+                                            FranklinAudio.playReady();
+                                            state.phase = "ready";
+                                            showOverlay("Ready");
+                                            setOverlayLights("ready");
+                                        }
+                                        syncLightsForPhase();
+                                    }
+                                }, delayMs));
+                            } else if (phase === "ready" && state.countdownActive) {
+                                state.countdownTimers.push(setTimeout(() => {
+                                    if (state.countdownActive) {
+                                        console.log("[COUNTDOWN] → ready");
+                                        FranklinAudio.playReady();
+                                        state.phase = "ready";
+                                        showOverlay("Ready");
+                                        setOverlayLights("ready");
+                                        syncLightsForPhase();
+                                    }
+                                }, delayMs));
                             } else if (phase === "set" && state.countdownActive) {
-                                const totalMs = (atEpoch - state.countdownReadyAt) * 1000;
-                                const elapsedMs = Date.now() - state.countdownReadyAtMs;
-                                const remainingMs = Math.max(0, totalMs - elapsedMs);
-                                console.log(`[COUNTDOWN] set in ${remainingMs}ms (total=${totalMs} elapsed=${elapsedMs})`);
                                 state.countdownTimers.push(setTimeout(() => {
                                     if (state.countdownActive) {
                                         console.log("[COUNTDOWN] → set");
                                         FranklinAudio.playSet();
                                         state.phase = "set";
+                                        showOverlay("Set");
+                                        setOverlayLights("set");
                                         syncLightsForPhase();
                                     }
-                                }, remainingMs));
+                                }, delayMs));
                             } else if (phase === "go" && state.countdownActive) {
-                                const totalMs = (atEpoch - state.countdownReadyAt) * 1000;
-                                const elapsedMs = Date.now() - state.countdownReadyAtMs;
-                                const remainingMs = Math.max(0, totalMs - elapsedMs);
-                                console.log(`[COUNTDOWN] go in ${remainingMs}ms (total=${totalMs} elapsed=${elapsedMs})`);
                                 state.countdownTimers.push(setTimeout(() => {
                                     if (state.countdownActive) {
                                         console.log("[COUNTDOWN] → go" + (state.raceReady ? " → running" : ""));
                                         FranklinAudio.playGo();
                                         state.phase = state.raceReady ? "running" : "go";
+                                        showOverlay("Go!");
+                                        setOverlayLights("go");
                                         syncLightsForPhase();
                                         state.countdownActive = false;
+                                        // Keep "Go!" on screen for a full second so it
+                                        // lines up with the actual timer start.
+                                        setTimeout(hideOverlay, 1000);
                                         if (state.raceReady) {
                                             renderAll(true).catch((err) => {
                                                 el.connection.textContent = `Refresh error: ${err.message}`;
                                             });
                                         }
                                     }
-                                }, remainingMs));
+                                }, delayMs));
                             }
                         }
 
@@ -937,6 +1043,7 @@
                                 state.raceReady = false;
                                 state.phase = "waiting";
                                 syncLightsForPhase();
+                                hideOverlay();
                                 renderAll().catch((err) => {
                                     el.connection.textContent = `Refresh error: ${err.message}`;
                                 });
@@ -954,6 +1061,7 @@
                                 state.raceReady = false;
                                 state.phase = "waiting";
                                 syncLightsForPhase();
+                                hideOverlay();
                                 renderAll().catch((err) => {
                                     el.connection.textContent = `Refresh error: ${err.message}`;
                                 });

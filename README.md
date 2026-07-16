@@ -40,8 +40,14 @@ Franklin supports **Raspberry Pi OS Lite 32-bit (armhf)** on Pi 3, Pi 4, Pi Zero
 **To deploy on 32-bit Pi OS:**
 1. Flash Raspberry Pi OS Lite (32-bit) to SD card
 2. Configure `playbooks/inventory.ini` with your Pi's IP
-3. Run `devbox run ansible:setup` then `devbox run deploy`
-4. The playbook auto-detects `armhf` and builds/installs the correct `.deb`
+3. Run `devbox run ansible:setup`
+4. Run `devbox run deploy:tui` (console/TUI mode) or `devbox run deploy:gui`
+   (GTK GUI under sway/Wayland). The playbook auto-detects `armhf` and
+   builds/installs the correct `.deb`.
+5. Each task both builds the hardware-monitor `.deb` and deploys all artifacts,
+   and toggles the console vs. GUI mode (enabling/disabling `franklin-tui`,
+   `franklin-gui`, and `franklin-sway` services) so no extra commands are needed
+   to switch between modes.
 
 See `README-32bit-TUI.md` for detailed comparison and cross-compilation notes.
 
@@ -71,8 +77,13 @@ If you are deploying to a target Raspberry Pi host over the network, use the fol
 # 1. Perform full machine setup (packages, services, AP configuration, Caddy, etc.)
 devbox run ansible:setup
 
-# 2. Build the hardware monitor .deb and deploy all artifacts to target host
-devbox run deploy
+# 2. Build the hardware monitor .deb and deploy all artifacts, choosing the UI mode:
+#    - TUI/console mode (franklin-tui.service on tty1):
+devbox run deploy:tui
+#    - GTK GUI mode under sway/Wayland (franklin-gui + franklin-sway):
+devbox run deploy:gui
+#    Each task also enables/disables the opposite mode's services, so switching
+#    modes is a single command with no extra steps.
 
 # 3. Ensure background web apps are up and running in tmux sessions
 devbox run ansible:web-bounce
@@ -80,6 +91,13 @@ devbox run ansible:web-bounce
 # 4. Run runtime health checks through the health-check web app
 devbox run ansible:health-check
 ```
+
+> **Note:** The old `devbox run deploy` task has been removed. It deployed in
+> TUI mode by default (via `ansible:deploy`, which leaves `franklin_gui_enabled`
+> unset → `false`) but did **not** run the sway playbook, so it could not enable
+> GUI mode. Use `deploy:tui` or `deploy:gui` explicitly instead. For a TUI-only
+> artifact push without rebuilding the hardware monitor, `devbox run
+> ansible:deploy` is still available.
 
 ---
 

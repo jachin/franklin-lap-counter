@@ -117,10 +117,6 @@
         "ssh -N -L 5901:127.0.0.1:5900 jachin@10.27.1.64"
       ],
       "vnc:connect": ["open vnc://127.0.0.1:5901"],
-      "deploy": [
-        "RUST_PI_TARGET=$(bash scripts/detect_pi_arch.sh) devbox run hardware-monitor:build-deb",
-        "devbox run ansible:deploy"
-      ],
       "deploy:tui": [
         "RUST_PI_TARGET=$(bash scripts/detect_pi_arch.sh) devbox run hardware-monitor:build-deb",
         "ansible-playbook -i playbooks/inventory.ini playbooks/deploy-franklin.yml -e '{\"franklin_gui_enabled\": false}'",

@@ -44,6 +44,12 @@ system_packages:
   - libgtk-4-1
   - libudev-dev
   - libportaudio2
+  # Wayland/sway stack for the GTK GUI mode (franklin-gui.service under sway).
+  # Kept in the base package set (not only gated in 56-wayland-sway.yml) so a
+  # fresh Pi gets sway even if deploy-franklin.yml runs without the sway play.
+  - sway
+  - xwayland
+  - seatd
 
 # Python packages installed in the app venv
 python_packages:

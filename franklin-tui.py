@@ -132,8 +132,15 @@ class CountdownScreen(ModalScreen):
 
     Shows three start lights that fill red, then turn green one-by-one as the
     ready/set/go sequence progresses, with the phase word rendered large below
-    them (Textual has no text-scaling in this version, so we use a block font).
+    them. The word is drawn with a clean monospace block font and scaled to a
+    percentage of the screen height so it stays legible on small displays.
     """
+
+    # Target height of the big text as a fraction of the terminal height.
+    TEXT_HEIGHT_FRACTION = 0.45
+    # Base glyph size (rows x cols) before integer scaling.
+    _FONT_BASE_HEIGHT = 7
+    _FONT_BASE_WIDTH = 5
 
     PHASE_COLORS = {
         "starting": ["red", "red", "red"],
@@ -155,17 +162,17 @@ class CountdownScreen(ModalScreen):
         "go": "#ffb454",
     }
     # 7-row x 5-col block font (use "#" for a lit pixel). Only the glyphs used
-    # by the phase words are defined.
+    # by the phase words are defined. Designed for clean, readable rendering.
     _FONT: dict[str, list[str]] = {
-        "A": ["  #  ", " # # ", "#   #", "#####", "#   #", "#   #", "#   #"],
+        "A": [".###.", "#   #", "#   #", "#####", "#   #", "#   #", "#   #"],
         "D": ["#####", "#   #", "#   #", "#   #", "#   #", "#   #", "#####"],
-        "E": ["#####", "#    ", "#####", "#    ", "#    ", "#    ", "#####"],
-        "G": [" ### ", "#   #", "#    ", "# ## ", "#   #", "#   #", " ### "],
+        "E": ["#####", "#    ", "####.", "#    ", "#    ", "#    ", "#####"],
+        "G": [".###.", "#   #", "#    ", "#.##.", "#   #", "#   #", ".###."],
         "I": ["#####", "  #  ", "  #  ", "  #  ", "  #  ", "  #  ", "#####"],
         "N": ["#   #", "##  #", "# # #", "#  ##", "#   #", "#   #", "#   #"],
-        "O": [" ### ", "#   #", "#   #", "#   #", "#   #", "#   #", " ### "],
-        "R": ["#### ", "#   #", "#   #", "#### ", "#  # ", "#   #", "#   #"],
-        "S": [" ####", "#    ", "#    ", " ### ", "    #", "    #", "#### "],
+        "O": [".###.", "#   #", "#   #", "#   #", "#   #", "#   #", ".###."],
+        "R": ["####.", "#   #", "#   #", "####.", "#  # ", "#   #", "#   #"],
+        "S": [".####", "#    ", "#    ", ".###.", "    #", "    #", "####."],
         "T": ["#####", "  #  ", "  #  ", "  #  ", "  #  ", "  #  ", "  #  "],
         "Y": ["#   #", "#   #", " # # ", "  #  ", "  #  ", "  #  ", "  #  "],
         "!": ["  #  ", "  #  ", "  #  ", "  #  ", "  #  ", "     ", "  #  "],
@@ -173,14 +180,31 @@ class CountdownScreen(ModalScreen):
     }
 
     @classmethod
-    def _render_big_text(cls, word: str) -> str:
+    def _scale_factor(cls, available_height: int) -> int:
+        """Integer scale factor so the text uses ~TEXT_HEIGHT_FRACTION of height."""
+        if available_height <= 0:
+            return 1
+        target = int(available_height * cls.TEXT_HEIGHT_FRACTION)
+        # Need room for the scaled base height plus the lights above.
+        scale = max(1, target // (cls._FONT_BASE_HEIGHT + 2))
+        return scale
+
+    @classmethod
+    def _render_big_text(cls, word: str, scale: int) -> str:
         rows: list[str] = []
-        for row in range(7):
+        for row in range(cls._FONT_BASE_HEIGHT):
             line = ""
             for ch in word.upper():
                 glyph = cls._FONT.get(ch, cls._FONT[" "])
-                line += glyph[row].replace("#", "█").replace(" ", " ") + "  "
-            rows.append(line)
+                base = glyph[row]
+                # Each base cell becomes `scale` wide; lit cells use "█", gaps space.
+                scaled_cells = "".join(
+                    ("█" if c == "#" else " ") * scale for c in base
+                )
+                line += scaled_cells + (" " * scale)
+            # Repeat the row `scale` times vertically for proportional height.
+            for _ in range(scale):
+                rows.append(line)
         return "\n".join(rows)
 
     def __init__(self) -> None:
@@ -208,7 +232,8 @@ class CountdownScreen(ModalScreen):
             light.styles.background = color
         text = self.PHASE_LABELS.get(phase, phase.upper())
         widget = self.query_one("#countdown_phase_text", Static)
-        widget.update(self._render_big_text(text))
+        scale = self._scale_factor(self.size.height)
+        widget.update(self._render_big_text(text, scale))
         widget.styles.color = self.PHASE_TEXT_COLOR.get(phase, "#ffffff")
 
 
@@ -351,9 +376,9 @@ class Franklin(App[Any]):  # type: ignore[type-arg]
     }
 
     .countdown-light {
-        width: 12;
-        height: 6;
-        margin: 1 2;
+        width: 20;
+        height: 10;
+        margin: 2 3;
         background: #222222;
         content-align: center middle;
     }

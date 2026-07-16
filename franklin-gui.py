@@ -166,6 +166,22 @@ class FranklinGuiApp(Gtk.Application):
         self.recorder_banner: Gtk.Label | None = None
         self._recorder_present_cached: bool | None = None
 
+        # Full-screen (semi-transparent) countdown overlay. Mirrors the TUI's
+        # CountdownScreen and the web pages' countdown-overlay: three large
+        # start lights plus a big phase word (STARTING/READY/SET/GO!), shown on
+        # top of the whole window during the ready/set/go sequence. The inline
+        # clock_row lights remain the steady-state indicator; this overlay is
+        # the attention-grabbing view the operator actually watches at the line.
+        self.countdown_overlay: Gtk.Widget | None = None
+        self._countdown_overlay_lights: list[Gtk.Widget] = []
+        self.countdown_overlay_text: Gtk.Label | None = None
+        # Audio status indicator so a missed/failed countdown step is visible
+        # (per operator request). Tracks which phase sounds fired (✓) or failed
+        # (✗), and the backend in use (sounddevice / aplay fallback / muted).
+        self.audio_status_label: Gtk.Label | None = None
+        self._audio_backend: str | None = None
+        self._audio_phase_status: dict[str, str] = {}
+
         self._system_status_thread: threading.Thread | None = None
         # Single CSS provider for the whole window. Only the root font size
         # changes with the window; everything else is static ``em``-based CSS.
@@ -263,12 +279,14 @@ class FranklinGuiApp(Gtk.Application):
             self._countdown_ready_at_epoch = None
             self._countdown_ready_at_monotonic = None
             self._set_start_lights("#2e7d32")
+            self._hide_countdown_overlay()
         elif self.snapshot.state == "finished":
             self._start_sequence_running = False
             self._countdown_event_seen = False
             self._set_start_sequence_phase(None)
             self._countdown_ready_at_epoch = None
             self._countdown_ready_at_monotonic = None
+            self._hide_countdown_overlay()
         elif self.snapshot.state == "not_started":
             # A not_started snapshot arriving *during* an active countdown must
             # not clobber the countdown lights — the countdown_phase events own
@@ -280,6 +298,7 @@ class FranklinGuiApp(Gtk.Application):
                 self._set_start_sequence_phase(None)
                 self._countdown_ready_at_epoch = None
                 self._countdown_ready_at_monotonic = None
+                self._hide_countdown_overlay()
 
         if previous_state != "finished" and self.snapshot.state == "finished":
             self.save_config()
@@ -432,6 +451,12 @@ class FranklinGuiApp(Gtk.Application):
         root.set_margin_start(12)
         root.set_margin_end(12)
 
+        # Full-window overlay layer that sits above the main UI. Only the
+        # countdown overlay lives here, so it spans the entire window at 0.8
+        # opacity. Building it now (before content) lets the rest of do_activate
+        # populate it, and it is added to the overlay last so it paints on top.
+        overlay_layer = self._create_countdown_overlay()
+
         # PopoverMenuBar setup at the top of the window
         menu_model = Gio.Menu()
 
@@ -571,6 +596,13 @@ class FranklinGuiApp(Gtk.Application):
         status_bar.append(wifi_label)
         status_bar.append(Gtk.Separator(orientation=Gtk.Orientation.VERTICAL))
         status_bar.append(Gtk.Label(label="? for Help"))
+        status_bar.append(Gtk.Separator(orientation=Gtk.Orientation.VERTICAL))
+        audio_status_label = Gtk.Label()
+        audio_status_label.add_css_class("audio-status-label")
+        audio_status_label.set_xalign(0)
+        audio_status_label.set_text("Audio: muted")
+        self.audio_status_label = audio_status_label
+        status_bar.append(audio_status_label)
 
         recorder_banner = Gtk.Label()
         recorder_banner.set_wrap(True)
@@ -592,7 +624,12 @@ class FranklinGuiApp(Gtk.Application):
         root.append(Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL))
         root.append(status_bar)
 
-        window.set_child(root)
+        # Overlay layer wraps the main UI so the countdown overlay spans the
+        # entire window and paints above everything (added last = top z-order).
+        overlay = Gtk.Overlay()
+        overlay.set_child(root)
+        overlay.add_overlay(overlay_layer)
+        window.set_child(overlay)
 
         # Rescale fonts when the window size changes instead of polling on the
         # timer. ``default-width``/``default-height`` track the live size of a
@@ -751,6 +788,32 @@ class FranklinGuiApp(Gtk.Application):
         .start-light-red {{ background-color: #c62828; }}
         .start-light-yellow {{ background-color: #f9a825; }}
         .start-light-green {{ background-color: #2e7d32; }}
+
+        .countdown-overlay {{
+            background-color: rgba(0, 0, 0, 0.8);
+        }}
+        .countdown-overlay-light {{
+            border-radius: 999px;
+            border: 3px solid #141414;
+            background-color: #30363d;
+        }}
+        .countdown-overlay-light-red {{ background-color: #c62828; box-shadow: 0 0 24px 4px #c62828; }}
+        .countdown-overlay-light-yellow {{ background-color: #f9a825; box-shadow: 0 0 24px 4px #f9a825; }}
+        .countdown-overlay-light-green {{ background-color: #2e7d32; box-shadow: 0 0 24px 4px #2e7d32; }}
+        .countdown-overlay-text {{
+            font-size: 5em;
+            font-weight: 800;
+            letter-spacing: 0.04em;
+            text-transform: uppercase;
+            color: #ffffff;
+        }}
+        .audio-status-label {{
+            font-size: 0.9em;
+            font-family: monospace;
+        }}
+        .audio-status-ok {{ color: #2e7d32; }}
+        .audio-status-fallback {{ color: #f9a825; }}
+        .audio-status-error {{ color: #c62828; }}
         """
 
     def _build_swatch_css(self) -> str:
@@ -783,6 +846,104 @@ class FranklinGuiApp(Gtk.Application):
         for area in areas:
             box.append(area)
         return box
+
+    def _create_countdown_overlay(self) -> Gtk.Widget:
+        """Build the full-screen, semi-transparent countdown overlay.
+
+        Mirrors the TUI ``CountdownScreen`` (franklin-tui.py:130) and the web
+        pages' ``.countdown-overlay`` (referee.html:373): three large start
+        lights plus a big phase word, centered over the whole window at 0.8
+        opacity. Hidden until a countdown begins (see ``_show_countdown_overlay``
+        and ``_hide_countdown_overlay``).
+        """
+        overlay = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        overlay.add_css_class("countdown-overlay")
+        overlay.set_halign(Gtk.Align.FILL)
+        overlay.set_valign(Gtk.Align.FILL)
+        overlay.set_hexpand(True)
+        overlay.set_vexpand(True)
+        overlay.set_visible(False)
+
+        lights_row = Gtk.Box(
+            orientation=Gtk.Orientation.HORIZONTAL, spacing=22
+        )
+        lights_row.set_halign(Gtk.Align.CENTER)
+        lights_row.set_valign(Gtk.Align.CENTER)
+        self._countdown_overlay_lights = []
+        for _ in range(self._start_light_count):
+            light = Gtk.Box()
+            light.add_css_class("countdown-overlay-light")
+            light.add_css_class("countdown-overlay-light-red")
+            light.set_size_request(92, 92)
+            light.set_hexpand(False)
+            light.set_vexpand(False)
+            self._countdown_overlay_lights.append(light)
+            lights_row.append(light)
+
+        text = Gtk.Label(label="")
+        text.add_css_class("countdown-overlay-text")
+        text.set_halign(Gtk.Align.CENTER)
+        text.set_valign(Gtk.Align.CENTER)
+        self.countdown_overlay_text = text
+
+        inner = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=28)
+        inner.set_halign(Gtk.Align.CENTER)
+        inner.set_valign(Gtk.Align.CENTER)
+        inner.append(lights_row)
+        inner.append(text)
+
+        overlay.append(inner)
+        self.countdown_overlay = overlay
+        return overlay
+
+    def _apply_countdown_overlay_lights(self, left_classes: list[str]) -> None:
+        """Paint the 3 overlay lights from a list of 'red'/'green'/'yellow'."""
+        if len(left_classes) != self._start_light_count:
+            return
+        expected = {
+            "red": "countdown-overlay-light-red",
+            "green": "countdown-overlay-light-green",
+            "yellow": "countdown-overlay-light-yellow",
+        }
+        previous = getattr(self, "_countdown_overlay_light_classes", None)
+        new_classes = [expected.get(c, "countdown-overlay-light-red") for c in left_classes]
+        if previous == new_classes:
+            return
+        self._countdown_overlay_light_classes = new_classes
+        for area, cls in zip(self._countdown_overlay_lights, new_classes):
+            if previous is not None:
+                for old in previous:
+                    area.remove_css_class(old)
+            area.add_css_class(cls)
+
+    def _show_countdown_overlay(self, phase: str) -> None:
+        """Show the overlay for *phase* with the matching lights + word."""
+        if self.countdown_overlay is None:
+            return
+        light_map = {
+            "starting": ["red", "red", "red"],
+            "ready": ["green", "red", "red"],
+            "set": ["green", "green", "red"],
+            "go": ["green", "green", "green"],
+        }
+        colors = light_map.get(phase, ["red", "red", "red"])
+        word = {
+            "starting": "STARTING",
+            "ready": "READY",
+            "set": "SET",
+            "go": "GO!",
+        }.get(phase, phase.upper())
+        self._apply_countdown_overlay_lights(colors)
+        if self.countdown_overlay_text is not None:
+            self.countdown_overlay_text.set_text(word)
+        self.countdown_overlay.set_visible(True)
+        # Ensure the overlay layer spans/resizes correctly on first show.
+        self.countdown_overlay.queue_resize()
+
+    def _hide_countdown_overlay(self) -> None:
+        if self.countdown_overlay is not None:
+            self.countdown_overlay.set_visible(False)
+        self._countdown_overlay_light_classes = None  # type: ignore[attr-defined]
 
     # Mirror the right stack so the green "wave" fills symmetrically outward
     # from the timer (left-to-right on the left stack, right-to-left on the
@@ -979,6 +1140,8 @@ class FranklinGuiApp(Gtk.Application):
         playback.  The stream stays open between sounds to avoid device
         open/close overhead."""
         if not _HAS_SOUNDDEVICE:
+            self._audio_backend = "muted (no sounddevice)"
+            self._refresh_audio_status_label()
             return
         try:
             self._audio_stream = _sounddevice.RawOutputStream(  # type: ignore[union-attr]
@@ -987,10 +1150,13 @@ class FranklinGuiApp(Gtk.Application):
                 dtype="int16",
             )
             self._audio_stream.start()
+            self._audio_backend = "sounddevice"
             logging.info("Opened persistent sounddevice output stream")
         except Exception as exc:
             logging.warning("sounddevice stream unavailable (falling back to aplay): %s", exc)
             self._audio_stream = None
+            self._audio_backend = "aplay fallback"
+        self._refresh_audio_status_label()
 
     def _close_audio_stream(self) -> None:
         """Stop and close the persistent audio stream."""
@@ -1005,34 +1171,97 @@ class FranklinGuiApp(Gtk.Application):
 
     # -- playback -------------------------------------------------------------
 
-    def _play_sound(self, name: str) -> None:
+    # Phases whose countdown sounds we track in the status indicator. "finish"
+    # is fired on race end and is tracked separately from the start sequence.
+    _AUDIO_PHASE_LABELS = {
+        "ready": "ready",
+        "set": "set",
+        "go": "go",
+        "finish": "finish",
+    }
+
+    def _refresh_audio_status_label(self) -> None:
+        """Render the audio-status indicator from backend + per-phase marks.
+
+        Surfaces the playback backend (sounddevice / aplay fallback / muted) and
+        which countdown phase sounds have fired (✓) or failed (✗) so the
+        operator can see at a glance whether the speakers actually produced the
+        ready/set/go beeps — the previous silent failure mode had no indicator.
+        """
+        if self.audio_status_label is None:
+            return
+        backend = self._audio_backend or "muted"
+        parts = [f"Audio: {backend}"]
+        markers = []
+        for key in ("ready", "set", "go"):
+            status = self._audio_phase_status.get(key)
+            if status is None:
+                continue
+            symbol = {"ok": "✓", "error": "✗"}.get(status, status)
+            markers.append(f"{key} {symbol}")
+        if markers:
+            parts.append("| " + " ".join(markers))
+        text = " ".join(parts)
+        self.audio_status_label.set_text(text)
+        # Color the label by worst-case status.
+        for cls in ("audio-status-ok", "audio-status-fallback", "audio-status-error"):
+            self.audio_status_label.remove_css_class(cls)
+        if any(
+            v == "error" for v in self._audio_phase_status.values()
+        ) or backend.startswith("muted"):
+            self.audio_status_label.add_css_class("audio-status-error")
+        elif backend.startswith("aplay"):
+            self.audio_status_label.add_css_class("audio-status-fallback")
+        else:
+            self.audio_status_label.add_css_class("audio-status-ok")
+
+    def _mark_audio_phase(self, name: str, ok: bool) -> None:
+        label = self._AUDIO_PHASE_LABELS.get(name)
+        if label is None:
+            return
+        self._audio_phase_status[label] = "ok" if ok else "error"
+        self._refresh_audio_status_label()
+
+    def _reset_audio_phase_status(self) -> None:
+        self._audio_phase_status = {}
+        self._refresh_audio_status_label()
+
+    def _play_sound(self, name: str) -> bool:
         pcm: bytes | None = self._pre_rendered_sounds.get(name)
         if pcm is None:
             # Not pre-rendered (e.g. loaded after pre-render); render on demand.
             if not self._sound_patch:
-                return
+                self._mark_audio_phase(name, False)
+                return False
             defn = self._sound_patch.get(name)
             if not defn:
-                return
+                self._mark_audio_phase(name, False)
+                return False
             voices = defn.get("voices", [])
             if not voices:
-                return
+                self._mark_audio_phase(name, False)
+                return False
             try:
                 pcm = self._render_voices_to_pcm(voices)
             except Exception as exc:
                 logging.warning("Failed to render sound %r: %s", name, exc)
-                return
+                self._mark_audio_phase(name, False)
+                return False
             if not pcm:
-                return
+                self._mark_audio_phase(name, False)
+                return False
 
         # Fast path: write directly to the open sounddevice stream.
         if self._audio_stream is not None:
             try:
                 self._audio_stream.write(pcm)
-                return
+                self._mark_audio_phase(name, True)
+                return True
             except Exception as exc:
                 logging.warning("sounddevice write failed (falling back to aplay): %s", exc)
                 self._audio_stream = None
+                self._audio_backend = "aplay fallback"
+                self._refresh_audio_status_label()
 
         # Fallback: render WAV and play through aplay in a background thread.
         try:
@@ -1042,17 +1271,22 @@ class FranklinGuiApp(Gtk.Application):
         except Exception:
             wav = b""
         if not wav:
-            return
+            self._mark_audio_phase(name, False)
+            return False
 
         def _play() -> None:
             try:
                 subprocess.run(["aplay", "-q"], input=wav, check=False)
+                self._mark_audio_phase(name, True)
             except FileNotFoundError:
                 logging.warning("aplay not found; cannot play sound %r", name)
+                self._mark_audio_phase(name, False)
             except Exception as exc:
                 logging.warning("Failed to play sound %r: %s", name, exc)
+                self._mark_audio_phase(name, False)
 
         threading.Thread(target=_play, daemon=True).start()
+        return True
 
     def _set_start_sequence_phase(self, phase: str | None) -> None:
         self._start_sequence_phase = phase
@@ -1155,6 +1389,8 @@ class FranklinGuiApp(Gtk.Application):
             if phase == "go":
                 self._set_start_sequence_phase("Go")
                 self._set_start_lights("#2e7d32")
+                self._show_countdown_overlay("go")
+                GLib.timeout_add(1000, lambda: (self._hide_countdown_overlay(), False)[1])
             else:
                 if phase == "set":
                     set_level = self._START_PHASE_ORDER.get("set", 0)
@@ -1163,6 +1399,7 @@ class FranklinGuiApp(Gtk.Application):
                 self._set_start_sequence_phase(phase.capitalize())
                 if left_classes:
                     self._apply_start_lights(left_classes)
+                self._show_countdown_overlay(phase)
             self.refresh_views()
             return False
 
@@ -2451,6 +2688,10 @@ class FranklinGuiApp(Gtk.Application):
         if msg_type == "status":
             source = "SIM" if simulated else "HW"
             self.append_event(f"STATUS [{source}]: {msg.get('message', '')}")
+            text = str(msg.get("message", "")).lower()
+            if "end" in text or "reset" in text:
+                self._hide_countdown_overlay()
+                self._reset_audio_phase_status()
             return
 
         if msg_type == "countdown_phase":
@@ -2460,34 +2701,31 @@ class FranklinGuiApp(Gtk.Application):
                 float(at_raw) if isinstance(at_raw, (int, float)) else time.time()
             )
 
-            # Anchor-based scheduling: mirror the web pages' algorithm so that
-            # network latency does not compress or stretch the countdown interval.
-            # When "starting" (the first phase) arrives we store the epoch time
-            # and the local monotonic clock.  For "set" and "go" we compute the
-            # remaining delay as:
-            #   (at - starting_at) - (now_monotonic - starting_at_monotonic)
-            # which preserves the intended spacing regardless of delivery delay.
+            # First phase of a new countdown: reset the per-phase audio tracking
+            # so a fresh ready/set/go sequence starts clean (no stale ✓/✗ from
+            # the previous race). "starting" and "ready" are both valid openers.
             if phase in ("starting", "ready"):
-                self._countdown_ready_at_epoch = at_epoch
-                self._countdown_ready_at_monotonic = time.monotonic()
-                delay_ms = max(0, int((at_epoch - time.time()) * 1000))
-            elif phase in ("set", "go") and self._countdown_ready_at_epoch is not None and self._countdown_ready_at_monotonic is not None:
-                anchor_mono = self._countdown_ready_at_monotonic
-                anchor_epoch = self._countdown_ready_at_epoch
-                total_seconds = at_epoch - anchor_epoch
-                total_ms = total_seconds * 1000
-                elapsed_ms = (time.monotonic() - anchor_mono) * 1000
-                delay_ms = max(0, int(total_ms - elapsed_ms))
-            else:
-                delay_ms = max(0, int((at_epoch - time.time()) * 1000))
+                self._reset_audio_phase_status()
+
+            # Schedule each phase by its own ``at`` timestamp, exactly like the
+            # web pages (referee.html:981). All four countdown_phase events
+            # normally arrive in a single Redis batch, but each carries its own
+            # future ``at`` epoch, so scheduling every phase independently at
+            # ``at - now`` preserves the starting/ready/set/go spacing (including
+            # the 2s "starting" pre-hold) and keeps the GUI in sync with the
+            # referee/driver pages. (The previous anchor-based math compressed
+            # the interval because ``starting`` and ``ready`` share an anchor and
+            # arrive microseconds apart, making set/go fire almost immediately.)
+            delay_ms = max(0, int((at_epoch - time.time()) * 1000))
 
             def apply_phase() -> bool:
                 # Authoritative race is running/finished: never let a late or
-                # out-of-order countdown event regress the lights.
-                if self.snapshot.is_going:
-                    return False
-                new_level = self._START_PHASE_ORDER.get(phase, 0)
-                if new_level and new_level < self._start_phase_level():
+                # out-of-order starting/ready/set event drive the lights. The
+                # "go" phase is the transition INTO running, so it must always
+                # apply (show "GO!" + play the go sound) even if the running
+                # snapshot has already been drawn — otherwise the go overlay and
+                # go beep are dropped when both arrive in the same instant.
+                if phase != "go" and self.snapshot.is_going:
                     return False
 
                 self._countdown_event_seen = True
@@ -2502,6 +2740,7 @@ class FranklinGuiApp(Gtk.Application):
                             "start-light-red",
                         ]
                     )
+                    self._show_countdown_overlay("starting")
                     self.append_event("Starting")
                 elif phase == "ready":
                     self._set_start_sequence_phase("Ready")
@@ -2512,6 +2751,7 @@ class FranklinGuiApp(Gtk.Application):
                             "start-light-red",
                         ]
                     )
+                    self._show_countdown_overlay("ready")
                     self._play_sound("ready")
                     self.append_event("Ready")
                 elif phase == "set":
@@ -2523,13 +2763,20 @@ class FranklinGuiApp(Gtk.Application):
                             "start-light-red",
                         ]
                     )
+                    self._show_countdown_overlay("set")
                     self._play_sound("set")
                     self.append_event("Set")
                 elif phase == "go":
                     self._set_start_sequence_phase("Go")
                     self._set_start_lights("#2e7d32")
+                    self._show_countdown_overlay("go")
                     self._play_sound("go")
                     self.append_event("Go")
+                    # Keep "Go!" on screen for a full second so it lines up with
+                    # the actual timer start (mirrors the web pages' overlay,
+                    # referee.html:1040). The running snapshot clears the start
+                    # sequence but NOT the overlay, so we dismiss it here.
+                    GLib.timeout_add(1000, lambda: (self._hide_countdown_overlay(), False)[1])
                 self.refresh_views()
                 return False
 
@@ -2553,7 +2800,9 @@ class FranklinGuiApp(Gtk.Application):
             def apply_start() -> bool:
                 self._set_start_sequence_phase("Go")
                 self._set_start_lights("#2e7d32")
+                self._show_countdown_overlay("go")
                 self.append_event("Go")
+                GLib.timeout_add(1000, lambda: (self._hide_countdown_overlay(), False)[1])
                 self.refresh_views()
                 return False
 
@@ -2566,6 +2815,10 @@ class FranklinGuiApp(Gtk.Application):
             detail = str(msg.get("message", ""))
             racer_id_raw = msg.get("racer_id")
             racer_id_i = int(racer_id_raw) if racer_id_raw is not None else None
+
+            if command in ("end_race", "reset_race") and accepted:
+                self._hide_countdown_overlay()
+                self._reset_audio_phase_status()
 
             # Display-only: the recorder applies race-control effects and the
             # results are reflected in the next snapshot.

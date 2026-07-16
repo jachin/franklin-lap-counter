@@ -10,6 +10,7 @@ franklin_supplementary_groups:
   - video
   - input
   - render
+  - audio
 
 # Boot/login behavior
 franklin_autologin_tty: tty1

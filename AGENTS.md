@@ -63,6 +63,28 @@
      not clobber the lights while `_start_sequence_running` is True. When
      debugging light/state-sync issues, add a temporary `logging.info` in the
      `countdown_phase` handler and in the `not_started` branch of
-     `handle_snapshot`, run a FAKE race, and grep `gui.log` for those lines;
-     remove the temp logs before finishing.
+      `handle_snapshot`, run a FAKE race, and grep `gui.log` for those lines;
+      remove the temp logs before finishing.
+   - **Gotcha — countdown batching (schedule by `at`, never on arrival):** ALL
+     four `countdown_phase` events (`starting/ready/set/go`) are published in a
+     tight loop and arrive in ONE Redis batch (all `recorded_at` within µs), but
+     each carries its own future `at` epoch. **This is true for both paths** —
+     the FAKE recorder (`_publish_countdown_phases`) and the REAL/TRAINING Rust
+     hardware monitor use the same contract (see `docs/audio.md`). Every client
+     (referee/driver/index/TUI) schedules each phase independently at
+     `delay = max(0, (at - now))` and applies it in that callback. Do NOT apply
+     phases on arrival or with "anchor"/relative-to-first math — that compresses
+     the sequence so the GUI jumps straight to GO! and skips ready/set. The GUI's
+     old anchor-based scheduler had exactly this bug (fixed 2026-07-16 in the
+     `countdown_phase` branch of `handle_hardware_message`); keep it matching
+     referee.html:981.
+   - **Gotcha — `go` phase dropped when running snapshot races it:** in the
+     GUI's `countdown_phase` `apply_phase` callback there was a guard
+     `if self.snapshot.is_going: return False` meant to stop late
+     starting/ready/set events from repainting lights. But it also dropped
+     `go` (the transition INTO running), because the recorder's FAKE
+     `start_race` running snapshot can arrive in the same instant as the `go`
+     phase. Symptom: overlay jumped straight past "GO!" and the go beep never
+     played. Fix: skip the guard for `phase == "go"` only (it must always
+     apply). Don't re-add a blanket `is_going` guard without this exception.
 

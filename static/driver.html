@@ -888,7 +888,7 @@
                                 console.log(`[COUNTDOWN] go in ${remainingMs}ms (total=${totalMs} elapsed=${elapsedMs})`);
                                 state.countdownTimers.push(setTimeout(() => {
                                     if (state.countdownActive) {
-                                        console.log("[COUNTDOWN] → go" + (state.raceReady ? " → running" : ""));
+                                        console.log(`[COUNTDOWN] → go${state.raceReady ? " → running" : ""}`);
                                         FranklinAudio.playGo();
                                         state.phase = state.raceReady ? "running" : "go";
                                         syncLightsForPhase();

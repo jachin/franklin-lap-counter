@@ -134,8 +134,8 @@ const FranklinAudio = (() => {
 	function dispatch(name) {
 		if (!soundEnabled || !audioCtx || audioCtx.state === "suspended") return;
 		try {
-			const stylePatch = soundPatch && soundPatch[soundStyle];
-			const soundDef = stylePatch && stylePatch[name];
+			const stylePatch = soundPatch?.[soundStyle];
+			const soundDef = stylePatch?.[name];
 			if (soundDef) {
 				playVoices(soundDef);
 				return;

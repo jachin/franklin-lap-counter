@@ -371,7 +371,7 @@
     }
 
     /* Utility */
-    .hidden { display: none !important; }
+    .hidden { display: none; }
   </style>
 </head>
 <body>
@@ -395,17 +395,17 @@
     <div class="header-right">
       <span class="ref-info">
         Ref: <span id="ref-name-display">Referee</span>
-        <button id="setupBtn" class="icon-btn" title="Change name">⚙</button>
+        <button type="button" id="setupBtn" class="icon-btn" title="Change name">⚙</button>
       </span>
       <span class="ref-info">
-        <button id="soundBtn" class="icon-btn" title="Toggle sound">🔊</button>
+        <button type="button" id="soundBtn" class="icon-btn" title="Toggle sound">🔊</button>
         <select id="soundStyleSelect" class="sound-select">
           <option value="classic">Classic</option>
           <option value="8bit">8-Bit</option>
         </select>
       </span>
       <a href="/static/audit.html" class="nav-link">Audit →</a>
-      <button id="toggle-debug" class="icon-btn" title="Toggle debug events">🐛</button>
+      <button type="button" id="toggle-debug" class="icon-btn" title="Toggle debug events">🐛</button>
     </div>
   </header>
 
@@ -440,10 +440,10 @@
           </label>
         </div>
         <div class="btn-grid">
-          <button id="start-race" class="btn btn-primary">Start Race</button>
-          <button id="end-race" class="btn btn-danger">End Race</button>
-          <button id="pause-resume-race" class="btn">Pause Race</button>
-          <button id="reset-race" class="btn btn-danger">Reset Race</button>
+          <button type="button" id="start-race" class="btn btn-primary">Start Race</button>
+          <button type="button" id="end-race" class="btn btn-danger">End Race</button>
+          <button type="button" id="pause-resume-race" class="btn">Pause Race</button>
+          <button type="button" id="reset-race" class="btn btn-danger">Reset Race</button>
         </div>
       </section>
 
@@ -463,7 +463,7 @@
               <option value="60">60 seconds</option>
             </select>
             <input id="penalty-reason" type="text" placeholder="Penalty reason" />
-            <button id="add-penalty" class="btn">Add Penalty</button>
+            <button type="button" id="add-penalty" class="btn">Add Penalty</button>
           </div>
         </div>
 
@@ -473,7 +473,7 @@
             <select id="remove-lap-racer"><option value="">— Select racer —</option></select>
             <input id="remove-lap-number" type="number" min="1" placeholder="Lap number (optional)" />
             <input id="remove-lap-reason" type="text" placeholder="Remove lap reason" />
-            <button id="remove-lap" class="btn">Remove Lap</button>
+            <button type="button" id="remove-lap" class="btn">Remove Lap</button>
           </div>
         </div>
 
@@ -482,7 +482,7 @@
           <div class="action-body">
             <select id="dq-racer"><option value="">— Select racer —</option></select>
             <input id="dq-reason" type="text" placeholder="DQ reason" />
-            <button id="disqualify-racer" class="btn btn-danger">Disqualify</button>
+            <button type="button" id="disqualify-racer" class="btn btn-danger">Disqualify</button>
           </div>
         </div>
       </section>
@@ -515,11 +515,11 @@
     let countdownReadyAtMs = 0;
     let currentSnapshot = null;
     let lastRaceState = null;
-    let currentRacers = [];
+    let _currentRacers = [];
     let racerLookup = {};
     let debugVisible = false;
     let isPaused = false;
-    let clockInterval = null;
+    let _clockInterval = null;
 
     /* ---- Referee name ---- */
     const refNameInput = document.getElementById('ref-name');
@@ -549,7 +549,7 @@
       else if (state === 'paused') colors = ['yellow', 'yellow', 'yellow'];
       else colors = ['red', 'red', 'red'];
       lights.forEach((el, i) => {
-        el.className = 'status-light status-light-' + colors[i];
+        el.className = `status-light status-light-${colors[i]}`;
       });
     }
 
@@ -581,7 +581,7 @@
       const modeInfo = [];
       if (snapshot.race_mode) modeInfo.push(snapshot.race_mode);
       if (snapshot.total_laps && snapshot.race_mode !== 'Training Mode') {
-        modeInfo.push(snapshot.total_laps + ' laps');
+        modeInfo.push(`${snapshot.total_laps} laps`);
       }
       document.getElementById('race-mode-label').textContent = modeInfo.join(' · ');
       updateClock(snapshot);
@@ -600,7 +600,7 @@
     /* ---- Clock ---- */
     function updateClock(snapshot) {
       const clockEl = document.getElementById('race-clock');
-      if (!snapshot || !snapshot.elapsed_seconds) {
+      if (!snapshot?.elapsed_seconds) {
         clockEl.textContent = '00:00.00';
         return;
       }
@@ -635,17 +635,17 @@
       if (val == null || val === 0 || !Number.isFinite(val)) return '—';
       const mins = Math.floor(val / 60);
       const secs = (val % 60).toFixed(2);
-      if (mins > 0) return mins + ':' + String(secs).padStart(5, '0');
-      return secs + 's';
+      if (mins > 0) return `${mins}:${String(secs).padStart(5, '0')}`;
+      return `${secs}s`;
     }
 
     function getRacerName(id) {
-      return racerLookup[id] || 'Racer ' + id;
+      return racerLookup[id] || `Racer ${id}`;
     }
 
     function renderLeaderboard(snapshot) {
       const el = document.getElementById('leaderboard');
-      if (!snapshot || !snapshot.leaderboard || snapshot.leaderboard.length === 0) {
+      if (!snapshot?.leaderboard || snapshot.leaderboard.length === 0) {
         el.innerHTML = '<div class="leaderboard-empty">No racers on track yet</div>';
         return;
       }
@@ -665,7 +665,7 @@
           '<td class="time-val">' + fmtTime(row.best_lap_time) + '</td>' +
           '<td class="time-val">' + fmtTime(row.last_lap_time) + '</td>' +
           '<td class="time-val">' + fmtTime(row.adjusted_total_time) + '</td>' +
-          '<td>' + (row.penalty_seconds > 0 ? '+' + row.penalty_seconds + 's' : '—') + '</td>' +
+          '<td>' + (row.penalty_seconds > 0 ? `+${row.penalty_seconds}s` : '—') + '</td>' +
           '<td>' + (dq ? 'Disqualified' : '') + '</td>' +
           '</tr>';
       }
@@ -688,7 +688,7 @@
     function renderEvents() {
       eventsEl.textContent = '';
       for (const entry of allEntries) {
-        eventsEl.textContent += '[' + entry.ts + '] ' + entry.line + '\n';
+        eventsEl.textContent += `[${entry.ts}] ${entry.line}\n`;
       }
       eventsEl.scrollTop = eventsEl.scrollHeight;
     }
@@ -703,7 +703,7 @@
       });
       let data = {};
       try { data = await res.json(); } catch (_) {}
-      if (!res.ok) throw new Error(data.error || 'Request failed (' + res.status + ')');
+      if (!res.ok) throw new Error(data.error || `Request failed (${res.status})`);
       return data;
     }
 
@@ -712,36 +712,36 @@
         const raceMode = document.getElementById('race-mode-select').value;
         const totalLaps = parseInt(document.getElementById('total-laps-input').value, 10) || 10;
         await postJson('/api/control/start_race', { race_mode: raceMode, total_laps: totalLaps });
-        log('Sent: start_race mode=' + raceMode + ' laps=' + totalLaps);
-      } catch (err) { log('ERROR: ' + err.message); }
+        log(`Sent: start_race mode=${raceMode} laps=${totalLaps}`);
+      } catch (err) { log(`ERROR: ${err.message}`); }
     };
 
     document.getElementById('end-race').onclick = async () => {
       try {
         await postJson('/api/control/end_race');
         log('Sent: end_race');
-      } catch (err) { log('ERROR: ' + err.message); }
+      } catch (err) { log(`ERROR: ${err.message}`); }
     };
 
     document.getElementById('pause-resume-race').onclick = async () => {
       try {
         const cmd = isPaused ? 'resume_race' : 'pause_race';
-        await postJson('/api/control/' + cmd);
-        log('Sent: ' + cmd);
-      } catch (err) { log('ERROR: ' + err.message); }
+        await postJson(`/api/control/${cmd}`);
+        log(`Sent: ${cmd}`);
+      } catch (err) { log(`ERROR: ${err.message}`); }
     };
 
     document.getElementById('reset-race').onclick = async () => {
       try {
         await postJson('/api/control/reset_race');
         log('Sent: reset_race');
-      } catch (err) { log('ERROR: ' + err.message); }
+      } catch (err) { log(`ERROR: ${err.message}`); }
     };
 
     /* ---- Racer selects ---- */
     function populateRacerSelects(contestants) {
       const options = contestants.map(c =>
-        '<option value="' + c.transmitter_id + '">' + escapeHtml(c.name) + ' (ID ' + c.transmitter_id + ')</option>');
+        `<option value="${c.transmitter_id}">${escapeHtml(c.name)} (ID ${c.transmitter_id})</option>`);
       const placeholder = '<option value="">— Select racer —</option>';
       const html = placeholder + options.join('');
       document.getElementById('penalty-racer').innerHTML = html;
@@ -754,12 +754,12 @@
         const res = await fetch('/api/config');
         const data = await res.json();
         const contestants = data.contestants || [];
-        currentRacers = contestants;
+        _currentRacers = contestants;
         racerLookup = {};
         for (const c of contestants) racerLookup[c.transmitter_id] = c.name;
         populateRacerSelects(contestants);
-        log('Loaded ' + contestants.length + ' racer(s)');
-      } catch (err) { log('ERROR: Failed to load racers — ' + err.message); }
+        log(`Loaded ${contestants.length} racer(s)`);
+      } catch (err) { log(`ERROR: Failed to load racers — ${err.message}`); }
     }
 
     function racerIdOrThrow(el) {
@@ -774,8 +774,8 @@
         const penaltySeconds = parseInt(document.getElementById('penalty-seconds').value, 10);
         const reason = document.getElementById('penalty-reason').value || '';
         await postJson('/api/control/add_penalty', { racer_id: racerId, penalty_seconds: penaltySeconds, reason });
-        log('Sent: add_penalty racer=' + racerId + ' seconds=' + penaltySeconds);
-      } catch (err) { log('ERROR: ' + err.message); }
+        log(`Sent: add_penalty racer=${racerId} seconds=${penaltySeconds}`);
+      } catch (err) { log(`ERROR: ${err.message}`); }
     };
 
     document.getElementById('remove-lap').onclick = async () => {
@@ -786,8 +786,8 @@
         const payload = { racer_id: racerId, reason };
         if (lapNumberRaw !== '') payload.lap_number = parseInt(lapNumberRaw, 10);
         await postJson('/api/control/remove_lap', payload);
-        log('Sent: remove_lap racer=' + racerId + ' lap=' + (payload.lap_number || 'latest'));
-      } catch (err) { log('ERROR: ' + err.message); }
+        log(`Sent: remove_lap racer=${racerId} lap=${payload.lap_number || 'latest'}`);
+      } catch (err) { log(`ERROR: ${err.message}`); }
     };
 
     document.getElementById('disqualify-racer').onclick = async () => {
@@ -795,8 +795,8 @@
         const racerId = racerIdOrThrow(document.getElementById('dq-racer'));
         const reason = document.getElementById('dq-reason').value || '';
         await postJson('/api/control/disqualify_racer', { racer_id: racerId, reason });
-        log('Sent: disqualify_racer racer=' + racerId);
-      } catch (err) { log('ERROR: ' + err.message); }
+        log(`Sent: disqualify_racer racer=${racerId}`);
+      } catch (err) { log(`ERROR: ${err.message}`); }
     };
 
     /* ---- Sound ---- */
@@ -863,11 +863,11 @@
     });
 
     /* ---- Clock tick ---- */
-    clockInterval = setInterval(advanceClock, 50);
+    _clockInterval = setInterval(advanceClock, 50);
 
     /* ---- WebSocket ---- */
     const wsProto = window.location.protocol === 'https:' ? 'wss' : 'ws';
-    const ws = new WebSocket(wsProto + '://' + window.location.host + '/ws');
+    const ws = new WebSocket(`${wsProto}://${window.location.host}/ws`);
     ws.onopen = () => log('WebSocket connected');
 
     ws.onmessage = (evt) => {
@@ -879,14 +879,14 @@
           currentSnapshot = msg;
           updateRaceBar(msg);
           renderLeaderboard(msg);
-          if (debugVisible) log('RACE STATE: ' + String(msg.state || 'unknown').toUpperCase(), msg);
+          if (debugVisible) log(`RACE STATE: ${String(msg.state || 'unknown').toUpperCase()}`, msg);
           return;
         }
 
         if (msg.type === 'countdown_phase') {
           const at = Number(msg.at);
           const when = Number.isFinite(at) ? new Date(at * 1000).toLocaleTimeString() : 'n/a';
-          log('COUNTDOWN ' + String(msg.phase || '').toUpperCase() + ' at ' + when, msg);
+          log(`COUNTDOWN ${String(msg.phase || '').toUpperCase()} at ${when}`, msg);
 
           const phase = String(msg.phase || '').toLowerCase();
           const atEpoch = Number.isFinite(at) ? at : 0;
@@ -929,7 +929,7 @@
         } else if (msg.type === 'start_race') {
           const at = Number(msg.at);
           const when = Number.isFinite(at) ? new Date(at * 1000).toLocaleTimeString() : 'n/a';
-          log('START_RACE scheduled at ' + when + (msg.simulated ? ' [SIM]' : ''), msg);
+          log(`START_RACE scheduled at ${when}${msg.simulated ? ' [SIM]' : ''}`, msg);
         } else if (msg.type === 'status') {
           const txt = String(msg.message || '').toLowerCase();
           if (txt.includes('end') || txt.includes('reset')) {

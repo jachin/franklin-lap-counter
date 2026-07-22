@@ -185,7 +185,7 @@
     <div class="filter-row">
       <input id="audit-race-id" type="number" min="1" placeholder="Race ID" />
       <input id="audit-limit" type="number" min="1" value="100" placeholder="Limit" />
-      <button id="load-audit" class="btn">Load</button>
+      <button type="button" id="load-audit" class="btn">Load</button>
     </div>
     <div id="audit"></div>
   </div>
@@ -204,14 +204,14 @@
       const accepted = a.accepted ? 'accepted' : 'rejected';
       const cmdId = escapeHtml(a.command_id || '-');
       const details = [];
-      if (a.racer_id != null) details.push('racer_id=' + a.racer_id);
-      if (a.lap_number != null) details.push('lap_number=' + a.lap_number);
-      if (a.penalty_seconds != null) details.push('penalty_seconds=' + a.penalty_seconds);
-      if (a.reason) details.push('reason=' + escapeHtml(a.reason));
-      if (a.message) details.push('message=' + escapeHtml(a.message));
-      if (a.operator) details.push('operator=' + escapeHtml(a.operator));
+      if (a.racer_id != null) details.push(`racer_id=${a.racer_id}`);
+      if (a.lap_number != null) details.push(`lap_number=${a.lap_number}`);
+      if (a.penalty_seconds != null) details.push(`penalty_seconds=${a.penalty_seconds}`);
+      if (a.reason) details.push(`reason=${escapeHtml(a.reason)}`);
+      if (a.message) details.push(`message=${escapeHtml(a.message)}`);
+      if (a.operator) details.push(`operator=${escapeHtml(a.operator)}`);
       return '[' + ts + '] ' + escapeHtml(a.command) + ' <span class="status-badge status-' + accepted + '">' + accepted + '</span> command_id=' + cmdId +
-        (details.length ? ' (' + details.join(', ') + ')' : '');
+        (details.length ? ` (${details.join(', ')})` : '');
     }
 
     function renderAudit(actions) {
@@ -236,7 +236,7 @@
         if (cmdId) {
           copyBtn.textContent = 'Copy';
           copyBtn.dataset.commandId = cmdId;
-          copyBtn.title = 'Copy command_id ' + cmdId;
+          copyBtn.title = `Copy command_id ${cmdId}`;
         } else {
           copyBtn.textContent = '—';
           copyBtn.disabled = true;
@@ -260,12 +260,12 @@
         if (raceIdRaw !== '') params.set('race_id', raceIdRaw);
         if (limitRaw !== '') params.set('limit', limitRaw);
 
-        const res = await fetch('/api/control/audit?' + params.toString());
+        const res = await fetch(`/api/control/audit?${params.toString()}`);
         const data = await res.json();
-        if (!res.ok || !data.ok) throw new Error(data.error || 'Request failed (' + res.status + ')');
+        if (!res.ok || !data.ok) throw new Error(data.error || `Request failed (${res.status})`);
         renderAudit(data.actions || []);
       } catch (err) {
-        auditEl.innerHTML = '<div class="audit-empty" style="color:var(--red)">Error: ' + escapeHtml(err.message) + '</div>';
+        auditEl.innerHTML = `<div class="audit-empty" style="color:var(--red)">Error: ${escapeHtml(err.message)}</div>`;
       }
     }
 

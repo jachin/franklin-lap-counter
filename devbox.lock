@@ -1963,6 +1963,54 @@
         }
       }
     },
+    "reflex@0.3.2": {
+      "last_modified": "2026-07-08T21:13:06Z",
+      "resolved": "github:NixOS/nixpkgs/389ed85304b281ca7f306cf8a1eb4378651ca44e#reflex",
+      "source": "devbox-search",
+      "version": "0.3.2",
+      "systems": {
+        "aarch64-darwin": {
+          "outputs": [
+            {
+              "name": "out",
+              "path": "/nix/store/acgbddmgg0795izv3k6znxdgy83k1igv-reflex-0.3.2",
+              "default": true
+            }
+          ],
+          "store_path": "/nix/store/acgbddmgg0795izv3k6znxdgy83k1igv-reflex-0.3.2"
+        },
+        "aarch64-linux": {
+          "outputs": [
+            {
+              "name": "out",
+              "path": "/nix/store/zy93p4j6x64v3brbadrs7svfhwwqdkvz-reflex-0.3.2",
+              "default": true
+            }
+          ],
+          "store_path": "/nix/store/zy93p4j6x64v3brbadrs7svfhwwqdkvz-reflex-0.3.2"
+        },
+        "x86_64-darwin": {
+          "outputs": [
+            {
+              "name": "out",
+              "path": "/nix/store/1ic8s5wmqzyj03qys3dwg9zw8pgviazy-reflex-0.3.2",
+              "default": true
+            }
+          ],
+          "store_path": "/nix/store/1ic8s5wmqzyj03qys3dwg9zw8pgviazy-reflex-0.3.2"
+        },
+        "x86_64-linux": {
+          "outputs": [
+            {
+              "name": "out",
+              "path": "/nix/store/3xbpsjylcbgvg5b67gbk4f2fggks975a-reflex-0.3.2",
+              "default": true
+            }
+          ],
+          "store_path": "/nix/store/3xbpsjylcbgvg5b67gbk4f2fggks975a-reflex-0.3.2"
+        }
+      }
+    },
     "rustup@latest": {
       "last_modified": "2026-06-27T07:37:20Z",
       "plugin_version": "0.0.1",
@@ -2009,21 +2057,6 @@
             }
           ],
           "store_path": "/nix/store/cxx967kpb69s62f8xh97qq1r2lhj6i3s-rustup-1.29.0"
-        }
-      }
-    },
-    "systemd.dev": {
-      "resolved": "github:NixOS/nixpkgs/7a1a64774a5fd0b0cd39ac95d0e170ace8b266a0?narHash=sha256-N66fYdUuZ9hpdM7jsQ7CUWtLJduqGDyTGCaLR62CXaQ%3D#systemd.dev",
-      "source": "nixpkg",
-      "systems": {
-        "x86_64-linux": {
-          "outputs": [
-            {
-              "name": "dev",
-              "path": "/nix/store/kyi2963z20g7wc4axpsv50zdz2ypg5fx-systemd-260.2-dev",
-              "default": true
-            }
-          ]
         }
       }
     },
@@ -2140,54 +2173,6 @@
             }
           ],
           "store_path": "/nix/store/nnwvh4hqvp5gj4va0wfval2dnqczfwyy-tmuxinator-3.3.7"
-        }
-      }
-    },
-    "watchexec@latest": {
-      "last_modified": "2026-06-27T07:37:20Z",
-      "resolved": "github:NixOS/nixpkgs/3d46470bb3030020f7e1361f33514854f5bfa86d#watchexec",
-      "source": "devbox-search",
-      "version": "2.5.1",
-      "systems": {
-        "aarch64-darwin": {
-          "outputs": [
-            {
-              "name": "out",
-              "path": "/nix/store/3ymk5cv1rvhsk11snqzsjnslzqy4g0ph-watchexec-2.5.1",
-              "default": true
-            }
-          ],
-          "store_path": "/nix/store/3ymk5cv1rvhsk11snqzsjnslzqy4g0ph-watchexec-2.5.1"
-        },
-        "aarch64-linux": {
-          "outputs": [
-            {
-              "name": "out",
-              "path": "/nix/store/ic6rwc215kkaf9a626k0wlqjvj4pgr06-watchexec-2.5.1",
-              "default": true
-            }
-          ],
-          "store_path": "/nix/store/ic6rwc215kkaf9a626k0wlqjvj4pgr06-watchexec-2.5.1"
-        },
-        "x86_64-darwin": {
-          "outputs": [
-            {
-              "name": "out",
-              "path": "/nix/store/8jq851bh3389k2y1kc7b7ddxrn3knjq0-watchexec-2.5.1",
-              "default": true
-            }
-          ],
-          "store_path": "/nix/store/8jq851bh3389k2y1kc7b7ddxrn3knjq0-watchexec-2.5.1"
-        },
-        "x86_64-linux": {
-          "outputs": [
-            {
-              "name": "out",
-              "path": "/nix/store/4f67kvm4dlllmakjnm4dd42haaklddaw-watchexec-2.5.1",
-              "default": true
-            }
-          ],
-          "store_path": "/nix/store/4f67kvm4dlllmakjnm4dd42haaklddaw-watchexec-2.5.1"
         }
       }
     }

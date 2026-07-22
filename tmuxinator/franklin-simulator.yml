@@ -45,32 +45,32 @@ windows:
         - server:
             - echo "Waiting for services to be ready..."
             - sleep 4
-            - echo "Starting Web Server with watchexec..."
-            - watchexec --restart --watch scoreboard_web_app.py --watch database.py --watch static -- python scoreboard_web_app.py
+            - echo "Starting Web Server with reflex..."
+            - reflex -r '^(scoreboard_web_app\.py|database\.py|static/)' -s -- python scoreboard_web_app.py
   - web_referee:
       layout: main-horizontal
       panes:
         - server:
             - echo "Waiting for services to be ready..."
             - sleep 4
-            - echo "Starting Referee Web Server with watchexec..."
-            - watchexec --restart --watch referee_web_app.py --watch database.py --watch static -- python referee_web_app.py
+            - echo "Starting Referee Web Server with reflex..."
+            - reflex -r '^(referee_web_app\.py|database\.py|static/)' -s -- python referee_web_app.py
   - web_healthcheck:
       layout: main-horizontal
       panes:
         - server:
             - echo "Waiting for services to be ready..."
             - sleep 4
-            - echo "Starting Health Check Web Server with watchexec..."
-            - watchexec --restart --watch healthcheck_web_app.py --watch static -- python healthcheck_web_app.py
+            - echo "Starting Health Check Web Server with reflex..."
+            - reflex -r '^(healthcheck_web_app\.py|static/)' -s -- python healthcheck_web_app.py
   - web_driver:
       layout: main-horizontal
       panes:
         - server:
             - echo "Waiting for services to be ready..."
             - sleep 4
-            - echo "Starting Driver Web Server with watchexec..."
-            - watchexec --restart --watch driver_web_app.py --watch database.py --watch static -- python driver_web_app.py
+            - echo "Starting Driver Web Server with reflex..."
+            - reflex -r '^(driver_web_app\.py|database\.py|static/)' -s -- python driver_web_app.py
   - logs:
       layout: main-horizontal
       panes:

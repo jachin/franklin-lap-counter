@@ -377,7 +377,7 @@
                 const shaper = audioCtx.createWaveShaper();
                 const curve = new Float32Array(2048);
                 for (let i = 0; i < 2048; i++) {
-                    let x = (i / 2047) * 2 - 1;
+                    const x = (i / 2047) * 2 - 1;
                     curve[i] = Math.round(x * 8) / 8;
                 }
                 shaper.curve = curve;
@@ -1137,7 +1137,7 @@
                                 console.log(`[COUNTDOWN] go in ${remainingMs}ms (total=${totalMs} elapsed=${elapsedMs})`);
                                 state.countdownTimers.push(setTimeout(() => {
                                     if (state.countdownActive) {
-                                        console.log("[COUNTDOWN] → go" + (state.raceReady ? " → running" : ""));
+                                        console.log(`[COUNTDOWN] → go${state.raceReady ? " → running" : ""}`);
                                         if (state.soundStyle === "8bit") play8BitGoSound(); else playGoSound();
                                         state.phase = state.raceReady ? "running" : "go";
                                         syncLightsForPhase();

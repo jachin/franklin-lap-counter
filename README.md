@@ -69,7 +69,7 @@ You can launch the entire system (including background services) inside a pre-co
 # Hardware Mode (assumes real hardware is connected)
 devbox run start:franklin
 
-# Simulator Mode (no hardware required; web apps auto-restart via watchexec)
+# Simulator Mode (no hardware required; web apps auto-restart via reflex)
 devbox run start:franklin-simulator
 ```
 

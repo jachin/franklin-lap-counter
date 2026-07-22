@@ -23,7 +23,7 @@ def _epoch_to_iso(epoch: float) -> str:
 class LapDatabase:
     """Manages race and lap data in SQLite database"""
 
-    def __init__(self, db_path: str = "franklin.db"):
+    def __init__(self, db_path: str = "db/franklin.db"):
         self.db_path: Path = Path(db_path)
         self.conn: sqlite3.Connection | None = None
         self._init_database()
@@ -53,7 +53,8 @@ class LapDatabase:
                 start_time TEXT,
                 end_time TEXT,
                 status TEXT NOT NULL DEFAULT 'in_progress',
-                notes TEXT
+                notes TEXT,
+                state TEXT
             )
         """)
 
@@ -123,6 +124,8 @@ class LapDatabase:
             cursor.execute("ALTER TABLE races ADD COLUMN start_at REAL")
         if "end_at" not in race_columns:
             cursor.execute("ALTER TABLE races ADD COLUMN end_at REAL")
+        if "state" not in race_columns:
+            cursor.execute("ALTER TABLE races ADD COLUMN state TEXT")
 
         cursor.execute("PRAGMA table_info(laps)")
         lap_columns = {row[1] for row in cursor.fetchall()}
@@ -138,6 +141,10 @@ class LapDatabase:
         if "command_id" not in existing_columns:
             cursor.execute(
                 "ALTER TABLE race_control_actions ADD COLUMN command_id TEXT"
+            )
+        if "operator" not in existing_columns:
+            cursor.execute(
+                "ALTER TABLE race_control_actions ADD COLUMN operator TEXT"
             )
 
         # Backfill epoch columns from historical text/relative columns where possible.
@@ -213,7 +220,9 @@ class LapDatabase:
         assert race_id is not None
         return race_id
 
-    def end_race(self, race_id: int, *, end_at: float | None = None) -> None:
+    def end_race(
+        self, race_id: int, *, end_at: float | None = None, state: str | None = None
+    ) -> None:
         """Mark a race as completed."""
         assert self.conn is not None
         cursor = self.conn.cursor()
@@ -221,10 +230,22 @@ class LapDatabase:
         cursor.execute(
             """
             UPDATE races
-            SET end_at = ?, end_time = ?, status = 'completed'
+            SET end_at = ?, end_time = ?, status = 'completed', state = ?
             WHERE id = ?
         """,
-            (end_epoch, _epoch_to_iso(end_epoch), race_id),
+            (end_epoch, _epoch_to_iso(end_epoch), state, race_id),
+        )
+        self.conn.commit()
+
+    def update_race_state(self, race_id: int, state: str) -> None:
+        """Update the race state for an in-progress race."""
+        assert self.conn is not None
+        cursor = self.conn.cursor()
+        cursor.execute(
+            """
+            UPDATE races SET state = ? WHERE id = ?
+        """,
+            (state, race_id),
         )
         self.conn.commit()
 
@@ -390,6 +411,7 @@ class LapDatabase:
         accepted: bool,
         payload: dict[str, Any],
         race_id: int | None = None,
+        operator: str | None = None,
     ) -> int:
         """Persist one race-control action audit row and return its ID."""
         assert self.conn is not None
@@ -409,10 +431,11 @@ class LapDatabase:
                 reason,
                 message,
                 source,
+                operator,
                 payload_json,
                 created_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
             (
                 race_id,
@@ -425,6 +448,7 @@ class LapDatabase:
                 payload.get("reason"),
                 payload.get("message"),
                 payload.get("source"),
+                operator,
                 json.dumps(payload, sort_keys=True),
                 datetime.now().isoformat(),
             ),

@@ -21,6 +21,7 @@ def main():
         )
 
         print("Starting hardware simulator...")
+        hw_log = open("hardware_monitor.log", "ab")
         hw_proc = subprocess.Popen(
             [
                 "cargo",
@@ -31,11 +32,18 @@ def main():
                 "franklin-hardware-monitor",
                 "--",
                 "--sim",
-            ]
+            ],
+            stdout=hw_log,
+            stderr=subprocess.STDOUT,
         )
 
         print("Starting web server...")
-        web_proc = subprocess.Popen([sys.executable, "scoreboard_web_app.py"])
+        web_log = open("web_scoreboard.log", "ab")
+        web_proc = subprocess.Popen(
+            [sys.executable, "scoreboard_web_app.py"],
+            stdout=web_log,
+            stderr=subprocess.STDOUT,
+        )
 
         # Small delay to let background services start up
         time.sleep(1)

@@ -36,3 +36,6 @@ rust/target
 Cargo.lock
 **/*.rs.bk
 *.pdb
+
+# Log files
+*.log

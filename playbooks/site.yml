@@ -6,6 +6,7 @@
 - import_playbook: 30-tmuxinator.yml
 - import_playbook: 40-redis.yml
 - import_playbook: 45-network-hotspot.yml
+  when: franklin_enable_hotspot
 - import_playbook: 46-caddy-reverse-proxy.yml
 - import_playbook: 50-startup-script.yml
 - import_playbook: 55-autologin-startup.yml
@@ -13,3 +14,4 @@
 - import_playbook: 57-hdmi-hotplug.yml
 - import_playbook: 58-wayvnc.yml
 - import_playbook: 60-system-info.yml
+- import_playbook: 66-final-reboot.yml

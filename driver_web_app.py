@@ -27,14 +27,15 @@ from aiohttp import web  # type: ignore[import-untyped]
 from database import LapDatabase
 
 # Redis contract reference: docs/redis-message-reference.md
-REDIS_SOCKET_PATH = "./redis.sock"
+REDIS_SOCKET_PATH = os.environ.get("FRANKLIN_REDIS_SOCKET", "./redis.sock")
 REDIS_OUT_CHANNEL = "hardware:out"
+REDIS_IN_CHANNEL = "hardware:in"
 REDIS_EVENTS_CHANNEL = "franklin:events"
 RACE_STATE_CHANNEL = "franklin:race_state"
 WEB_PORT = 8083
 WEB_HOST = "0.0.0.0"
 STATIC_DIR = Path(__file__).parent / "static"
-DB_PATH = "franklin.db"
+DB_PATH = str(Path(__file__).parent / "db" / "franklin.db")
 CONFIG_PATH = Path(__file__).parent / "franklin.config.json"
 
 logging.basicConfig(
@@ -60,7 +61,9 @@ class DriverWebAppServer:
         self.redis_pubsub: Any | None = None
         self.websockets: set[web.WebSocketResponse] = set()
         self.db = LapDatabase(db_path)
+        self._latest_snapshot: dict[str, Any] | None = None
 
+        self.app.router.add_static("/static", STATIC_DIR, name="static")
         self.app.router.add_get("/", self.index_handler)
         self.app.router.add_get("/ws", self.websocket_handler)
         self.app.router.add_get("/api/config", self.get_config)
@@ -68,6 +71,7 @@ class DriverWebAppServer:
         self.app.router.add_get(
             "/api/current/racers/{racer_id}/laps", self.get_current_racer_laps
         )
+        self.app.router.add_post("/api/rename", self.rename_contestant)
 
     async def index_handler(self, request: web.Request) -> web.FileResponse:
         return web.FileResponse(STATIC_DIR / "driver.html")
@@ -83,6 +87,9 @@ class DriverWebAppServer:
                 "message": "Driver WebSocket connected",
             }
         )
+
+        if self._latest_snapshot is not None:
+            await ws.send_json(self._latest_snapshot)
 
         try:
             async for _msg in ws:
@@ -469,6 +476,40 @@ class DriverWebAppServer:
             logger.error("Error getting racer laps: %s", exc)
             return web.json_response({"error": str(exc)}, status=500)
 
+    async def rename_contestant(self, request: web.Request) -> web.Response:
+        try:
+            body = await request.json()
+        except Exception:
+            return web.json_response({"error": "Invalid JSON body"}, status=400)
+
+        racer_id = body.get("racer_id")
+        name = body.get("name")
+
+        if not isinstance(racer_id, int) or racer_id <= 0:
+            return web.json_response({"error": "Invalid racer_id"}, status=400)
+        if not isinstance(name, str) or not name.strip():
+            return web.json_response({"error": "Name must be a non-empty string"}, status=400)
+
+        name = name.strip()
+
+        if self.redis_client is None:
+            return web.json_response({"error": "Redis not connected"}, status=503)
+
+        command = {
+            "type": "command",
+            "command": "update_contestant_name",
+            "racer_id": racer_id,
+            "name": name,
+        }
+
+        try:
+            await self.redis_client.publish(REDIS_IN_CHANNEL, json.dumps(command))
+        except Exception as exc:
+            logger.error("Failed to publish update_contestant_name: %s", exc)
+            return web.json_response({"error": str(exc)}, status=500)
+
+        return web.json_response({"ok": True, "racer_id": racer_id, "name": name})
+
     async def broadcast_to_websockets(self, data: dict[str, Any]) -> None:
         if not self.websockets:
             return
@@ -509,6 +550,8 @@ class DriverWebAppServer:
                         try:
                             parsed = json.loads(data)
                             if isinstance(parsed, dict):
+                                if parsed.get("snapshot_seq") is not None:
+                                    self._latest_snapshot = parsed
                                 await self.broadcast_to_websockets(parsed)
                         except json.JSONDecodeError:
                             logger.error("Invalid JSON from Redis: %s", data)

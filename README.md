@@ -11,6 +11,8 @@ You need
 
  After installing RasberryPI OS you run the Ansible playbooks included in this project and it setups the PI as a race tracking system.
 
+ **Note:** Ethernet must be connected during initial install for package downloads and system configuration. If you do not need the hotspot/router stack, set `franklin_enable_hotspot: false` in `playbooks/group_vars/all.yml`.
+
 ## Features
 
 - Race Mode
@@ -49,8 +51,8 @@ If you are deploying to a target Raspberry Pi host over the network, use the fol
 # 1. Perform full machine setup (packages, services, AP configuration, Caddy, etc.)
 devbox run ansible:setup
 
-# 2. Deploy all application artifacts and built binaries to target host
-devbox run ansible:deploy
+# 2. Build the hardware monitor .deb and deploy all artifacts to target host
+devbox run deploy
 
 # 3. Ensure background web apps are up and running in tmux sessions
 devbox run ansible:web-bounce
@@ -58,6 +60,45 @@ devbox run ansible:web-bounce
 # 4. Run runtime health checks through the health-check web app
 devbox run ansible:health-check
 ```
+
+---
+
+### Updating Franklin on a Pi
+
+For routine updates (new version, bug fixes), use the single-command update workflow. It auto-detects your Pi's architecture, builds the correct binary, and deploys everything in one step:
+
+```bash
+# Update one Pi (architecture is auto-detected via SSH)
+devbox run update:franklin
+```
+
+This playbook does the following per host:
+1. Detects the Pi's architecture (`dpkg --print-architecture`)
+2. Builds `franklin-hardware-monitor` for that arch locally
+3. Installs the `.deb` package on the Pi
+4. Rsyncs Python source files (same approach as `deploy-franklin.yml`)
+5. Updates Franklin's pip dependencies (`textual`, `redis`, `aiohttp`, `pygments`, `rich`)
+6. Restarts all Franklin services via `franklin.target`
+
+If you have multiple Pies in your inventory, the playbook processes each host independently — a build failure on one does not stop updates to others.
+
+#### Inventory setup
+
+Copy the example and edit it with your Pi's details:
+
+```bash
+cp playbooks/inventory.example.ini playbooks/inventory.ini
+# Edit playbooks/inventory.ini with your Pi hostname/IP
+```
+
+Example `playbooks/inventory.ini`:
+
+```ini
+[pi]
+franklin-pi ansible_user=franklin ansible_host=10.27.1.64
+```
+
+**Note:** The `franklin` user is automatically added to the `sudo` group during setup (`playbooks/20-python-venv.yml`), so it has sudo access for managing services and packages.
 
 ---
 
@@ -84,7 +125,7 @@ If you prefer to start components individually in separate terminals:
 **Terminal 1 - Hardware Simulator:**
 ```bash
 devbox shell
-devbox run rust-hw-sim
+devbox run hardware-monitor:run -- --sim
 ```
 
 **Terminal 2 - Race UI (Text TUI) or GTK GUI:**
@@ -100,7 +141,7 @@ python franklin-gui.py --race
 **Terminal 1 - Hardware Interface:**
 ```bash
 devbox shell
-devbox run rust-hw
+devbox run hardware-monitor:run
 ```
 
 **Terminal 2 - Race UI (Text TUI) or GTK GUI:**
@@ -129,7 +170,7 @@ python franklin-tui.py --fake
 python franklin-gui.py --fake
 ```
 
-You can also launch the full stack (recorder + web apps + renderer) in a single tmux session:
+You can also launch the full stack (redis + hardware simulator + recorder + web apps + TUI) in a single tmux session for local development:
 ```bash
 devbox run start:franklin-simulator
 ```
@@ -191,7 +232,7 @@ redis-cli -s ./redis.sock
 
 # Terminal 2: Run hardware monitor in simulator mode
 devbox shell
-cargo run --manifest-path rust/Cargo.toml --bin franklin-hardware-monitor -- --sim
+devbox run hardware-monitor:run -- --sim
 
 # Terminal 3: Publish mock commands
 devbox shell

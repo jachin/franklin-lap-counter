@@ -1,0 +1,367 @@
+{
+	"classic": {
+		"ready": {
+			"voices": [
+				{
+					"type": "square",
+					"freq": 174.61,
+					"start": 0,
+					"dur": 0.9,
+					"attack": 0.03,
+					"vol": 0.25
+				},
+				{
+					"type": "square",
+					"freq": 220.0,
+					"start": 0,
+					"dur": 0.9,
+					"attack": 0.03,
+					"vol": 0.25
+				},
+				{
+					"type": "square",
+					"freq": 261.63,
+					"start": 0,
+					"dur": 0.9,
+					"attack": 0.03,
+					"vol": 0.25
+				},
+				{
+					"type": "square",
+					"freq": 349.23,
+					"start": 0,
+					"dur": 0.9,
+					"attack": 0.03,
+					"vol": 0.25
+				}
+			]
+		},
+		"set": {
+			"voices": [
+				{
+					"type": "square",
+					"freq": 174.61,
+					"start": 0,
+					"dur": 0.9,
+					"attack": 0.03,
+					"vol": 0.25
+				},
+				{
+					"type": "square",
+					"freq": 220.0,
+					"start": 0,
+					"dur": 0.9,
+					"attack": 0.03,
+					"vol": 0.25
+				},
+				{
+					"type": "square",
+					"freq": 261.63,
+					"start": 0,
+					"dur": 0.9,
+					"attack": 0.03,
+					"vol": 0.25
+				},
+				{
+					"type": "square",
+					"freq": 349.23,
+					"start": 0,
+					"dur": 0.9,
+					"attack": 0.03,
+					"vol": 0.25
+				}
+			]
+		},
+		"go": {
+			"voices": [
+				{
+					"type": "square",
+					"freq": 196.0,
+					"start": 0,
+					"dur": 2.0,
+					"attack": 0.03,
+					"vol": 0.3
+				},
+				{
+					"type": "square",
+					"freq": 246.94,
+					"start": 0,
+					"dur": 2.0,
+					"attack": 0.03,
+					"vol": 0.3
+				},
+				{
+					"type": "square",
+					"freq": 293.66,
+					"start": 0,
+					"dur": 2.0,
+					"attack": 0.03,
+					"vol": 0.3
+				},
+				{
+					"type": "square",
+					"freq": 392.0,
+					"start": 0,
+					"dur": 2.0,
+					"attack": 0.03,
+					"vol": 0.3
+				}
+			]
+		},
+		"finish": {
+			"voices": [
+				{
+					"type": "square",
+					"freq": 783.99,
+					"start": 0.0,
+					"dur": 0.06,
+					"attack": 0.01,
+					"vol": 0.25
+				},
+				{
+					"type": "square",
+					"freq": 659.25,
+					"start": 0.08,
+					"dur": 0.06,
+					"attack": 0.01,
+					"vol": 0.25
+				},
+				{
+					"type": "square",
+					"freq": 523.25,
+					"start": 0.16,
+					"dur": 0.06,
+					"attack": 0.01,
+					"vol": 0.25
+				},
+				{
+					"type": "square",
+					"freq": 392.0,
+					"start": 0.24,
+					"dur": 0.06,
+					"attack": 0.01,
+					"vol": 0.25
+				},
+				{
+					"type": "square",
+					"freq": 261.63,
+					"start": 0.32,
+					"dur": 0.06,
+					"attack": 0.01,
+					"vol": 0.25
+				},
+				{
+					"type": "noise",
+					"start": 0.0,
+					"dur": 0.4,
+					"attack": 0.01,
+					"vol": 0.15
+				},
+				{
+					"type": "square",
+					"freq": 261.63,
+					"start": 0.55,
+					"dur": 2.0,
+					"attack": 0.05,
+					"vol": 0.25
+				},
+				{
+					"type": "square",
+					"freq": 329.63,
+					"start": 0.55,
+					"dur": 2.0,
+					"attack": 0.05,
+					"vol": 0.25
+				},
+				{
+					"type": "square",
+					"freq": 392.0,
+					"start": 0.55,
+					"dur": 2.0,
+					"attack": 0.05,
+					"vol": 0.25
+				},
+				{
+					"type": "square",
+					"freq": 523.25,
+					"start": 0.55,
+					"dur": 2.0,
+					"attack": 0.05,
+					"vol": 0.25
+				}
+			]
+		}
+	},
+	"8bit": {
+		"ready": {
+			"bitcrush": true,
+			"voices": [
+				{
+					"type": "pulse",
+					"freq": 130.81,
+					"start": 0.0,
+					"dur": 0.15,
+					"attack": 0.005,
+					"vol": 0.3
+				},
+				{
+					"type": "pulse",
+					"freq": 130.81,
+					"start": 0.25,
+					"dur": 0.15,
+					"attack": 0.005,
+					"vol": 0.3
+				},
+				{
+					"type": "pulse",
+					"freq": 130.81,
+					"start": 0.5,
+					"dur": 0.15,
+					"attack": 0.005,
+					"vol": 0.3
+				}
+			]
+		},
+		"set": {
+			"bitcrush": true,
+			"voices": [
+				{
+					"type": "square",
+					"freq": 196.0,
+					"freq_end": 392.0,
+					"start": 0.0,
+					"dur": 0.4,
+					"attack": 0.01,
+					"vol": 0.15
+				},
+				{
+					"type": "noise",
+					"start": 0.0,
+					"dur": 0.4,
+					"attack": 0.01,
+					"vol": 0.08
+				}
+			]
+		},
+		"go": {
+			"bitcrush": true,
+			"voices": [
+				{
+					"type": "pulse",
+					"freq": 261.63,
+					"start": 0.0,
+					"dur": 0.06,
+					"attack": 0.005,
+					"vol": 0.25
+				},
+				{
+					"type": "pulse",
+					"freq": 293.66,
+					"start": 0.05,
+					"dur": 0.06,
+					"attack": 0.005,
+					"vol": 0.25
+				},
+				{
+					"type": "pulse",
+					"freq": 329.63,
+					"start": 0.1,
+					"dur": 0.06,
+					"attack": 0.005,
+					"vol": 0.25
+				},
+				{
+					"type": "pulse",
+					"freq": 392.0,
+					"start": 0.15,
+					"dur": 0.06,
+					"attack": 0.005,
+					"vol": 0.25
+				},
+				{
+					"type": "pulse",
+					"freq": 523.25,
+					"start": 0.2,
+					"dur": 0.06,
+					"attack": 0.005,
+					"vol": 0.25
+				},
+				{
+					"type": "pulse",
+					"freq": 659.25,
+					"start": 0.25,
+					"dur": 0.06,
+					"attack": 0.005,
+					"vol": 0.25
+				},
+				{
+					"type": "pulse",
+					"freq": 1046.5,
+					"start": 0.3,
+					"dur": 0.06,
+					"attack": 0.005,
+					"vol": 0.25
+				},
+				{
+					"type": "noise",
+					"start": 0.0,
+					"dur": 0.4,
+					"attack": 0.01,
+					"vol": 0.12
+				}
+			]
+		},
+		"finish": {
+			"bitcrush": true,
+			"voices": [
+				{
+					"type": "pulse",
+					"freq": 987.77,
+					"start": 0.05,
+					"dur": 0.15,
+					"attack": 0.005,
+					"vol": 0.3
+				},
+				{
+					"type": "pulse",
+					"freq": 783.99,
+					"start": 0.15,
+					"dur": 0.15,
+					"attack": 0.005,
+					"vol": 0.3
+				},
+				{
+					"type": "pulse",
+					"freq": 659.25,
+					"start": 0.25,
+					"dur": 0.15,
+					"attack": 0.005,
+					"vol": 0.3
+				},
+				{
+					"type": "pulse",
+					"freq": 587.33,
+					"start": 0.35,
+					"dur": 0.15,
+					"attack": 0.005,
+					"vol": 0.3
+				},
+				{
+					"type": "pulse",
+					"freq": 523.25,
+					"start": 0.45,
+					"dur": 0.15,
+					"attack": 0.005,
+					"vol": 0.3
+				},
+				{
+					"type": "noise",
+					"start": 0.05,
+					"dur": 0.6,
+					"attack": 0.01,
+					"vol": 0.25
+				}
+			]
+		}
+	}
+}

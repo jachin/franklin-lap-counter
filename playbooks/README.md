@@ -2,6 +2,15 @@
 
 These playbooks provide modular, idempotent infrastructure/setup and deployment for Franklin.
 
+## Prerequisites
+
+- **Raspberry Pi 3, 4, or 5** (64-bit)
+- **OS:** Raspberry Pi OS Lite (Bookworm) **or** Debian arm64 lite image (Bookworm/Trixie).
+  A full desktop variant ships with a display manager (GDM3, LightDM, etc.) that
+  conflicts with Franklin's boot-time console autologin and sway session. A lite
+  image is required.
+- **SSH access** to the Pi with a user that has sudo privileges.
+
 ## Playbook layout
 
 - `00-preflight.yml` - SSH/connectivity check
@@ -12,17 +21,18 @@ These playbooks provide modular, idempotent infrastructure/setup and deployment 
 - `40-redis.yml` - enable/start `redis-server`
 - `45-network-hotspot.yml` - configure Pi hotspot/router stack (`hostapd`, `dnsmasq`, `nftables`, static `wlan0`, IPv4 forwarding)
 - `50-startup-script.yml` - copy startup scripts and tmuxinator project configs to target dir
-- `55-autologin-startup.yml` - configure boot autologin (`tty1`) and login-shell Franklin autostart logic
+- `55-autologin-startup.yml` - configure boot autologin (`tty1`) and login-shell Franklin autostart (TUI via tmux)
 - `56-wayland-sway.yml` - configure sway (Wayland) session to auto-start Franklin GUI stack
 - `57-hdmi-hotplug.yml` - ensure `hdmi_force_hotplug=1` in firmware config for monitor detection reliability
 - `58-wayvnc.yml` - install/configure WayVNC for SSH-tunneled remote GUI access
 - `60-system-info.yml` - print OS/Python/glibc/Redis info
 - `61-health-check.yml` - verifies Caddy + health-check app and fetches the health report JSON
 - `62-bounce-web-apps.yml` - respawn/create tmux web windows (`web_scoreboard`, `web_referee`, `web_healthcheck`)
+- `66-diagnose.yml` - full diagnostics: service status, recent logs for failed services, file integrity check, Redis socket check, web app connectivity, disk/memory
 - `63-reboot.yml` - reboot target host and wait for reconnect
 - `64-reset-database.yml` - stop Franklin tmux sessions and remove the SQLite database so it is recreated empty
 - `site.yml` - runs setup playbooks in order
-- `deploy-franklin.yml` - deploy app artifacts (`franklin-hardware-monitor`, Python apps, static/, tmuxinator/, etc.)
+- `deploy-franklin.yml` - deploy app artifacts (arch auto-detected, `.deb` install, rsyncs files, pip deps, restarts services)
 
 ## Files
 
@@ -58,6 +68,17 @@ Deploy Franklin artifacts:
 ansible-playbook -i playbooks/inventory.ini playbooks/deploy-franklin.yml
 ```
 
+Deploy to a Pi:
+
+```bash
+# Build .deb first:
+devbox run hardware-monitor:build-deb
+# Then deploy:
+devbox run ansible:deploy
+# Or both in one step:
+devbox run deploy
+```
+
 Override host/user/destination directory at runtime:
 
 ```bash
@@ -73,7 +94,7 @@ ansible-playbook -i playbooks/inventory.ini playbooks/site.yml \
 - `15-franklin-user.yml` creates a dedicated runtime user (`franklin` by default), sets shell to zsh, and installs Ghostty terminfo for that user.
 - Ghostty terminfo install uses `infocmp -x xterm-ghostty` from the control machine when missing on the target.
 - Boot behavior is configurable with `franklin_enable_autologin`, `franklin_enable_autostart`, `franklin_enable_wayland_boot`, and `franklin_autologin_tty` in `group_vars/all.yml`.
-- Hotspot/router behavior is configurable with `franklin_ap_*` vars in `group_vars/all.yml`.
+- Hotspot/router behavior is configurable with `franklin_enable_hotspot` (default: true) and `franklin_ap_*` vars in `group_vars/all.yml`.
 - Uplink interface selection is portable by default: `franklin_uplink_interface: auto` resolves from the Pi's default route and falls back to `franklin_uplink_interface_fallback` for offline setups.
 - WayVNC behavior is configurable with `franklin_enable_wayvnc`, `franklin_wayvnc_bind_address`, `franklin_wayvnc_port`, `franklin_wayvnc_enable_auth`, `franklin_wayvnc_username`, and `franklin_wayvnc_password` in `group_vars/all.yml`.
 - Firmware display setting uses `pi_firmware_config_path` (defaults to `/boot/firmware/config.txt`) and enforces `hdmi_force_hotplug=1`.

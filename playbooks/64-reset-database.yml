@@ -3,18 +3,22 @@
   hosts: all
   become: true
   vars:
-    franklin_db_path: "{{ pi_dest_dir }}/franklin.db"
+    franklin_db_path: "{{ pi_dest_dir }}/db/franklin.db"
   tasks:
-    - name: Stop Franklin tmux sessions before deleting database
-      ansible.builtin.command: "tmux kill-session -t {{ item }}"
+    - name: Stop Franklin TUI tmux session before deleting database
+      ansible.builtin.command: "tmux kill-session -t franklin-tui"
       become_user: "{{ franklin_user }}"
       register: kill_tmux_session
       failed_when: kill_tmux_session.rc not in [0, 1]
       changed_when: kill_tmux_session.rc == 0
+
+    - name: Stop Franklin background services via systemd
+      ansible.builtin.systemd:
+        name: "{{ item }}"
+        state: stopped
       loop:
-        - franklin
-        - franklin-services
-        - franklin-simulator
+        - franklin.target
+      failed_when: false
 
     - name: Remove Franklin SQLite database
       ansible.builtin.file:

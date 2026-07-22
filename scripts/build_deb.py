@@ -37,9 +37,12 @@ def main():
     version = match.group(1)
     log(f"Hardware monitor version detected: {version}")
 
-    binary_path = (
-        "rust/target/aarch64-unknown-linux-gnu/release/franklin-hardware-monitor"
+    # Determine target architecture from env var (same as rust_pi_build.py)
+    rust_target = os.environ.get(
+        "RUST_PI_TARGET", os.environ.get("RUST_TARGET", "aarch64-unknown-linux-gnu")
     )
+
+    binary_path = f"rust/target/{rust_target}/release/franklin-hardware-monitor"
 
     # Always (re)build the Pi binary before packaging so the .deb can never ship
     # a stale binary. cargo is incremental, so this is cheap when nothing changed
@@ -56,10 +59,12 @@ def main():
         log(f"❌ Build did not produce expected binary at {binary_path}")
         sys.exit(1)
 
-    # Create package directory structure
+    # Map rust target to deb architecture label (only aarch64 supported)
+    arch_label = "arm64"
+
     pkg_name = "franklin-hardware-monitor"
-    pkg_dir = f"rust/target/debian/{pkg_name}_{version}_arm64"
-    deb_file = f"rust/target/debian/{pkg_name}_{version}_arm64.deb"
+    pkg_dir = f"rust/target/debian/{pkg_name}_{version}_{arch_label}"
+    deb_file = f"rust/target/debian/{pkg_name}_{version}_{arch_label}.deb"
 
     log(f"Preparing package directory at {pkg_dir}...")
     if os.path.exists(pkg_dir):
@@ -78,12 +83,12 @@ def main():
 Version: {version}
 Section: utils
 Priority: optional
-Architecture: arm64
+Architecture: {arch_label}
 Maintainer: Jachin Rupe <jachin@jachin.rupe.name>
 Depends: libudev1 | libudev-dev
 Description: Franklin Hardware Monitor
- Hardware monitor service for the Franklin RC Car Lap Counter.
- Connects to the local hardware/serial ports and publishes events to Redis.
+  Hardware monitor service for the Franklin RC Car Lap Counter.
+  Connects to the local hardware/serial ports and publishes events to Redis.
 """
 
     control_file_path = f"{pkg_dir}/DEBIAN/control"

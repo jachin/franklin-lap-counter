@@ -5,28 +5,31 @@
   become: true
   vars:
     project_root: "{{ playbook_dir }}/.."
-    startup_script_local: "{{ project_root }}/scripts/start_franklin.py"
-    startup_gui_script_local: "{{ project_root }}/scripts/start_franklin_gui_session.py"
-    app_files_local:
-      - "{{ project_root }}/franklin-tui.py"
-      - "{{ project_root }}/franklin-gui.py"
-      - "{{ project_root }}/franklin-race-recorder.py"
-      - "{{ project_root }}/gui_config.py"
-      - "{{ project_root }}/scoreboard_web_app.py"
-      - "{{ project_root }}/referee_web_app.py"
-      - "{{ project_root }}/healthcheck_web_app.py"
-      - "{{ project_root }}/driver_web_app.py"
-      - "{{ project_root }}/racer_colors.py"
-      - "{{ project_root }}/redis_commands.py"
-      - "{{ project_root }}/database.py"
-    rust_target: "aarch64-unknown-linux-gnu"
-    rust_deb_local: "{{ project_root }}/rust/target/debian/franklin-hardware-monitor_{{ pkg_version }}_arm64.deb"
 
   pre_tasks:
     - name: Verify SSH connectivity
       ansible.builtin.ping:
 
-    - name: Get local package version from Cargo.toml
+    - name: Detect Pi architecture
+      ansible.builtin.command: dpkg --print-architecture
+      register: pi_arch_cmd
+      changed_when: false
+
+    - name: Set detected arch fact
+      ansible.builtin.set_fact:
+        detected_arch: "{{ pi_arch_cmd.stdout | trim }}"
+
+    - name: Fail if Pi is not aarch64
+      ansible.builtin.fail:
+        msg: "Franklin requires a 64-bit Raspberry Pi. Detected arch={{ detected_arch }} but only arm64 is supported."
+      when: detected_arch != 'arm64'
+
+    - name: Set Rust target and Debian arch label
+      ansible.builtin.set_fact:
+        rust_target: "aarch64-unknown-linux-gnu"
+        arch_label: "arm64"
+
+    - name: Get package version from Cargo.toml
       ansible.builtin.shell:
         cmd: python3 -c "import re; m = re.search(r'\[workspace\.package\]\s*[\s\S]*?version\s*=\s*\"([^\"]+)\"', open('{{ project_root }}/rust/Cargo.toml').read()); print(m.group(1))"
       delegate_to: localhost
@@ -38,86 +41,78 @@
       ansible.builtin.set_fact:
         pkg_version: "{{ local_version_cmd.stdout | trim }}"
 
-    - name: Check required local files exist
+    - name: Set local paths for Debian package
+      ansible.builtin.set_fact:
+        rust_deb_local: "{{ project_root }}/rust/target/debian/franklin-hardware-monitor_{{ pkg_version }}_{{ arch_label }}.deb"
+
+    - name: Check project root exists
       ansible.builtin.stat:
-        path: "{{ item.path }}"
+        path: "{{ project_root }}/pyproject.toml"
       delegate_to: localhost
       become: false
-      register: required_file_stats
-      loop:
-        - {
-            path: "{{ project_root }}/franklin-tui.py",
-            description: "Franklin TUI script",
-          }
-        - {
-            path: "{{ project_root }}/franklin-gui.py",
-            description: "Franklin GTK GUI script",
-          }
-        - {
-            path: "{{ project_root }}/franklin-race-recorder.py",
-            description: "Franklin race recorder script",
-          }
-        - {
-            path: "{{ project_root }}/gui_config.py",
-            description: "GUI config module",
-          }
-        - {
-            path: "{{ project_root }}/scoreboard_web_app.py",
-            description: "Scoreboard web app script",
-          }
-        - {
-            path: "{{ project_root }}/referee_web_app.py",
-            description: "Referee web app script",
-          }
-        - {
-            path: "{{ project_root }}/healthcheck_web_app.py",
-            description: "Health-check web app script",
-          }
-        - {
-            path: "{{ project_root }}/driver_web_app.py",
-            description: "Driver web app script",
-          }
-        - {
-            path: "{{ project_root }}/racer_colors.py",
-            description: "Racer color scheme module",
-          }
-        - {
-            path: "{{ project_root }}/redis_commands.py",
-            description: "Redis command envelope module",
-          }
-        - { path: "{{ startup_script_local }}", description: "Startup script" }
-        - {
-            path: "{{ startup_gui_script_local }}",
-            description: "GUI startup script",
-          }
-        - {
-            path: "{{ rust_deb_local }}",
-            description: "Franklin hardware monitor Debian package. (Please build it locally first using: devbox run hardware-monitor:build-deb)",
-          }
+      register: project_root_stat
 
-    - name: Fail when required local files are missing
+    - name: Fail when project root is missing
+      ansible.builtin.fail:
+        msg: "Franklin project not found at {{ project_root }} (no pyproject.toml)"
+      when: not project_root_stat.stat.exists
+
+    - name: Check hardware monitor Debian package exists
+      ansible.builtin.stat:
+        path: "{{ rust_deb_local }}"
+      delegate_to: localhost
+      become: false
+      register: deb_stat
+
+    - name: Fail when Debian package is missing
       ansible.builtin.fail:
         msg: >-
-          Missing required file: {{ item.item.description }}
-          ({{ item.item.path }}).
-      when: not item.stat.exists
-      loop: "{{ required_file_stats.results }}"
+          Hardware monitor .deb not found at {{ rust_deb_local }}.
+          Build it first with: devbox run hardware-monitor:build-deb
+      when: not deb_stat.stat.exists
 
-    - name: Check optional local directories
+    - name: Check systemd service directory exists locally
       ansible.builtin.stat:
-        path: "{{ item.path }}"
+        path: "{{ project_root }}/systemd"
       delegate_to: localhost
       become: false
-      register: optional_dir_stats
-      loop:
-        - { key: "static", path: "{{ project_root }}/static" }
-        - { key: "race", path: "{{ project_root }}/race" }
-        - { key: "tmuxinator", path: "{{ project_root }}/tmuxinator" }
+      register: systemd_dir_stat
+
+    - name: Compute requirements hash for pip skip
+      ansible.builtin.shell:
+        cmd: python3 -c "import hashlib; print(hashlib.sha1('{{ python_packages | sort | join(' ') }}'.encode()).hexdigest())"
+      delegate_to: localhost
+      become: false
+      register: req_hash_cmd
+      changed_when: false
+
+    - name: Set requirements hash fact
+      ansible.builtin.set_fact:
+        requirements_hash: "{{ req_hash_cmd.stdout | trim }}"
+
+    - name: Read stored requirements hash from Pi
+      ansible.builtin.slurp:
+        src: "{{ pi_dest_dir }}/.requirements.hash"
+      register: stored_hash
+      failed_when: false
+      changed_when: false
+
+    - name: Set pip_needed fact
+      ansible.builtin.set_fact:
+        pip_needed: "{{ (stored_hash.content | default('')) | b64decode != requirements_hash }}"
 
   tasks:
     - name: Ensure destination directory exists
       ansible.builtin.file:
         path: "{{ pi_dest_dir }}"
+        state: directory
+        owner: "{{ franklin_user }}"
+        group: "{{ franklin_group }}"
+        mode: "0755"
+
+    - name: Ensure log directory exists for systemd service stdout
+      ansible.builtin.file:
+        path: /var/log/franklin
         state: directory
         owner: "{{ franklin_user }}"
         group: "{{ franklin_group }}"
@@ -161,51 +156,115 @@
         state: absent
       when: pkg_version is version(installed_version, '>')
 
-    - name: Deploy Python application files
+    # ── Python virtual environment ──────────────────────────────────────
+
+    - name: Ensure Python venv exists at {{ pi_dest_dir }}/.venv
+      ansible.builtin.command:
+        cmd: "python3 -m venv --system-site-packages {{ pi_dest_dir }}/.venv"
+        creates: "{{ pi_dest_dir }}/.venv/bin/activate"
+
+    - name: Check whether GTK gi module is importable in venv
+      ansible.builtin.command:
+        cmd: "{{ pi_dest_dir }}/.venv/bin/python -c 'import gi'"
+      register: venv_gi_check
+      changed_when: false
+      failed_when: false
+
+    - name: Recreate venv with system site packages when gi is missing
+      when: venv_gi_check.rc != 0
+      block:
+        - name: Remove incompatible virtual environment
+          ansible.builtin.file:
+            path: "{{ pi_dest_dir }}/.venv"
+            state: absent
+
+        - name: Recreate virtual environment with system site packages
+          ansible.builtin.command:
+            cmd: "python3 -m venv --system-site-packages {{ pi_dest_dir }}/.venv"
+
+    - name: Install Python application dependencies in venv (skip if unchanged)
+      ansible.builtin.pip:
+        name: "{{ python_packages }}"
+        state: present
+        virtualenv: "{{ pi_dest_dir }}/.venv"
+      when: pip_needed
+
+    - name: Store updated requirements hash on Pi
       ansible.builtin.copy:
-        src: "{{ item }}"
-        dest: "{{ pi_dest_dir }}/{{ item | basename }}"
+        content: "{{ requirements_hash }}"
+        dest: "{{ pi_dest_dir }}/.requirements.hash"
         owner: "{{ franklin_user }}"
         group: "{{ franklin_group }}"
         mode: "0644"
-      loop: "{{ app_files_local }}"
+      when: pip_needed
 
-    - name: Deploy startup scripts
-      ansible.builtin.copy:
-        src: "{{ item.src }}"
-        dest: "{{ item.dest }}"
+    - name: Ensure franklin owns the virtual environment
+      ansible.builtin.file:
+        path: "{{ pi_dest_dir }}/.venv"
+        state: directory
         owner: "{{ franklin_user }}"
         group: "{{ franklin_group }}"
-        mode: "0755"
-      loop:
-        - {
-            src: "{{ startup_script_local }}",
-            dest: "{{ pi_dest_dir }}/start_franklin.py",
-          }
-        - {
-            src: "{{ startup_gui_script_local }}",
-            dest: "{{ pi_dest_dir }}/start_franklin_gui_session.py",
-          }
+        recurse: true
 
-    # Directory trees are pushed with rsync (ansible.posix.synchronize) instead
-    # of the copy module: copy walks the tree and transfers every file in its
-    # own SSH round-trip (slow), whereas rsync syncs in a single pass and skips
-    # unchanged files. We also exclude Python bytecode so __pycache__/*.pyc are
-    # never shipped. The connection user (jachin) is unprivileged, so rsync runs
-    # under sudo on the Pi (rsync_path) with become disabled on the task, and
-    # ownership is set inline with --chown to match franklin_user/group.
-    # delete + --delete-excluded make the Pi an exact mirror of the local tree
-    # (minus bytecode), so stale remote-only files and old __pycache__ are
-    # removed. These dirs hold only source-controlled content, never Pi-local
-    # state, so mirroring is safe.
-    - name: Deploy static directory
+    - name: Remove stale virtual environment at old nested path ({{ pi_dest_dir }}/lib/.venv)
+      ansible.builtin.file:
+        path: "{{ pi_dest_dir }}/lib/.venv"
+        state: absent
+
+    # Application source files are pushed with rsync (ansible.posix.synchronize)
+    # instead of per-file copy loops (one SSH round-trip per file).  rsync
+    # transfers all changes in a single pass, skipping unchanged files.
+    #
+    # We exclude runtime state directories (.venv, db, run — these exist only
+    # on the Pi), build artifacts (rust, .git, node_modules), and dev/tooling
+    # files that don't belong on the Pi.  The per-directory syncs below for
+    # static/, race/, and tmuxinator/ handle deletion of stale files — the
+    # root sync does NOT delete, so runtime state outside the excluded paths
+    # is never accidentally wiped.
+    #
+    # rsync_path escalates on the Pi so the connection user (unprivileged) can
+    # write to the franklin-owned dest.  become is disabled on the task since
+    # rsync_path handles the escalation.
+    - name: Deploy application source files via rsync
+      ansible.posix.synchronize:
+        src: "{{ project_root }}/"
+        dest: "{{ pi_dest_dir }}/"
+        rsync_path: "sudo rsync"
+        rsync_opts:
+          - "--chown={{ franklin_user }}:{{ franklin_group }}"
+          - "--exclude=.venv/"
+          - "--exclude=__pycache__/"
+          - "--exclude=*.pyc"
+          - "--exclude=.git/"
+          - "--exclude=rust/"
+          - "--exclude=db/"
+          - "--exclude=run/"
+          - "--exclude=*.log"
+          - "--exclude=*.sock"
+          - "--exclude=*.db"
+          - "--exclude=dump.rdb"
+          - "--exclude=.env"
+          - "--exclude=.github/"
+          - "--exclude=devbox.json"
+          - "--exclude=devbox.lock"
+          - "--exclude=devbox.d/"
+          - "--exclude=.devbox/"
+          - "--exclude=.ruff_cache/"
+          - "--exclude=.lavish/"
+          - "--exclude=.zed/"
+          - "--exclude=playbooks/"
+          - "--exclude=docs/"
+          - "--exclude=terminfo/"
+          - "--exclude=systemd/"
+      become: false
+
+    # Per-directory rsync with delete so stale Pi-only files are cleaned up.
+    # Safe because these dirs hold only source-controlled content.
+    - name: Deploy static directory (with delete)
       ansible.posix.synchronize:
         src: "{{ project_root }}/static/"
         dest: "{{ pi_dest_dir }}/static/"
         delete: true
-        # rsync_path (a real module param, correctly quoted) escalates on the
-        # Pi so rsync can write to the franklin-owned dest. Putting "sudo rsync"
-        # in rsync_opts instead word-splits and runs "sudo --server ...".
         rsync_path: "sudo rsync"
         rsync_opts:
           - "--exclude=__pycache__"
@@ -213,16 +272,12 @@
           - "--delete-excluded"
           - "--chown={{ franklin_user }}:{{ franklin_group }}"
       become: false
-      when: (optional_dir_stats.results | selectattr('item.key', 'equalto', 'static') | map(attribute='stat.isdir') | first | default(false))
 
-    - name: Deploy race directory
+    - name: Deploy race directory (with delete)
       ansible.posix.synchronize:
         src: "{{ project_root }}/race/"
         dest: "{{ pi_dest_dir }}/race/"
         delete: true
-        # rsync_path (a real module param, correctly quoted) escalates on the
-        # Pi so rsync can write to the franklin-owned dest. Putting "sudo rsync"
-        # in rsync_opts instead word-splits and runs "sudo --server ...".
         rsync_path: "sudo rsync"
         rsync_opts:
           - "--exclude=__pycache__"
@@ -230,16 +285,12 @@
           - "--delete-excluded"
           - "--chown={{ franklin_user }}:{{ franklin_group }}"
       become: false
-      when: (optional_dir_stats.results | selectattr('item.key', 'equalto', 'race') | map(attribute='stat.isdir') | first | default(false))
 
-    - name: Deploy tmuxinator directory
+    - name: Deploy tmuxinator directory (with delete)
       ansible.posix.synchronize:
         src: "{{ project_root }}/tmuxinator/"
         dest: "{{ pi_dest_dir }}/tmuxinator/"
         delete: true
-        # rsync_path (a real module param, correctly quoted) escalates on the
-        # Pi so rsync can write to the franklin-owned dest. Putting "sudo rsync"
-        # in rsync_opts instead word-splits and runs "sudo --server ...".
         rsync_path: "sudo rsync"
         rsync_opts:
           - "--exclude=__pycache__"
@@ -247,12 +298,54 @@
           - "--delete-excluded"
           - "--chown={{ franklin_user }}:{{ franklin_group }}"
       become: false
-      when: (optional_dir_stats.results | selectattr('item.key', 'equalto', 'tmuxinator') | map(attribute='stat.isdir') | first | default(false))
 
-    - name: Verify required files on remote host
+    # Deploy systemd service files for background services (redis, hardware
+    # monitor, race recorder, web apps). These are installed to
+    # /etc/systemd/system/ and managed by systemd.
+    - name: Deploy systemd service files
+      ansible.builtin.copy:
+        src: "{{ item }}"
+        dest: "/etc/systemd/system/{{ item | basename }}"
+        owner: "root"
+        group: "root"
+        mode: "0644"
+      loop:
+        - "{{ project_root }}/systemd/franklin-redis.service"
+        - "{{ project_root }}/systemd/franklin-hardware-monitor.service"
+        - "{{ project_root }}/systemd/franklin-race-recorder.service"
+        - "{{ project_root }}/systemd/franklin-web-driver.service"
+        - "{{ project_root }}/systemd/franklin-web-healthcheck.service"
+        - "{{ project_root }}/systemd/franklin-web-referee.service"
+        - "{{ project_root }}/systemd/franklin-web-scoreboard.service"
+        - "{{ project_root }}/systemd/franklin.target"
+      register: systemd_deploy
+      when: systemd_dir_stat.stat.isdir
+
+    - name: Reload systemd daemon after deploying service files
+      ansible.builtin.systemd:
+        daemon_reload: true
+      when:
+        - systemd_dir_stat.stat.isdir
+        - systemd_deploy is changed
+
+    # Startup scripts live under scripts/ in the repo but are expected at the
+    # root of pi_dest_dir (referenced by systemd, wayland-sway, and users).
+    # They are NOT rsynced to the correct location automatically.
+    - name: Deploy startup scripts
+      ansible.builtin.copy:
+        src: "{{ project_root }}/scripts/{{ item }}"
+        dest: "{{ pi_dest_dir }}/{{ item }}"
+        owner: "{{ franklin_user }}"
+        group: "{{ franklin_group }}"
+        mode: "0755"
+      loop:
+        - start_franklin.py
+        - start_franklin_gui_session.py
+
+    - name: Verify deployed files on remote host
       ansible.builtin.stat:
         path: "{{ item }}"
-      register: remote_required_file_stats
+      register: remote_deployed_file_stats
       loop:
         - "/usr/bin/franklin-hardware-monitor"
         - "{{ pi_dest_dir }}/franklin-tui.py"
@@ -267,16 +360,12 @@
         - "{{ pi_dest_dir }}/redis_commands.py"
         - "{{ pi_dest_dir }}/start_franklin.py"
         - "{{ pi_dest_dir }}/start_franklin_gui_session.py"
-      loop_control:
-        label: "{{ item }}"
 
-    - name: Fail if required files are missing on remote host
+    - name: Fail when deployed files are missing
       ansible.builtin.fail:
         msg: "Expected deployed file is missing: {{ item.item }}"
       when: not item.stat.exists
-      loop: "{{ remote_required_file_stats.results }}"
-      loop_control:
-        label: "{{ item.item }}"
+      loop: "{{ remote_deployed_file_stats.results }}"
 
     - name: Read deployed binary file information
       ansible.builtin.command: "file /usr/bin/franklin-hardware-monitor"
@@ -294,10 +383,16 @@
         ('ARM aarch64' not in binary_file_info.stdout)
         and ('ARM 64-bit' not in binary_file_info.stdout)
 
+    - name: Restart all Franklin services via target
+      ansible.builtin.systemd:
+        name: franklin.target
+        state: restarted
+      ignore_errors: true
+
     - name: Deployment summary
       ansible.builtin.debug:
         msg:
           - "Deployment complete to {{ inventory_hostname }}:{{ pi_dest_dir }}"
-          - "Deployed: franklin-hardware-monitor, franklin-tui.py, franklin-gui.py, gui_config.py, scoreboard_web_app.py, referee_web_app.py, healthcheck_web_app.py, driver_web_app.py, racer_colors.py, redis_commands.py, database.py, start_franklin.py, start_franklin_gui_session.py"
-          - "Optional content copied when present: static/, race/ (race module code), tmuxinator/"
+          - "Deployed: franklin-hardware-monitor (Rust binary), application source files, static/, race/, tmuxinator/"
+          - "Systemd unit files refreshed, daemon reloaded"
           - "Start on Pi with: cd {{ pi_dest_dir }} && ./start_franklin.py"

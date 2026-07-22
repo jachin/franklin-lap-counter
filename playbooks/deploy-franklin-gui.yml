@@ -5,44 +5,6 @@
   become: true
   vars:
     project_root: "{{ playbook_dir }}/.."
-    gui_files_local:
-      - "{{ project_root }}/franklin-gui.py"
-      - "{{ project_root }}/gui_config.py"
-      - "{{ project_root }}/racer_colors.py"
-      - "{{ project_root }}/redis_commands.py"
-      - "{{ project_root }}/database.py"
-    gui_startup_scripts_local:
-      - "{{ project_root }}/scripts/start_franklin.py"
-      - "{{ project_root }}/scripts/start_franklin_gui_session.py"
-
-  pre_tasks:
-    - name: Check required local GUI files exist
-      ansible.builtin.stat:
-        path: "{{ item }}"
-      delegate_to: localhost
-      become: false
-      register: local_gui_file_stats
-      loop: "{{ gui_files_local }}"
-
-    - name: Fail when required local GUI files are missing
-      ansible.builtin.fail:
-        msg: "Missing required GUI deployment file: {{ item.item }}"
-      when: not item.stat.exists
-      loop: "{{ local_gui_file_stats.results }}"
-
-    - name: Check required local GUI startup scripts exist
-      ansible.builtin.stat:
-        path: "{{ item }}"
-      delegate_to: localhost
-      become: false
-      register: local_gui_startup_script_stats
-      loop: "{{ gui_startup_scripts_local }}"
-
-    - name: Fail when required local GUI startup scripts are missing
-      ansible.builtin.fail:
-        msg: "Missing required GUI startup script: {{ item.item }}"
-      when: not item.stat.exists
-      loop: "{{ local_gui_startup_script_stats.results }}"
 
   tasks:
     - name: Ensure destination directory exists
@@ -53,35 +15,68 @@
         group: "{{ franklin_group }}"
         mode: "0755"
 
-    - name: Deploy GUI Python files
-      ansible.builtin.copy:
-        src: "{{ item }}"
-        dest: "{{ pi_dest_dir }}/{{ item | basename }}"
-        owner: "{{ franklin_user }}"
-        group: "{{ franklin_group }}"
-        mode: "0644"
-      loop: "{{ gui_files_local }}"
+    - name: Deploy GUI source files via rsync
+      ansible.posix.synchronize:
+        src: "{{ project_root }}/"
+        dest: "{{ pi_dest_dir }}/"
+        rsync_path: "sudo rsync"
+        rsync_opts:
+          - "--chown={{ franklin_user }}:{{ franklin_group }}"
+          - "--exclude=.venv/"
+          - "--exclude=__pycache__/"
+          - "--exclude=*.pyc"
+          - "--exclude=.git/"
+          - "--exclude=rust/"
+          - "--exclude=db/"
+          - "--exclude=run/"
+          - "--exclude=*.log"
+          - "--exclude=*.sock"
+          - "--exclude=*.db"
+          - "--exclude=dump.rdb"
+          - "--exclude=.env"
+          - "--exclude=.github/"
+          - "--exclude=devbox.json"
+          - "--exclude=devbox.lock"
+          - "--exclude=devbox.d/"
+          - "--exclude=.devbox/"
+          - "--exclude=.ruff_cache/"
+          - "--exclude=.lavish/"
+          - "--exclude=.zed/"
+          - "--exclude=playbooks/"
+          - "--exclude=docs/"
+          - "--exclude=terminfo/"
+          - "--exclude=systemd/"
+      become: false
 
-    - name: Deploy race module directory for GUI imports
-      ansible.builtin.copy:
+    - name: Deploy race directory (with delete)
+      ansible.posix.synchronize:
         src: "{{ project_root }}/race/"
         dest: "{{ pi_dest_dir }}/race/"
-        owner: "{{ franklin_user }}"
-        group: "{{ franklin_group }}"
-        mode: preserve
+        delete: true
+        rsync_path: "sudo rsync"
+        rsync_opts:
+          - "--exclude=__pycache__"
+          - "--exclude=*.pyc"
+          - "--delete-excluded"
+          - "--chown={{ franklin_user }}:{{ franklin_group }}"
+      become: false
 
-    - name: Deploy GUI startup scripts (ensure executable mode)
+    # Startup scripts live under scripts/ in the repo but are expected at the
+    # root of pi_dest_dir (referenced by systemd, wayland-sway, and users).
+    - name: Deploy startup scripts
       ansible.builtin.copy:
-        src: "{{ item }}"
-        dest: "{{ pi_dest_dir }}/{{ item | basename }}"
+        src: "{{ project_root }}/scripts/{{ item }}"
+        dest: "{{ pi_dest_dir }}/{{ item }}"
         owner: "{{ franklin_user }}"
         group: "{{ franklin_group }}"
         mode: "0755"
-      loop: "{{ gui_startup_scripts_local }}"
+      loop:
+        - start_franklin.py
+        - start_franklin_gui_session.py
 
     - name: Deployment summary
       ansible.builtin.debug:
         msg:
           - "Deployed GUI runtime files to {{ inventory_hostname }}:{{ pi_dest_dir }}"
-          - "Updated: franklin-gui.py, gui_config.py, racer_colors.py, redis_commands.py, database.py, race/, start_franklin.py, start_franklin_gui_session.py"
+          - "Updated: application source files, race/"
           - "Restart GUI session on Pi to pick up changes"

@@ -1,0 +1,297 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Franklin Audit Log</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --bg: #0d1117;
+      --surface: #161b22;
+      --border: #30363d;
+      --text: #e6edf3;
+      --text-muted: #8b949e;
+      --green: #2ea043;
+      --red: #da3633;
+      --radius: 8px;
+      --gap: 12px;
+    }
+    @media (prefers-color-scheme: light) {
+      :root {
+        --bg: #ffffff;
+        --surface: #f6f8fa;
+        --border: #d0d7de;
+        --text: #1f2328;
+        --text-muted: #656d76;
+        --green: #1a7f37;
+        --red: #cf222e;
+      }
+    }
+    *, *::before, *::after { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      padding: var(--gap);
+      min-height: 100dvh;
+    }
+    button, select, input { font-family: inherit; }
+
+    .header-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 6px 0 10px;
+      gap: 8px;
+      flex-wrap: wrap;
+      border-bottom: 1px solid var(--border);
+      margin-bottom: var(--gap);
+    }
+    .header-left {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .header-left h1 {
+      margin: 0;
+      font-size: 1.05rem;
+      font-weight: 600;
+    }
+    .nav-link {
+      font-size: 0.82rem;
+      opacity: 0.65;
+      text-decoration: none;
+      color: inherit;
+      white-space: nowrap;
+    }
+    .nav-link:hover { opacity: 1; text-decoration: underline; }
+
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 14px;
+    }
+
+    .filter-row {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-bottom: var(--gap);
+      align-items: center;
+    }
+    .filter-row input {
+      padding: 7px 8px;
+      border: 1px solid var(--border);
+      background: var(--bg);
+      color: var(--text);
+      border-radius: 6px;
+      font-size: 0.85rem;
+      width: 120px;
+    }
+    .filter-row input::placeholder { color: var(--text-muted); opacity: 0.6; }
+
+    .btn {
+      padding: 7px 14px;
+      border: 1px solid var(--border);
+      background: var(--surface);
+      color: var(--text);
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 0.85rem;
+      font-weight: 500;
+      transition: background 0.12s;
+      line-height: 1.2;
+    }
+    .btn:hover { background: var(--border); }
+
+    #audit {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 10px;
+      min-height: 200px;
+    }
+
+    .audit-row {
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+      padding: 6px 4px;
+      border-bottom: 1px solid var(--border);
+      font-size: 0.8rem;
+    }
+    .audit-row:last-child { border-bottom: none; }
+    .audit-row-text {
+      white-space: pre-wrap;
+      word-break: break-word;
+      flex: 1;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 0.78rem;
+      line-height: 1.4;
+    }
+    .copy-btn {
+      padding: 3px 7px;
+      font-size: 0.72rem;
+      border: 1px solid var(--border);
+      background: var(--bg);
+      color: var(--text);
+      border-radius: 4px;
+      cursor: pointer;
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+    .copy-btn:disabled { opacity: 0.4; cursor: default; }
+    .copy-btn:not(:disabled):hover { background: var(--border); }
+
+    .audit-empty {
+      opacity: 0.5;
+      font-style: italic;
+      padding: 20px 8px;
+      text-align: center;
+      font-size: 0.85rem;
+    }
+    .status-badge {
+      display: inline-block;
+      font-size: 0.7rem;
+      font-weight: 600;
+      padding: 1px 6px;
+      border-radius: 4px;
+      text-transform: uppercase;
+      margin-right: 4px;
+    }
+    .status-accepted { color: var(--green); }
+    .status-rejected { color: var(--red); }
+
+    @media (max-width: 767px) {
+      body { padding: 8px; }
+      .filter-row input { width: 100%; flex: 1; }
+    }
+  </style>
+</head>
+<body>
+  <header class="header-bar">
+    <div class="header-left">
+      <a href="/" class="nav-link">← Referee</a>
+      <a id="dashLink" class="nav-link" href="#">Dashboard</a>
+      <script>document.getElementById('dashLink').href = `${location.protocol}//${location.hostname}:8085/dashboard`</script>
+      <h1>Audit Log</h1>
+    </div>
+  </header>
+
+  <div class="card">
+    <div class="filter-row">
+      <input id="audit-race-id" type="number" min="1" placeholder="Race ID" />
+      <input id="audit-limit" type="number" min="1" value="100" placeholder="Limit" />
+      <button id="load-audit" class="btn">Load</button>
+    </div>
+    <div id="audit"></div>
+  </div>
+
+  <script>
+    const auditEl = document.getElementById('audit');
+
+    /* ---- Audit ---- */
+    async function copyToClipboard(value) {
+      if (!value) throw new Error('No command_id available to copy');
+      await navigator.clipboard.writeText(value);
+    }
+
+    function buildAuditLine(a) {
+      const ts = escapeHtml(a.created_at || '');
+      const accepted = a.accepted ? 'accepted' : 'rejected';
+      const cmdId = escapeHtml(a.command_id || '-');
+      const details = [];
+      if (a.racer_id != null) details.push('racer_id=' + a.racer_id);
+      if (a.lap_number != null) details.push('lap_number=' + a.lap_number);
+      if (a.penalty_seconds != null) details.push('penalty_seconds=' + a.penalty_seconds);
+      if (a.reason) details.push('reason=' + escapeHtml(a.reason));
+      if (a.message) details.push('message=' + escapeHtml(a.message));
+      if (a.operator) details.push('operator=' + escapeHtml(a.operator));
+      return '[' + ts + '] ' + escapeHtml(a.command) + ' <span class="status-badge status-' + accepted + '">' + accepted + '</span> command_id=' + cmdId +
+        (details.length ? ' (' + details.join(', ') + ')' : '');
+    }
+
+    function renderAudit(actions) {
+      auditEl.replaceChildren();
+
+      if (!actions.length) {
+        const empty = document.createElement('div');
+        empty.className = 'audit-empty';
+        empty.textContent = 'No audit rows';
+        auditEl.appendChild(empty);
+        return;
+      }
+
+      for (const action of actions) {
+        const row = document.createElement('div');
+        row.className = 'audit-row';
+
+        const copyBtn = document.createElement('button');
+        copyBtn.type = 'button';
+        copyBtn.className = 'copy-btn';
+        const cmdId = action.command_id;
+        if (cmdId) {
+          copyBtn.textContent = 'Copy';
+          copyBtn.dataset.commandId = cmdId;
+          copyBtn.title = 'Copy command_id ' + cmdId;
+        } else {
+          copyBtn.textContent = '—';
+          copyBtn.disabled = true;
+          copyBtn.title = 'No command_id';
+        }
+
+        const text = document.createElement('div');
+        text.className = 'audit-row-text';
+        text.innerHTML = buildAuditLine(action);
+
+        row.append(copyBtn, text);
+        auditEl.appendChild(row);
+      }
+    }
+
+    async function loadAudit() {
+      try {
+        const raceIdRaw = document.getElementById('audit-race-id').value;
+        const limitRaw = document.getElementById('audit-limit').value;
+        const params = new URLSearchParams();
+        if (raceIdRaw !== '') params.set('race_id', raceIdRaw);
+        if (limitRaw !== '') params.set('limit', limitRaw);
+
+        const res = await fetch('/api/control/audit?' + params.toString());
+        const data = await res.json();
+        if (!res.ok || !data.ok) throw new Error(data.error || 'Request failed (' + res.status + ')');
+        renderAudit(data.actions || []);
+      } catch (err) {
+        auditEl.innerHTML = '<div class="audit-empty" style="color:var(--red)">Error: ' + escapeHtml(err.message) + '</div>';
+      }
+    }
+
+    function escapeHtml(str) {
+      if (typeof str !== 'string') return String(str);
+      const div = document.createElement('div');
+      div.textContent = str;
+      return div.innerHTML;
+    }
+
+    document.getElementById('load-audit').onclick = loadAudit;
+
+    auditEl.addEventListener('click', async (evt) => {
+      const target = evt.target;
+      if (!(target instanceof HTMLElement) || !target.classList.contains('copy-btn') || target.disabled) return;
+      const commandId = target.dataset.commandId;
+      try {
+        await copyToClipboard(commandId);
+        const orig = target.textContent;
+        target.textContent = 'Copied!';
+        setTimeout(() => { target.textContent = orig; }, 1500);
+      } catch (_) {}
+    });
+
+    /* ---- Init ---- */
+    void loadAudit();
+  </script>
+</body>
+</html>

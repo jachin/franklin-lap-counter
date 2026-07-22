@@ -1,0 +1,131 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  build-rust:
+    name: Build franklin-hardware-monitor
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        target:
+          - aarch64-unknown-linux-gnu
+          - x86_64-unknown-linux-gnu
+          - armv7-unknown-linux-gnueabihf
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install cross (cross-architecture Rust compilation)
+        run: cargo install cross --git https://github.com/cross-rs/cross
+
+      - name: Cross-compile for ${{ matrix.target }}
+        run: cross build --release --target ${{ matrix.target }}
+        working-directory: rust
+
+      - name: Upload binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: franklin-hardware-monitor-${{ matrix.target }}
+          path: rust/target/${{ matrix.target }}/release/franklin-hardware-monitor
+
+  build-deb:
+    name: Build .deb package
+    needs: build-rust
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        arch:
+          - target: aarch64-unknown-linux-gnu
+            deb: arm64
+          - target: x86_64-unknown-linux-gnu
+            deb: amd64
+          - target: armv7-unknown-linux-gnueabihf
+            deb: armhf
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download binary
+        uses: actions/download-artifact@v4
+        with:
+          name: franklin-hardware-monitor-${{ matrix.arch.target }}
+          path: rust/target/${{ matrix.arch.target }}/release/
+
+      - name: Make binary executable
+        run: chmod +x rust/target/${{ matrix.arch.target }}/release/franklin-hardware-monitor
+
+      - name: Extract version from tag
+        id: version
+        run: echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Build .deb package
+        run: |
+          PKG_DIR="rust/target/debian/franklin-hardware-monitor_${{ steps.version.outputs.VERSION }}_${{ matrix.arch.deb }}"
+          mkdir -p "$PKG_DIR/usr/bin" "$PKG_DIR/DEBIAN"
+
+          cp "rust/target/${{ matrix.arch.target }}/release/franklin-hardware-monitor" "$PKG_DIR/usr/bin/"
+          chmod 755 "$PKG_DIR/usr/bin/franklin-hardware-monitor"
+
+          cat > "$PKG_DIR/DEBIAN/control" <<EOF
+Package: franklin-hardware-monitor
+Version: ${{ steps.version.outputs.VERSION }}
+Section: utils
+Priority: optional
+Architecture: ${{ matrix.arch.deb }}
+Maintainer: Jachin Rupe <jachin@jachin.rupe.name>
+Depends: libudev1 | libudev-dev
+Description: Franklin Hardware Monitor
+ Hardware monitor service for the Franklin RC Car Lap Counter.
+ Connects to the local hardware/serial ports and publishes events to Redis.
+EOF
+
+          dpkg-deb --root-owner-group --build "$PKG_DIR"
+
+      - name: Upload .deb
+        uses: actions/upload-artifact@v4
+        with:
+          name: franklin-hardware-monitor-${{ matrix.arch.deb }}.deb
+          path: rust/target/debian/franklin-hardware-monitor_${{ steps.version.outputs.VERSION }}_${{ matrix.arch.deb }}.deb
+
+  create-release:
+    name: Create GitHub Release
+    needs: build-deb
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all .deb packages
+        uses: actions/download-artifact@v4
+        with:
+          pattern: franklin-hardware-monitor-*.deb
+          merge-multiple: true
+
+      - name: Generate release notes
+        id: notes
+        run: |
+          cat > release-notes.md <<'EOF'
+          ## Franklin Lap Counter
+
+          ### Changes
+          See the commit log for details.
+
+          ### Downloads
+          - **arm64** (.deb): for Raspberry Pi 3/4/5 (64-bit)
+          - **amd64** (.deb): for x86_64 Linux
+          - **armhf** (.deb): for Raspberry Pi (32-bit)
+          EOF
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            franklin-hardware-monitor-*.deb
+          body_path: release-notes.md
+          generate_release_notes: true

@@ -364,6 +364,15 @@
             .dash-link:hover { opacity: 1; text-decoration: underline; }
         </style>
         <a href="/dashboard" class="dash-link">← Dashboard</a>
+
+        <div id="audioModal" style="position:fixed;inset:0;background:rgba(0,0,0,0.7);display:flex;align-items:center;justify-content:center;z-index:999">
+            <div style="background:var(--panel-bg);border:1px solid var(--border-color);border-radius:12px;padding:24px;max-width:320px;text-align:center">
+                <p style="margin:0 0 12px;font-size:1.1rem">🔊 Audio is on</p>
+                <p style="margin:0 0 16px;color:var(--muted-text);font-size:0.9rem">Race sounds enabled</p>
+                <button type="button" id="audioOkBtn" style="width:auto;min-width:100px;margin:0 auto">OK</button>
+            </div>
+        </div>
+
         <h1>Franklin RC Lap Counter</h1>
 
         <div class="controls">
@@ -371,6 +380,11 @@
             <button type="button" id="refreshBtn">Refresh Data</button>
             <button type="button" id="clearLogBtn">Clear Log</button>
             <button type="button" id="debugBtn">Debug</button>
+            <button type="button" id="soundBtn">Sound: on</button>
+            <select id="soundStyleSelect" style="width:auto;min-width:120px">
+                <option value="classic">Classic</option>
+                <option value="8bit">8-Bit</option>
+            </select>
         </div>
 
         <div class="grid">
@@ -435,6 +449,7 @@
             </div>
         </div>
 
+        <script src="/static/audio.js"></script>
         <script>
             // State management
             const state = {
@@ -446,6 +461,12 @@
                 raceLaps: null,
                 lastUpdateTime: null,
                 disqualified: [],
+                countdownTimers: [],
+                countdownActive: false,
+                countdownReadyAt: 0,
+                countdownReadyAtMs: 0,
+                raceReady: false,
+                snapshotRaceState: null,
             };
 
             // DOM elements
@@ -461,7 +482,11 @@
                 raceTimeDisplay: document.getElementById("raceTimeDisplay"),
                 totalLapsDisplay: document.getElementById("totalLapsDisplay"),
                 lastUpdateTime: document.getElementById("lastUpdateTime"),
+                soundBtn: document.getElementById("soundBtn"),
+                soundStyleSelect: document.getElementById("soundStyleSelect"),
             };
+
+            elements.soundStyleSelect.value = FranklinAudio.getStyle();
 
             // Helper functions
             function formatTime(timeInSeconds) {
@@ -537,8 +562,10 @@
                 console.log("Updating race info with data:", state.currentRace);
 
                 // Determine race state from status and times
-                let raceState = "not_started";
-                if (state.currentRace) {
+                // Use the authoritative snapshot state if available
+                // (the REST API doesn't expose paused state directly)
+                let raceState = state.snapshotRaceState || "not_started";
+                if (raceState === "not_started" && state.currentRace) {
                     if (
                         state.currentRace.status === "in_progress" ||
                         ((state.currentRace.start_at ||
@@ -1002,6 +1029,8 @@
                                 "Race snapshot received, state:",
                                 data.state,
                             );
+                            // Track the authoritative race state from the snapshot
+                            state.snapshotRaceState = data.state || null;
                             // Merge disqualification status from snapshot
                             state.disqualified = data.disqualified || [];
                             fetchRaceData().catch((err) => {
@@ -1023,6 +1052,14 @@
                                 "Status message received, checking for race state changes:",
                                 data.message,
                             );
+                            const txt = String(data.message || "").toLowerCase();
+                            if (txt.includes("end") || txt.includes("reset")) {
+                                FranklinAudio.playFinish();
+                                for (const t of state.countdownTimers) clearTimeout(t);
+                                state.countdownTimers = [];
+                                state.countdownActive = false;
+                                state.raceReady = false;
+                            }
                             // For any status message, refresh after a short delay
                             // This ensures we catch all race state changes
                             setTimeout(() => {
@@ -1035,10 +1072,61 @@
                                     addEvent({
                                         type: "error",
                                         message:
-                                            "Failed to refresh data after status change",
+                                            "Failed to refresh data after state change",
                                     });
                                 });
                             }, 500);
+                        }
+
+                        if (data.type === "countdown_phase") {
+                            const phase = String(data.phase || "").toLowerCase();
+                            const atRaw = data.at;
+                            const atEpoch = (typeof atRaw === "number" && Number.isFinite(atRaw)) ? atRaw : 0;
+                            if (phase === "ready" && !state.countdownActive) {
+                                for (const t of state.countdownTimers) clearTimeout(t);
+                                state.countdownTimers = [];
+                                state.raceReady = false;
+                                state.countdownActive = true;
+                                state.countdownReadyAt = atEpoch;
+                                state.countdownReadyAtMs = Date.now();
+                                FranklinAudio.playReady();
+                            } else if (phase === "set" && state.countdownActive) {
+                                const totalMs = (atEpoch - state.countdownReadyAt) * 1000;
+                                const elapsedMs = Date.now() - state.countdownReadyAtMs;
+                                const remainingMs = Math.max(0, totalMs - elapsedMs);
+                                state.countdownTimers.push(setTimeout(() => {
+                                    if (state.countdownActive) {
+                                        FranklinAudio.playSet();
+                                    }
+                                }, remainingMs));
+                            } else if (phase === "go" && state.countdownActive) {
+                                const totalMs = (atEpoch - state.countdownReadyAt) * 1000;
+                                const elapsedMs = Date.now() - state.countdownReadyAtMs;
+                                const remainingMs = Math.max(0, totalMs - elapsedMs);
+                                state.countdownTimers.push(setTimeout(() => {
+                                    if (state.countdownActive) {
+                                        FranklinAudio.playGo();
+                                        state.countdownActive = false;
+                                    }
+                                }, remainingMs));
+                            }
+                        }
+
+                        if (data.type === "race_control") {
+                            const cmd = String(data.command || "");
+                            if ((cmd === "end_race" || cmd === "reset_race") && data.accepted) {
+                                FranklinAudio.playFinish();
+                                for (const t of state.countdownTimers) clearTimeout(t);
+                                state.countdownTimers = [];
+                                state.countdownActive = false;
+                                state.raceReady = false;
+                            }
+                        }
+
+                        if (data.type === "preferences_changed") {
+                            fetchConfig().catch((err) => {
+                                console.warn("Failed to reload config after preferences_changed:", err);
+                            });
                         }
 
                         addEvent(data);
@@ -1133,6 +1221,29 @@
                     console.warn("Initial refresh error:", err);
                 });
             }, 2000);
+
+            // Audio controls
+            elements.soundBtn.addEventListener("click", async () => {
+                const nowEnabled = !FranklinAudio.getEnabled();
+                FranklinAudio.setEnabled(nowEnabled);
+                if (nowEnabled) {
+                    await FranklinAudio.init();
+                    elements.soundBtn.textContent = "Sound: on";
+                    FranklinAudio.beep(440, 120);
+                } else {
+                    elements.soundBtn.textContent = "Sound: off";
+                }
+            });
+
+            elements.soundStyleSelect.addEventListener("change", () => {
+                FranklinAudio.setStyle(elements.soundStyleSelect.value);
+            });
+
+            document.getElementById("audioOkBtn").addEventListener("click", async () => {
+                await FranklinAudio.init();
+                document.getElementById("audioModal").remove();
+                FranklinAudio.beep(440, 120);
+            });
 
             // Initial connection
             connectWebSocket();

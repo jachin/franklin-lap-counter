@@ -15,6 +15,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import time
 from pathlib import Path
 from typing import Any
@@ -26,7 +27,7 @@ from database import LapDatabase
 from redis_commands import build_command_envelope, parse_command_envelope
 
 # Redis contract reference: docs/redis-message-reference.md
-REDIS_SOCKET_PATH = "./redis.sock"
+REDIS_SOCKET_PATH = os.environ.get("FRANKLIN_REDIS_SOCKET", "./redis.sock")
 REDIS_IN_CHANNEL = "hardware:in"
 REDIS_OUT_CHANNEL = "hardware:out"
 REDIS_EVENTS_CHANNEL = "franklin:events"
@@ -55,8 +56,11 @@ class RefereeWebAppServer:
         self.redis_client: redis.Redis | None = None  # type: ignore[type-arg]
         self.redis_pubsub: Any | None = None
         self.websockets: set[web.WebSocketResponse] = set()
-        self.db = LapDatabase("franklin.db")
+        self.db = LapDatabase(str(Path(__file__).parent / "db" / "franklin.db"))
+        self._pending_operators: dict[str, str] = {}
+        self._latest_snapshot: dict[str, Any] | None = None
 
+        self.app.router.add_static("/static", STATIC_DIR, name="static")
         self.app.router.add_get("/", self.index_handler)
         self.app.router.add_get("/ws", self.websocket_handler)
         self.app.router.add_get("/api/health", self.health_handler)
@@ -64,6 +68,8 @@ class RefereeWebAppServer:
 
         self.app.router.add_post("/api/control/start_race", self.start_race_handler)
         self.app.router.add_post("/api/control/end_race", self.end_race_handler)
+        self.app.router.add_post("/api/control/pause_race", self.pause_race_handler)
+        self.app.router.add_post("/api/control/resume_race", self.resume_race_handler)
         self.app.router.add_post("/api/control/reset_race", self.reset_race_handler)
         self.app.router.add_post("/api/control/add_penalty", self.add_penalty_handler)
         self.app.router.add_post("/api/control/remove_lap", self.remove_lap_handler)
@@ -115,6 +121,9 @@ class RefereeWebAppServer:
             }
         )
 
+        if self._latest_snapshot is not None:
+            await ws.send_json(self._latest_snapshot)
+
         try:
             async for _msg in ws:
                 pass
@@ -137,28 +146,43 @@ class RefereeWebAppServer:
             raise RuntimeError("Redis not connected")
 
         command = str(payload.get("command", ""))
+        operator = payload.pop("operator", None)
         fields = {k: v for k, v in payload.items() if k != "command"}
         envelope = build_command_envelope(
             command,
             source="referee_web_app",
             **fields,
         )
+        if operator:
+            self._pending_operators[envelope["command_id"]] = operator
         validated = parse_command_envelope(envelope)
 
         await self.redis_client.publish(REDIS_IN_CHANNEL, json.dumps(validated))
 
     async def start_race_handler(self, request: web.Request) -> web.Response:
+        if self.db.get_in_progress_race() is not None:
+            return web.json_response(
+                {"ok": False, "error": "A race is already in progress"},
+                status=409,
+            )
         base = time.time() + 0.25
         ready_at = base
         set_at = base + 1.0
         go_at = base + 2.0
-        payload = {
+        payload: dict[str, Any] = {
             "command": "start_race",
             "ready_at": ready_at,
             "set_at": set_at,
             "go_at": go_at,
             "start_at": go_at,
         }
+        body = await request.json() if request.body_exists else {}
+        race_mode = body.get("race_mode")
+        total_laps = body.get("total_laps")
+        if race_mode:
+            payload["race_mode"] = str(race_mode)
+        if total_laps is not None:
+            payload["total_laps"] = int(total_laps)
         await self._publish_command(payload)
         return web.json_response({"ok": True, "published": payload})
 
@@ -167,6 +191,22 @@ class RefereeWebAppServer:
         if guard:
             return guard
         payload = {"command": "end_race"}
+        await self._publish_command(payload)
+        return web.json_response({"ok": True, "published": payload})
+
+    async def pause_race_handler(self, request: web.Request) -> web.Response:
+        guard = self._require_race_in_progress()
+        if guard:
+            return guard
+        payload = {"command": "pause_race"}
+        await self._publish_command(payload)
+        return web.json_response({"ok": True, "published": payload})
+
+    async def resume_race_handler(self, request: web.Request) -> web.Response:
+        guard = self._require_race_in_progress()
+        if guard:
+            return guard
+        payload = {"command": "resume_race"}
         await self._publish_command(payload)
         return web.json_response({"ok": True, "published": payload})
 
@@ -333,6 +373,12 @@ class RefereeWebAppServer:
 
         accepted = bool(msg.get("accepted", False))
         race_id = self._infer_current_race_id_for_audit()
+        command_id = msg.get("command_id")
+        operator = (
+            self._pending_operators.pop(str(command_id), None)
+            if command_id
+            else None
+        )
 
         try:
             self.db.add_race_control_action(
@@ -340,6 +386,7 @@ class RefereeWebAppServer:
                 accepted=accepted,
                 payload=msg,
                 race_id=race_id,
+                operator=operator,
             )
         except Exception as exc:
             logger.error("Failed to write race-control audit row: %s", exc)
@@ -371,6 +418,8 @@ class RefereeWebAppServer:
                         try:
                             parsed = json.loads(data)
                             if isinstance(parsed, dict):
+                                if parsed.get("snapshot_seq") is not None:
+                                    self._latest_snapshot = parsed
                                 if parsed.get("type") == "race_control":
                                     self._audit_race_control_event(parsed)
                                 await self.broadcast_to_websockets(parsed)

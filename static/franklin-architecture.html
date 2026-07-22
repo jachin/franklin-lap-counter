@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Franklin Lap Counter — Architecture</title>
+<script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+<link href="https://cdn.jsdelivr.net/npm/daisyui@5/dist/daisyui.css" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+<script>mermaid.initialize({startOnLoad:true,theme:'base',themeVariables:{primaryColor:'#1e3a5f',primaryTextColor:'#fff',primaryBorderColor:'#2d5a87',lineColor:'#4a7fb5',secondaryColor:'#1a2a3a',tertiaryColor:'#0d1b2a',fontSize:'14px'}})</script>
+<style>
+  body { background: #0a1628; }
+  .arch-card { transition: transform 0.2s, box-shadow 0.2s; }
+  .arch-card:hover { transform: translateY(-2px); box-shadow: 0 8px 24px rgba(0,0,0,0.4); }
+  .channel-line { border-left: 3px solid #3b82f6; }
+  .pulse { animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite; }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.5; } }
+</style>
+</head>
+<body class="min-h-screen p-6 text-gray-100">
+  <div class="max-w-7xl mx-auto">
+    <!-- Header -->
+    <div class="text-center mb-10">
+      <div class="badge badge-primary badge-outline mb-3 px-4 py-2 text-sm">v2.0.0</div>
+      <h1 class="text-5xl font-bold tracking-tight text-white">Franklin Lap Counter</h1>
+      <p class="text-xl text-gray-400 mt-3 max-w-2xl mx-auto">Event-driven microservice architecture for real-time RC car lap tracking</p>
+    </div>
+
+    <!-- Stats row -->
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-10">
+      <div class="stat bg-base-200/50 rounded-box border border-base-300/30">
+        <div class="stat-title text-gray-400">Services</div>
+        <div class="stat-value text-primary">8</div>
+        <div class="stat-desc text-gray-500">Python + Rust</div>
+      </div>
+      <div class="stat bg-base-200/50 rounded-box border border-base-300/30">
+        <div class="stat-title text-gray-400">Redis Channels</div>
+        <div class="stat-value text-accent">4</div>
+        <div class="stat-desc text-gray-500">Pub/sub bus</div>
+      </div>
+      <div class="stat bg-base-200/50 rounded-box border border-base-300/30">
+        <div class="stat-title text-gray-400">Language Split</div>
+        <div class="stat-value text-secondary">2</div>
+        <div class="stat-desc text-gray-500">Python + Rust</div>
+      </div>
+      <div class="stat bg-base-200/50 rounded-box border border-base-300/30">
+        <div class="stat-title text-gray-400">Deployment</div>
+        <div class="stat-value text-warning">Pi 5</div>
+        <div class="stat-desc text-gray-500">Kiosk mode</div>
+      </div>
+    </div>
+
+    <!-- Architecture Diagram -->
+    <div class="card bg-base-200/50 border border-base-300/30 mb-10">
+      <div class="card-body">
+        <h2 class="card-title text-2xl text-white mb-4">System Architecture</h2>
+        <div class="mermaid">
+          flowchart TB
+            subgraph Controllers["Controllers"]
+              TUI["franklin-tui.py<br/>Textual TUI"]:::py
+              GUI["franklin-gui.py<br/>GTK4 Desktop"]:::py
+              REF["referee_web_app.py<br/>Referee Panel"]:::py
+            end
+
+            subgraph HW_IN["hardware:in"]
+              IN_CH["Commands →<br/>start/pause/penalty"]:::channel
+            end
+
+            subgraph HW["Hardware Gateway"]
+              RUST["franklin-hardware-monitor<br/>Rust 🦀"]:::rust
+            end
+
+            subgraph HW_OUT["hardware:out"]
+              OUT_CH["Telemetry →<br/>laps / heartbeats"]:::channel
+            end
+
+            subgraph EVENTS["franklin:events"]
+              EVT_CH["Control Timeline →<br/>countdown / control"]:::channel
+            end
+
+            subgraph CORE["Race Engine"]
+              REC["franklin-race-recorder.py<br/>Headless Recorder"]:::py
+              ENGINE["race/race_engine.py<br/>Race Model"]:::py
+              DB[("SQLite<br/>franklin.db")]:::db
+            end
+
+            subgraph STATE["franklin:race_state"]
+              ST_CH["Authoritative Snapshots →<br/>leaderboard / laps"]:::channel
+            end
+
+            subgraph Viewers["Viewers"]
+              SB["scoreboard_web_app.py<br/>Spectator View"]:::py
+              DRV["driver_web_app.py<br/>Driver View"]:::py
+              HC["healthcheck_web_app.py<br/>Health Check"]:::py
+            end
+
+            TUI --> IN_CH
+            GUI --> IN_CH
+            REF --> IN_CH
+            IN_CH --> RUST
+            RUST --> OUT_CH
+            RUST --> EVT_CH
+            OUT_CH --> REC
+            EVT_CH --> REC
+            REC --> ENGINE
+            ENGINE --> DB
+            REC --> ST_CH
+            ST_CH --> TUI
+            ST_CH --> GUI
+            ST_CH --> SB
+            ST_CH --> DRV
+            ST_CH --> HC
+            ST_CH --> REF
+
+            classDef py fill:#1e3a5f,stroke:#3b82f6,color:#fff
+            classDef rust fill:#1a3a2a,stroke:#22c55e,color:#fff
+            classDef channel fill:#3b1f3a,stroke:#d946ef,color:#fff,stroke-dasharray: 5 5
+            classDef db fill:#3a2a1a,stroke:#f59e0b,color:#fff
+        </div>
+      </div>
+    </div>
+
+    <!-- Redis Channel Details -->
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-10">
+      <div class="card bg-base-200/50 border border-base-300/30">
+        <div class="card-body">
+          <h3 class="card-title text-lg text-white flex items-center gap-2">
+            <span class="badge badge-primary badge-sm">1</span>
+            hardware:in
+          </h3>
+          <p class="text-sm text-gray-400 mb-3">Commands <em>to</em> hardware starting from operator UIs</p>
+          <div class="flex flex-wrap gap-2">
+            <span class="badge badge-outline badge-primary">start_race</span>
+            <span class="badge badge-outline badge-primary">end_race</span>
+            <span class="badge badge-outline badge-primary">pause</span>
+            <span class="badge badge-outline badge-primary">resume</span>
+            <span class="badge badge-outline badge-primary">add_penalty</span>
+            <span class="badge badge-outline badge-primary">remove_lap</span>
+            <span class="badge badge-outline badge-primary">disqualify</span>
+          </div>
+          <div class="mt-3 text-xs text-gray-500"><span class="font-mono">Publishers:</span> TUI, GUI, Referee &nbsp;|&nbsp; <span class="font-mono">Subscriber:</span> Rust HW Monitor</div>
+        </div>
+      </div>
+      <div class="card bg-base-200/50 border border-base-300/30">
+        <div class="card-body">
+          <h3 class="card-title text-lg text-white flex items-center gap-2">
+            <span class="badge badge-secondary badge-sm">2</span>
+            hardware:out
+          </h3>
+          <p class="text-sm text-gray-400 mb-3">Telemetry <em>from</em> hardware — lap events, heartbeats, status</p>
+          <div class="flex flex-wrap gap-2">
+            <span class="badge badge-outline badge-secondary">lap</span>
+            <span class="badge badge-outline badge-secondary">start_race</span>
+            <span class="badge badge-outline badge-secondary">heartbeat</span>
+            <span class="badge badge-outline badge-secondary">status</span>
+            <span class="badge badge-outline badge-secondary">error</span>
+          </div>
+          <div class="mt-3 text-xs text-gray-500"><span class="font-mono">Publisher:</span> Rust HW Monitor &nbsp;|&nbsp; <span class="font-mono">Subscribers:</span> Recorder, TUI, GUI</div>
+        </div>
+      </div>
+      <div class="card bg-base-200/50 border border-base-300/30">
+        <div class="card-body">
+          <h3 class="card-title text-lg text-white flex items-center gap-2">
+            <span class="badge badge-accent badge-sm">3</span>
+            franklin:events
+          </h3>
+          <p class="text-sm text-gray-400 mb-3">Control timeline: countdown phases, race-control outcomes</p>
+          <div class="flex flex-wrap gap-2">
+            <span class="badge badge-outline badge-accent">countdown_phase</span>
+            <span class="badge badge-outline badge-accent">race_control</span>
+          </div>
+          <div class="mt-3 text-xs text-gray-500"><span class="font-mono">Publisher:</span> Rust HW Monitor &nbsp;|&nbsp; <span class="font-mono">Subscribers:</span> Recorder, TUI, GUI, all web apps</div>
+        </div>
+      </div>
+      <div class="card bg-base-200/50 border border-base-300/30">
+        <div class="card-body">
+          <h3 class="card-title text-lg text-white flex items-center gap-2">
+            <span class="badge badge-warning badge-sm">4</span>
+            franklin:race_state
+          </h3>
+          <p class="text-sm text-gray-400 mb-3">Authoritative full race-state snapshots (single writer)</p>
+          <div class="flex flex-wrap gap-2">
+            <span class="badge badge-outline badge-warning">leaderboard</span>
+            <span class="badge badge-outline badge-warning">lap_list</span>
+            <span class="badge badge-outline badge-warning">penalties</span>
+            <span class="badge badge-outline badge-warning">DQs</span>
+            <span class="badge badge-outline badge-warning">race_config</span>
+          </div>
+          <div class="mt-3 text-xs text-gray-500"><span class="font-mono">Publisher:</span> Race Recorder &nbsp;|&nbsp; <span class="font-mono">Subscribers:</span> All renderers &nbsp;|&nbsp; <span class="font-mono">Key:</span> race_state:latest</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Race Flow -->
+    <div class="card bg-base-200/50 border border-base-300/30 mb-10">
+      <div class="card-body">
+        <h2 class="card-title text-2xl text-white mb-4">Race Lifecycle</h2>
+        <div class="mermaid">
+          sequenceDiagram
+            participant Op as Operator
+            participant HW as HW Monitor
+            participant Rec as Recorder
+            participant V as Viewers
+
+            Op->>HW: start_race (config)
+            HW->>HW: Countdown ready/set/go
+            HW->>V: countdown_phase
+            activate HW
+            loop Every lap
+              HW->>HW: Detect crossing
+              HW->>Rec: lap (racer, sensor, time)
+              Rec->>Rec: Update RaceEngine
+              Rec->>V: race_state snapshot
+            end
+            deactivate HW
+            Op->>HW: end_race
+            HW->>Rec: status: ended
+            Rec->>Rec: Finalize & persist
+            Rec->>V: Final race_state
+        </div>
+      </div>
+    </div>
+
+    <!-- Design Principles -->
+    <div class="card bg-base-200/50 border border-base-300/30 mb-8">
+      <div class="card-body">
+        <h2 class="card-title text-2xl text-white mb-4">Design Principles</h2>
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div class="arch-card card bg-base-300/30 p-4">
+            <div class="text-3xl mb-2">🔒</div>
+            <h3 class="font-bold text-white">Single Writer</h3>
+            <p class="text-sm text-gray-400 mt-1">Redis lock ensures exactly one race recorder instance owns the model and SQLite. No split-brain.</p>
+          </div>
+          <div class="arch-card card bg-base-300/30 p-4">
+            <div class="text-3xl mb-2">👁️</div>
+            <h3 class="font-bold text-white">Pure View Layers</h3>
+            <p class="text-sm text-gray-400 mt-1">TUI, GUI, Scoreboard, Driver, Referee — all read-only renderers. They never compute race logic.</p>
+          </div>
+          <div class="arch-card card bg-base-300/30 p-4">
+            <div class="text-3xl mb-2">📡</div>
+            <h3 class="font-bold text-white">Event-Driven</h3>
+            <p class="text-sm text-gray-400 mt-1">Zero direct IPC. Everything flows through Redis pub/sub. Services can be stopped/started independently.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Footer -->
+    <div class="text-center text-gray-600 text-xs pb-4">
+      Generated by Lavish &middot; Franklin Lap Counter &middot; OpenCode
+    </div>
+  </div>
+</body>
+</html>

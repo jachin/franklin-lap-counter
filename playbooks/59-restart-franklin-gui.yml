@@ -5,7 +5,7 @@
   become: true
 
   vars:
-    franklin_gui_tmux_session: franklin-services
+    franklin_gui_tmux_session: franklin-tui
 
   tasks:
     - name: Detect active Wayland display for franklin user
@@ -29,7 +29,7 @@
         franklin_xdg_runtime_dir: "{{ wayland_env.stdout.split('|')[0] }}"
         franklin_wayland_display: "{{ wayland_env.stdout.split('|')[1] }}"
 
-    - name: Stop existing Franklin GUI/session if running
+    - name: Stop existing Franklin GUI session if running
       ansible.builtin.shell: |
         set -euo pipefail
         # Use bracketed patterns so pkill does not match its own command line.

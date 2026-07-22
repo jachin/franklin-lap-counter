@@ -1108,6 +1108,34 @@ async fn command_handler_task(hw: Arc<HardwareComm>, app: Arc<Mutex<App>>) -> Re
 
                             info!("{}", status_message);
                         }
+                        "pause_race" => {
+                            let _ = hw.send_message(&OutMessage::RaceControl {
+                                command: "pause_race".to_string(),
+                                command_id: command_id.clone(),
+                                recorded_at: now_epoch_seconds(),
+                                accepted: true,
+                                message: Some("Race paused".to_string()),
+                                racer_id: None,
+                                penalty_seconds: None,
+                                reason: None,
+                                lap_number: None,
+                            });
+                            info!("Race pause requested");
+                        }
+                        "resume_race" => {
+                            let _ = hw.send_message(&OutMessage::RaceControl {
+                                command: "resume_race".to_string(),
+                                command_id: command_id.clone(),
+                                recorded_at: now_epoch_seconds(),
+                                accepted: true,
+                                message: Some("Race resumed".to_string()),
+                                racer_id: None,
+                                penalty_seconds: None,
+                                reason: None,
+                                lap_number: None,
+                            });
+                            info!("Race resume requested");
+                        }
                         "end_race" => {
                             // Get simulation mode from app state
                             let rt = tokio::runtime::Handle::current();
@@ -1500,13 +1528,15 @@ async fn main() -> Result<()> {
     let simulation_mode = args.contains(&"--sim".to_string()) || args.contains(&"-s".to_string());
     let verbose = args.contains(&"--verbose".to_string()) || args.contains(&"-v".to_string());
 
-    // Parse redis socket path (--redis-socket <path>)
+    // Parse redis socket path (--redis-socket <path> or FRANKLIN_REDIS_SOCKET env)
+    let default_path = std::env::var("FRANKLIN_REDIS_SOCKET")
+        .unwrap_or_else(|_| DEFAULT_REDIS_SOCKET_PATH.to_string());
     let redis_socket_path = if let Some(pos) = args.iter().position(|a| a == "--redis-socket") {
         args.get(pos + 1)
             .map(|s| s.as_str())
-            .unwrap_or(DEFAULT_REDIS_SOCKET_PATH)
+            .unwrap_or(&default_path)
     } else {
-        DEFAULT_REDIS_SOCKET_PATH
+        &default_path
     };
 
     // Parse serial port (--serial-port <path>)
@@ -1544,7 +1574,7 @@ async fn main() -> Result<()> {
         Err(e) => {
             error!("Failed to connect to Redis: {}", e);
             eprintln!("Failed to connect to Redis: {}", e);
-            eprintln!("Make sure Redis is running with: redis-server --unixsocket ./redis.sock");
+            eprintln!("Make sure Redis is running (set FRANKLIN_REDIS_SOCKET or use --redis-socket)");
             return Err(e.into());
         }
     }

@@ -1,4 +1,10 @@
 #!/usr/bin/env python3
+"""Systemd wrapper for Franklin Lap Counter services.
+
+Replaces the old tmuxinator-based startup. All services are managed as
+systemd units under franklin.target.
+"""
+
 import os
 import shutil
 import subprocess
@@ -6,241 +12,173 @@ import sys
 from datetime import datetime
 
 
+FRANKLIN_TARGET = "franklin.target"
+
+
 def log(msg: str):
     print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] {msg}")
 
 
-def check_dependencies() -> bool:
-    missing = []
-    if not shutil.which("tmux"):
-        missing.append("tmux")
-    if not shutil.which("tmuxinator"):
-        missing.append("tmuxinator")
-
-    if missing:
-        log(f"❌ Missing dependencies: {' '.join(missing)}")
-        log("   Please install them first:")
-        log("   sudo apt-get install tmux")
-        log("   sudo gem install tmuxinator")
+def check_systemd() -> bool:
+    if not shutil.which("systemctl"):
+        log("❌ systemctl not found. This script requires systemd.")
         return False
     return True
 
 
-def check_files(tmuxinator_config: str) -> bool:
-    missing = []
-    if not os.path.isfile(tmuxinator_config):
-        missing.append(tmuxinator_config)
-
-    # Check for hardware monitor either locally or in system PATH
-    has_hw_monitor = os.path.isfile("franklin-hardware-monitor") or shutil.which(
-        "franklin-hardware-monitor"
-    )
-    if not has_hw_monitor:
-        missing.append("franklin-hardware-monitor")
-
-    for f in [
-        "franklin-tui.py",
-        "gui_config.py",
-        "redis_commands.py",
-        "scoreboard_web_app.py",
-        "referee_web_app.py",
-        "healthcheck_web_app.py",
-    ]:
-        if not os.path.isfile(f):
-            missing.append(f)
-
-    if not os.path.isdir(".venv"):
-        missing.append(".venv (Python virtual environment)")
-
-    if missing:
-        log(f"❌ Missing files: {', '.join(missing)}")
-        log("   Run deployment first: devbox run ansible:deploy")
-        return False
-    return True
+def run_systemctl(*args: str) -> subprocess.CompletedProcess:
+    return subprocess.run(["systemctl"] + list(args), capture_output=True, text=True)
 
 
-def stop_franklin(session_name: str):
-    log("Stopping Franklin Lap Counter...")
-
-    # Check if tmux session exists
-    if shutil.which("tmux"):
-        res = subprocess.run(
-            ["tmux", "has-session", "-t", session_name],
-            capture_output=True,
-        )
-        if res.returncode == 0:
-            log(f"Killing tmux session: {session_name}")
-            subprocess.run(["tmux", "kill-session", "-t", session_name])
-        else:
-            log("No running session found")
-
-    # Clean up any remaining processes
-    # Using pkill via subprocess
-    subprocess.run(["pkill", "-f", "franklin-hardware-monitor"], capture_output=True)
-    subprocess.run(["pkill", "-f", "redis-server.*redis.sock"], capture_output=True)
-
-    # Clean up socket file
-    if os.path.exists("redis.sock"):
-        try:
-            os.remove("redis.sock")
-        except Exception as e:
-            log(f"Error removing redis.sock: {e}")
-
-    log("✓ Franklin Lap Counter stopped")
-
-
-def start_franklin(session_name: str, tmuxinator_config: str):
-    log("Starting Franklin Lap Counter with tmuxinator...")
-    os.environ["TMUX_SESSION_NAME"] = session_name
-
-    # Check if session exists
-    res = subprocess.run(
-        ["tmux", "has-session", "-t", session_name],
-        capture_output=True,
-    )
-    if res.returncode == 0:
-        log(f"⚠ Session '{session_name}' already exists")
-        ans = input("Kill existing session and restart? (y/N): ").strip().lower()
-        if ans in ["y", "yes"]:
-            stop_franklin(session_name)
-        else:
-            log("Selecting lap-counter window and attaching to existing session...")
-            subprocess.run(
-                ["tmux", "select-window", "-t", f"{session_name}:lap-counter"],
-                capture_output=True,
-            )
-            subprocess.run(["tmux", "attach-session", "-t", session_name])
-            return
-
-    log(f"Starting tmux session with configuration: {tmuxinator_config}")
-    try:
-        subprocess.run(["tmuxinator", "start", "-p", tmuxinator_config], check=True)
-    except subprocess.CalledProcessError as e:
-        log(f"❌ Failed to start tmuxinator: {e}")
+def start_franklin():
+    log("Starting Franklin Lap Counter services...")
+    result = run_systemctl("start", FRANKLIN_TARGET)
+    if result.returncode == 0:
+        log("✓ Franklin services started")
+        show_status_summary()
+    else:
+        log(f"❌ Failed to start: {result.stderr.strip()}")
         sys.exit(1)
 
 
-def status_franklin(session_name: str):
-    log("Franklin Lap Counter Status:")
+def stop_franklin():
+    log("Stopping Franklin Lap Counter services...")
+    result = run_systemctl("stop", FRANKLIN_TARGET)
+    if result.returncode == 0:
+        log("✓ Franklin services stopped")
+    else:
+        log(f"❌ Failed to stop: {result.stderr.strip()}")
+        sys.exit(1)
 
-    # Check tmux session
-    res = subprocess.run(
-        ["tmux", "has-session", "-t", session_name],
-        capture_output=True,
-    )
-    if res.returncode == 0:
-        log(f"✓ Tmux session '{session_name}' is running")
-        log("Active windows:")
-        # List windows and indent output
-        windows = subprocess.check_output(
-            ["tmux", "list-windows", "-t", session_name],
-            text=True,
-        )
-        for line in windows.splitlines():
+
+def restart_franklin():
+    log("Restarting Franklin Lap Counter services...")
+    result = run_systemctl("restart", FRANKLIN_TARGET)
+    if result.returncode == 0:
+        log("✓ Franklin services restarted")
+        show_status_summary()
+    else:
+        log(f"❌ Failed to restart: {result.stderr.strip()}")
+        sys.exit(1)
+
+
+def status_franklin():
+    result = run_systemctl("is-active", FRANKLIN_TARGET)
+    is_active = result.stdout.strip() == "active"
+
+    if is_active:
+        log(f"✓ {FRANKLIN_TARGET} is active")
+    else:
+        log(f"❌ {FRANKLIN_TARGET} is not active")
+
+    print()
+    result = run_systemctl("status", "--no-pager", FRANKLIN_TARGET)
+    for line in result.stdout.splitlines():
+        print(f"  {line}")
+    if result.stderr.strip():
+        for line in result.stderr.splitlines():
             print(f"  {line}")
-    else:
-        log("❌ No tmux session found")
 
-    print("\nProcess status:")
-
-    # Helper function to check if process is running
-    def check_proc(pattern: str) -> bool:
-        try:
-            # -f matches full command line
-            subprocess.check_output(["pgrep", "-f", pattern])
-            return True
-        except subprocess.CalledProcessError:
-            return False
-
-    status_map = [
-        ("redis-server.*redis.sock", "Redis server"),
-        ("franklin-hardware-monitor", "Hardware monitor"),
-        ("franklin-tui.py", "Franklin TUI"),
-        ("scoreboard_web_app.py", "Scoreboard web server"),
-        ("referee_web_app.py", "Referee web server"),
-        ("healthcheck_web_app.py", "Health check web server"),
-    ]
-
-    for pattern, name in status_map:
-        if check_proc(pattern):
-            log(f"  ✓ {name} running")
-        else:
-            log(f"  ❌ {name} not running")
-
-
-def attach_franklin(session_name: str):
-    res = subprocess.run(
-        ["tmux", "has-session", "-t", session_name],
-        capture_output=True,
+    print()
+    result = run_systemctl(
+        "list-units", "--no-pager", "franklin-*", "--all"
     )
-    if res.returncode == 0:
-        log(f"Selecting lap-counter window and attaching to {session_name} session...")
-        subprocess.run(
-            ["tmux", "select-window", "-t", f"{session_name}:lap-counter"],
-            capture_output=True,
+    lines = [ln for ln in result.stdout.splitlines() if ln.strip()]
+    for line in lines:
+        print(f"  {line}")
+
+
+def show_status_summary():
+    result = run_systemctl("is-active", "--quiet", FRANKLIN_TARGET)
+    if result.returncode == 0:
+        print("  Active services:")
+        result = run_systemctl(
+            "list-units", "--no-pager", "franklin-*", "--all"
         )
-        subprocess.run(["tmux", "attach-session", "-t", session_name])
+        for line in result.stdout.splitlines():
+            parts = line.split()
+            if len(parts) >= 3 and parts[1] in ("loaded",):
+                status = "✓" if parts[2] == "active" else "❌"
+                print(f"    {status} {parts[0]}")
+
+
+def enable_franklin():
+    log("Enabling Franklin services to start on boot...")
+    result = run_systemctl("enable", FRANKLIN_TARGET)
+    if result.returncode == 0:
+        log("✓ Franklin services enabled on boot")
     else:
-        log(f"❌ No {session_name} session found. Start it first.")
+        log(f"❌ Failed to enable: {result.stderr.strip()}")
         sys.exit(1)
+
+
+def disable_franklin():
+    log("Disabling Franklin services on boot...")
+    result = run_systemctl("disable", FRANKLIN_TARGET)
+    if result.returncode == 0:
+        log("✓ Franklin services disabled on boot")
+    else:
+        log(f"❌ Failed to disable: {result.stderr.strip()}")
+        sys.exit(1)
+
+
+def logs_franklin(service: str = "", follow: bool = False):
+    if not service:
+        service = "franklin.target"
+    elif not service.startswith("franklin-"):
+        service = f"franklin-{service}"
+
+    cmd = ["journalctl", "-u", service, "--no-pager"]
+    if follow:
+        cmd.append("-f")
+    os.execvp("journalctl", cmd)
 
 
 def usage():
-    print(f"Usage: {sys.argv[0]} [start|stop|status|attach|restart]")
+    print(f"Usage: {sys.argv[0]} <command> [options]")
     print()
     print("Commands:")
-    print("  start   - Start Franklin Lap Counter with tmuxinator")
-    print("  stop    - Stop all Franklin processes and tmux session")
-    print("  status  - Show status of Franklin components")
-    print("  attach  - Attach to existing tmux session")
-    print("  restart - Stop and start Franklin")
+    print("  start           Start all Franklin services")
+    print("  stop            Stop all Franklin services")
+    print("  restart         Restart all Franklin services")
+    print("  status          Show status of all services")
+    print("  enable          Enable services on boot")
+    print("  disable         Disable services on boot")
+    print("  logs [service]  View logs (default: all)")
+    print("  logs -f         Follow logs (tail -f)")
     print()
-    print("If no command is provided, 'start' is assumed.")
+    print("Examples:")
+    print("  {} start".format(sys.argv[0]))
+    print("  {} status".format(sys.argv[0]))
+    print("  {} logs hardware-monitor -f".format(sys.argv[0]))
+    print("  {} logs race-recorder".format(sys.argv[0]))
 
 
 def main():
-    # Load .env if it exists
-    if os.path.exists(".env"):
-        with open(".env", "r") as f:
-            for line in f:
-                line = line.strip()
-                if line and not line.startswith("#") and "=" in line:
-                    key, val = line.split("=", 1)
-                    val = val.strip("'\"")
-                    os.environ[key] = val
+    if not check_systemd():
+        sys.exit(1)
 
-    # cd to the script's directory (which should be the project root when deployed)
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    os.chdir(script_dir)
+    command = sys.argv[1] if len(sys.argv) > 1 else ""
 
-    session_name = os.environ.get("TMUX_SESSION_NAME", "franklin")
-    tmuxinator_config = "tmuxinator/franklin.yml"
-
-    command = sys.argv[1] if len(sys.argv) > 1 else "start"
-
-    if command == "start":
-        log("Franklin Lap Counter Startup")
-        if not check_dependencies() or not check_files(tmuxinator_config):
-            sys.exit(1)
-        start_franklin(session_name, tmuxinator_config)
+    if command in ("start", ""):
+        enable_franklin()
+        start_franklin()
     elif command == "stop":
-        stop_franklin(session_name)
-    elif command == "status":
-        status_franklin(session_name)
-    elif command == "attach":
-        attach_franklin(session_name)
+        stop_franklin()
     elif command == "restart":
-        stop_franklin(session_name)
-        time_sleep = 2
-        # Use import time if we sleep
-        import time
-
-        time.sleep(time_sleep)
-        if check_dependencies() and check_files(tmuxinator_config):
-            start_franklin(session_name, tmuxinator_config)
-        else:
-            sys.exit(1)
-    elif command in ["-h", "--help", "help"]:
+        restart_franklin()
+    elif command == "status":
+        status_franklin()
+    elif command == "enable":
+        enable_franklin()
+    elif command == "disable":
+        disable_franklin()
+    elif command == "logs":
+        follow = "-f" in sys.argv
+        svc_args = [a for a in sys.argv[2:] if a != "-f"]
+        svc = svc_args[0] if svc_args else ""
+        logs_franklin(svc, follow)
+    elif command in ("-h", "--help", "help"):
         usage()
     else:
         log(f"❌ Unknown command: {command}")

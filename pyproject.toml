@@ -1,0 +1,20 @@
+[project]
+name = "franklin-lap-counter"
+version = "0.3.1"
+description = "Franklin RC Car Lap Counter"
+requires-python = ">=3.12"
+license = { text = "MIT" }
+authors = [
+    { name = "Jachin Rupe", email = "jachin@jachin.rupe.name" },
+]
+dependencies = [
+    "aiohttp",
+    "pygments",
+    "redis<6",
+    "rich",
+    "textual",
+    "typing-extensions",
+]
+
+[tool.setuptools.packages.find]
+include = ["race*"]

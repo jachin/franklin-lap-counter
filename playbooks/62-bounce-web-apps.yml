@@ -1,58 +1,26 @@
 ---
-- name: Bounce tmux-hosted web apps on Raspberry Pi
+- name: Bounce web app systemd services on Raspberry Pi
   hosts: all
   gather_facts: false
   become: true
 
   vars:
-    franklin_tmux_sessions:
-      - franklin
-      - franklin-services
+    franklin_web_services:
+      - franklin-scoreboard
+      - franklin-referee
+      - franklin-healthcheck
+      - franklin-driver
 
   tasks:
-    - name: Ensure scoreboard/referee/healthcheck/driver panes are running in active tmux sessions
-      ansible.builtin.shell: |
-        set -euo pipefail
-        cd "{{ pi_dest_dir }}"
-
-        changed=0
-
-        ensure_window() {
-          session="$1"
-          window="$2"
-          command="$3"
-
-          if tmux list-windows -t "$session" -F '#W' | grep -qx "$window"; then
-            tmux respawn-pane -k -t "$session:$window.0" "$command"
-            echo "Respawned ${session}:${window}"
-          else
-            tmux new-window -d -t "$session" -n "$window" "$command"
-            echo "Created ${session}:${window}"
-          fi
-
-          changed=1
-        }
-
-        for session in {{ franklin_tmux_sessions | join(' ') }}; do
-          if ! tmux has-session -t "$session" 2>/dev/null; then
-            continue
-          fi
-
-          ensure_window "$session" "web_scoreboard" "source .venv/bin/activate && export FRANKLIN_SESSION=tmux && echo 'Starting Web Server...' && python scoreboard_web_app.py"
-          ensure_window "$session" "web_referee" "source .venv/bin/activate && export FRANKLIN_SESSION=tmux && echo 'Starting Referee Web Server...' && python referee_web_app.py"
-          ensure_window "$session" "web_healthcheck" "source .venv/bin/activate && export FRANKLIN_SESSION=tmux && echo 'Starting Health Check Web Server...' && python healthcheck_web_app.py"
-          ensure_window "$session" "web_driver" "source .venv/bin/activate && export FRANKLIN_SESSION=tmux && echo 'Starting Driver Web Server...' && python driver_web_app.py"
-        done
-
-        if [ "$changed" -eq 0 ]; then
-          echo "No active tmux sessions found (sessions checked: {{ franklin_tmux_sessions | join(', ') }})"
-        fi
-      args:
-        executable: /bin/bash
-      become_user: "{{ franklin_user }}"
-      register: bounce_web_result
-      changed_when: "'Respawned' in bounce_web_result.stdout or 'Created' in bounce_web_result.stdout"
+    - name: Restart web app systemd services
+      ansible.builtin.systemd:
+        name: "{{ item }}"
+        state: restarted
+      loop: "{{ franklin_web_services }}"
+      register: bounce_result
+      changed_when: bounce_result is changed
+      ignore_errors: true
 
     - name: Bounce summary
       ansible.builtin.debug:
-        msg: "{{ bounce_web_result.stdout_lines }}"
+        msg: "{{ bounce_result.results | map(attribute='msg') | list }}"

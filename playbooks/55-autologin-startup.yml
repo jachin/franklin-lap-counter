@@ -62,9 +62,16 @@
               exec sway
             fi
 
-            if [ -x "{{ pi_dest_dir }}/start_franklin.py" ]; then
+            # Launch the TUI in a tmux session.
+            # Background services (redis, hardware monitor, race recorder,
+            # web apps) are managed by systemd; the GTK GUI is launched
+            # from the sway config.
+            if command -v tmuxinator >/dev/null 2>&1; then
               cd "{{ pi_dest_dir }}"
-              exec ./start_franklin.py
+              tmuxinator start franklin-tui 2>/dev/null || \
+                tmux new-session -s franklin-tui -d 'python franklin-tui.py' && \
+                tmux attach -t franklin-tui
+              exit
             fi
           fi
       when: franklin_enable_autostart

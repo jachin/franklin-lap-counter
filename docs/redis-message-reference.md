@@ -50,6 +50,8 @@ Supported commands:
   - if omitted, owner falls back to immediate start timing
   - optional race-config fields consumed by the headless recorder (ignored by the Rust owner): `race_mode` (RaceMode value string), `total_laps` (int), `race_end_mode` (RaceEndMode value string). The recorder caches these (keyed by `command_id`/`start_at`) and applies them when it sees the authoritative `hardware:out` `start_race` event.
 - `end_race`
+- `pause_race`
+- `resume_race`
 - `reset_race`
 - `simulate_lap` *(simulation/harness use)*
   - fields: optional `racer_id`, optional `sensor_id`, optional `race_time` (relative seconds for simulator input)
@@ -62,6 +64,11 @@ Supported commands:
   - fields: `racer_id` (required), optional `reason`
 - `request_status`
   - Request the current status of the hardware monitor (version, simulation mode, connection state). Responsive event is published on `hardware:out` as a `hardware_status` type.
+- `update_contestant_name`
+  - Updates a driver's name in the persisted config. Consumed by the race recorder (sole DB writer).
+  - fields: `racer_id` (required, positive int), `name` (required, non-empty string)
+  - After processing, the recorder calls `gui_config.write_config()` which persists to SQLite and publishes `preferences_changed` on `franklin:events`
+  - Note: this command can be sent from any client (including the driver web app); it is not restricted to the TUI/GUI
 
 Notes:
 
@@ -291,7 +298,7 @@ If `franklin:race_state:latest` is absent (recorder not yet running), views fall
 - **Subscribes:** `hardware:out`, `franklin:events`, `franklin:race_state` (and reads `franklin:race_state:latest` on connect)
 - **Reads (keys):** `franklin:race_recorder:lock` (liveness only; shows a big error banner when absent)
 - **Publishes:**
-  - `hardware:in` (`start_race` with schedule fields, `end_race`)
+  - `hardware:in` (`start_race` with schedule fields, `end_race`, `pause_race`, `resume_race`)
 - Renders the authoritative `franklin:race_state` snapshot; it never owns a `Race` model or writes SQLite. `hardware:out`/`franklin:events` are used display-only (heartbeat, countdown notifications, log lines).
 
 ## `franklin-gui.py` *(pure renderer — no DB writes)*
@@ -299,7 +306,7 @@ If `franklin:race_state:latest` is absent (recorder not yet running), views fall
 - **Subscribes:** `hardware:out`, `franklin:events`, `franklin:race_state` (and reads `franklin:race_state:latest` on connect)
 - **Reads (keys):** `franklin:race_recorder:lock` (liveness only; shows a big error banner + warns on command publish when absent)
 - **Publishes:**
-  - `hardware:in` (`start_race` with schedule fields, `end_race`, `reset_race`)
+  - `hardware:in` (`start_race` with schedule fields, `end_race`, `pause_race`, `resume_race`, `reset_race`)
 - Renders the authoritative `franklin:race_state` snapshot; it never owns a `Race` model or writes SQLite. `hardware:out`/`franklin:events` are used display-only (heartbeat, countdown/start lights, log lines).
 
 ## `franklin-race-recorder.py` *(headless recorder — sole race-model owner & DB writer)*
@@ -315,13 +322,13 @@ If `franklin:race_state:latest` is absent (recorder not yet running), views fall
 ## `driver_web_app.py`
 
 - **Subscribes:** `hardware:out`, `franklin:events`, `franklin:race_state`
-- **Publishes to Redis:** none
+- **Publishes to Redis:** `hardware:in` (`update_contestant_name` command via `POST /api/rename`)
 - **Forwards to browser clients:** all received Redis JSON messages over WebSocket
 
 ## `referee_web_app.py`
 
 - **Subscribes:** `hardware:out`, `franklin:events`, `franklin:race_state`
-- **Publishes:** `hardware:in` (`start_race` with schedule fields, `end_race`, `reset_race`, `add_penalty`, `remove_lap`, `disqualify_racer`)
+- **Publishes:** `hardware:in` (`start_race` with schedule fields, `end_race`, `pause_race`, `resume_race`, `reset_race`, `add_penalty`, `remove_lap`, `disqualify_racer`)
 - Adds metadata by default to command payloads: `command_id`, `source`, `timestamp`
 
 ## `scoreboard_web_app.py`

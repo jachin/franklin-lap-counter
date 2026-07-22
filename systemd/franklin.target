@@ -1,0 +1,10 @@
+[Unit]
+Description=Franklin Lap Counter (all services)
+Documentation=https://github.com/jachinrupe/franklin-lap-counter
+Requires=franklin-redis.service
+Wants=franklin-hardware-monitor.service franklin-race-recorder.service
+Wants=franklin-web-scoreboard.service franklin-web-referee.service franklin-web-healthcheck.service franklin-web-driver.service
+After=franklin-redis.service
+
+[Install]
+WantedBy=multi-user.target

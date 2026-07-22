@@ -233,6 +233,7 @@ class Franklin(App[Any]):  # type: ignore[type-arg]
     BINDINGS = [
         Binding("t", "toggle_mode", "Toggle Mode"),
         Binding("s", "start_race", "Start Race"),
+        Binding("space", "toggle_pause_resume", "Pause/Resume"),
         Binding("e", "end_race", "End Race"),
         Binding("r", "rename_driver", "Rename Driver"),
     ]
@@ -300,7 +301,7 @@ class Franklin(App[Any]):  # type: ignore[type-arg]
         self._recorder_present_cached: bool | None = None
         self._redis_client = None
         self._redis_pubsub = None
-        self.config_path = Path("franklin.config.json")
+        self.config_path = Path("db") / "franklin.config.json"
         self.update_subtitle()
 
     def update_subtitle(self) -> None:
@@ -627,6 +628,7 @@ class Franklin(App[Any]):  # type: ignore[type-arg]
         race_time_display = self.query_one(RaceTimeDisplay)
         race_status_display = self.query_one(RaceStatusDisplay)
         start_btn = self.query_one("#start_btn", Button)
+        pause_resume_btn = self.query_one("#pause_resume_btn", Button)
         stop_btn = self.query_one("#stop_btn", Button)
         while True:
             snapshot = self.snapshot
@@ -642,6 +644,8 @@ class Franklin(App[Any]):  # type: ignore[type-arg]
 
             running = snapshot.is_going
             start_btn.disabled = running
+            pause_resume_btn.disabled = snapshot.state not in ("running", "paused")
+            pause_resume_btn.label = "Resume" if snapshot.state == "paused" else "Pause"
             stop_btn.disabled = not running
 
             await asyncio.sleep(0.1)
@@ -660,6 +664,7 @@ class Franklin(App[Any]):  # type: ignore[type-arg]
             with Horizontal():
                 with Vertical(id="race_controls"):
                     yield Button("Start Race", id="start_btn")
+                    yield Button("Pause", id="pause_resume_btn", disabled=True)
                     yield Button("End Race", id="stop_btn", disabled=True)
                 yield RaceTimeDisplay(name="Race Time", id="race_time", classes="box")
                 yield RaceStatusDisplay(id="race_status", classes="box")
@@ -723,12 +728,22 @@ class Franklin(App[Any]):  # type: ignore[type-arg]
         if self._publish_command("end_race"):
             self.notify("Requested race end", severity="information")
 
+    def action_toggle_pause_resume(self) -> None:
+        if self.snapshot.state == "running":
+            if self._publish_command("pause_race"):
+                self.notify("Requested race pause", severity="information")
+        elif self.snapshot.state == "paused":
+            if self._publish_command("resume_race"):
+                self.notify("Requested race resume", severity="information")
+
     def on_button_pressed(self, event: Button.Pressed) -> None:
         button_id = event.button.id
         if button_id == "start_btn":
             self.action_start_race()
         elif button_id == "stop_btn":
             self.action_end_race()
+        elif button_id == "pause_resume_btn":
+            self.action_toggle_pause_resume()
 
     def action_rename_driver(self) -> None:
         """Action to open the rename driver dialog."""

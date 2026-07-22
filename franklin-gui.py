@@ -20,6 +20,7 @@ Redis channels/messages and the snapshot schema.
 import argparse
 import json
 import logging
+import os
 import queue
 import socket
 import subprocess
@@ -30,6 +31,14 @@ from typing import Any
 
 import gi
 import redis
+
+try:
+    import sounddevice as _sounddevice
+
+    _HAS_SOUNDDEVICE = True
+except ImportError:
+    _sounddevice = None  # type: ignore[assignment]
+    _HAS_SOUNDDEVICE = False
 
 from gui_config import load_initial_config, write_config
 from race.contestant import Contestant
@@ -72,7 +81,7 @@ class FranklinGuiApp(Gtk.Application):
         race_end_mode: RaceEndMode,
         last_race_contestant_ids: list[int],
         racer_color_assignments: dict[int, RacerColorScheme],
-        redis_socket: str = "./redis.sock",
+        redis_socket: str | None = None,
     ) -> None:
         super().__init__(application_id="com.franklin.lapcounter.gui")
 
@@ -106,7 +115,7 @@ class FranklinGuiApp(Gtk.Application):
         self._ensure_racer_color_assignments(known_racer_ids, persist=False)
 
         # Redis contract reference: docs/redis-message-reference.md
-        self.redis_socket = redis_socket
+        self.redis_socket = redis_socket or os.environ.get("FRANKLIN_REDIS_SOCKET", "./redis.sock")
         self.redis_in_channel = "hardware:in"
         self.redis_out_channel = "hardware:out"
         self.redis_events_channel = "franklin:events"
@@ -119,7 +128,7 @@ class FranklinGuiApp(Gtk.Application):
         self._redis_client: redis.Redis | None = None
         self._redis_pubsub = None
 
-        self.config_path = Path("franklin.config.json")
+        self.config_path = Path("db") / "franklin.config.json"
 
         self.lap_counter_detected = False
         self._last_lap_counter_signal_time: float | None = None
@@ -148,6 +157,7 @@ class FranklinGuiApp(Gtk.Application):
         self.leaderboard_scroll: Gtk.ScrolledWindow | None = None
         self._initial_scale: float = 1.0
         self.events_view: Gtk.TextView | None = None
+        self.events_lap_box: Gtk.Box | None = None
         self.panes: Gtk.Paned | None = None
         self.events_box: Gtk.Box | None = None
         self._events_visible = False
@@ -164,16 +174,50 @@ class FranklinGuiApp(Gtk.Application):
         self._swatch_css_classes: dict[tuple[str, str], str] = {}
 
         # Start light UI (mirrored on both sides of the timer)
-        self._start_light_count = 4
+        self._start_light_count = 3
         self._start_light_left_areas: list[Gtk.Widget] = []
         self._start_light_right_areas: list[Gtk.Widget] = []
+        # ``_start_light_classes`` is the LEFT stack pattern; the right stack
+        # mirrors it (see ``_apply_start_lights``) so the two groups of three
+        # lights fill symmetrically outward from the timer — matching the
+        # left-to-right red→green "wave" the web pages show.
         self._start_light_classes: list[str] = [
             "start-light-red"
         ] * self._start_light_count
+        self._start_light_right_classes: list[str] = list(self._start_light_classes)
         self._start_light_spacing_px = 6
         self._start_light_diameter_px: int | None = None
         self._start_sequence_running = False
         self._start_sequence_phase: str | None = None
+        # Set True the first time an authoritative ``countdown_phase`` event
+        # drives the lights. While False the local fallback preview may run;
+        # once True the events own the lights and the preview stands down so the
+        # two never fight (which previously made the GUI revert/appear to pause).
+        self._countdown_event_seen = False
+        # Anchor for inter-phase synchronization: the epoch+monotonic time when
+        # "ready" was received.  Used to compute relative delays for "set" and
+        # "go" so that network latency in event delivery does not compress or
+        # stretch the countdown interval (mirrors the web pages' algorithm).
+        self._countdown_ready_at_epoch: float | None = None
+        self._countdown_ready_at_monotonic: float | None = None
+
+        # CPU guards: skip the expensive leaderboard/lap grid rebuilds when the
+        # underlying data has not changed between refreshes.
+        self._leaderboard_signature_cache: object | None = None
+        self._lap_events_signature_cache: object | None = None
+
+        # Countdown/finish sound patch (shared JSON with the web pages). The GUI
+        # only renders the "classic" style; the web pages can also use "8bit".
+        self._sound_patch: dict[str, Any] | None = None
+        self._load_sound_patch()
+        # Pre-rendered countdown sound PCM buffers (int16 LE mono, 44100 Hz).
+        # Populated by _pre_render_countdown_sounds(); avoids per-play synthesis
+        # on the GTK main thread.
+        self._pre_rendered_sounds: dict[str, bytes] = {}
+        # Persistent sounddevice output stream for low-latency playback.
+        self._audio_stream: Any = None
+        self._pre_render_countdown_sounds()
+        self._init_audio_stream()
 
         self._register_actions_and_shortcuts()
 
@@ -214,14 +258,32 @@ class FranklinGuiApp(Gtk.Application):
         # An authoritative running/finished state ends any local countdown visuals.
         if self.snapshot.is_going:
             self._start_sequence_running = False
+            self._countdown_event_seen = False
             self._set_start_sequence_phase(None)
+            self._countdown_ready_at_epoch = None
+            self._countdown_ready_at_monotonic = None
             self._set_start_lights("#2e7d32")
-        elif self.snapshot.state in {"finished", "not_started"}:
+        elif self.snapshot.state == "finished":
             self._start_sequence_running = False
+            self._countdown_event_seen = False
             self._set_start_sequence_phase(None)
+            self._countdown_ready_at_epoch = None
+            self._countdown_ready_at_monotonic = None
+        elif self.snapshot.state == "not_started":
+            # A not_started snapshot arriving *during* an active countdown must
+            # not clobber the countdown lights — the countdown_phase events own
+            # them until the race actually starts (state becomes running). Only
+            # clear the overlay when no countdown is in progress (e.g. a real
+            # reset back to idle).
+            if not self._start_sequence_running:
+                self._countdown_event_seen = False
+                self._set_start_sequence_phase(None)
+                self._countdown_ready_at_epoch = None
+                self._countdown_ready_at_monotonic = None
 
         if previous_state != "finished" and self.snapshot.state == "finished":
             self.save_config()
+            self._play_sound("finish")
 
         self.refresh_views()
 
@@ -245,7 +307,7 @@ class FranklinGuiApp(Gtk.Application):
         if mode_action:
             mode_action.set_enabled(not running and not starting)
 
-            # Sync the checked state of GIO action "mode" with the actual race mode
+        # Sync the checked state of GIO action "mode" with the actual race mode
             if self.snapshot.is_going and self.snapshot.race_mode:
                 if self.snapshot.race_mode == RaceMode.REAL.value:
                     mode_str = "real"
@@ -270,6 +332,7 @@ class FranklinGuiApp(Gtk.Application):
             ("start_race", self._action_start_race),
             ("end_race", self._action_end_race),
             ("reset_race", self._action_reset_race),
+            ("pause_resume", self._action_pause_resume),
             ("toggle_mode", self._action_toggle_mode),
             ("toggle_event_log", self._action_toggle_event_log),
             ("manage_drivers", self._action_manage_drivers),
@@ -326,6 +389,15 @@ class FranklinGuiApp(Gtk.Application):
     def _action_reset_race(self, _action: Gio.SimpleAction, _param: Any) -> None:
         self.on_reset_clicked(None)
 
+    def _action_pause_resume(self, _action: Gio.SimpleAction, _param: Any) -> None:
+        if self.snapshot.state == "running":
+            self.publish_command("pause_race")
+            self.append_event("Requested race pause")
+        elif self.snapshot.state == "paused":
+            self.publish_command("resume_race")
+            self.append_event("Requested race resume")
+        self.refresh_views()
+
     def _action_toggle_mode(self, _action: Gio.SimpleAction, _param: Any) -> None:
         if self.snapshot.is_going:
             self.append_event("Cannot change mode while race is running")
@@ -368,6 +440,7 @@ class FranklinGuiApp(Gtk.Application):
         race_menu.append("Start Race", "app.start_race")
         race_menu.append("End Race", "app.end_race")
         race_menu.append("Reset Race", "app.reset_race")
+        race_menu.append("Pause/Resume", "app.pause_resume")
         menu_model.append_submenu("Race", race_menu)
 
         # Mode Submenu
@@ -460,16 +533,19 @@ class FranklinGuiApp(Gtk.Application):
             )
 
         events_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
-        events_box.append(Gtk.Label(label="Events"))
-        events_view = Gtk.TextView()
-        events_view.set_editable(False)
-        events_view.set_monospace(True)
-        self.events_view = events_view
+        events_label = Gtk.Label(label="Lap Events")
+        events_label.add_css_class("leaderboard-title")
+        events_box.append(events_label)
+
+        events_lap_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        events_lap_box.set_hexpand(True)
+        events_lap_box.set_vexpand(True)
+        self.events_lap_box = events_lap_box
 
         events_scroll = Gtk.ScrolledWindow()
         events_scroll.set_vexpand(True)
         events_scroll.set_hexpand(True)
-        events_scroll.set_child(events_view)
+        events_scroll.set_child(events_lap_box)
         events_box.append(events_scroll)
         self.events_box = events_box
 
@@ -511,6 +587,7 @@ class FranklinGuiApp(Gtk.Application):
         root.append(recorder_banner)
         root.append(clock_frame)
         root.append(status)
+
         root.append(panes)
         root.append(Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL))
         root.append(status_bar)
@@ -532,7 +609,7 @@ class FranklinGuiApp(Gtk.Application):
 
         self.connect_redis()
         GLib.timeout_add(100, self.update_time)
-        GLib.timeout_add(50, self.drain_incoming_messages)
+        GLib.timeout_add(10, self.drain_incoming_messages)
         self._update_recorder_banner()
         GLib.timeout_add(2000, self._update_recorder_banner)
 
@@ -558,6 +635,7 @@ class FranklinGuiApp(Gtk.Application):
             pass
         if self._system_status_thread and self._system_status_thread.is_alive():
             self._system_status_thread.join(timeout=1.0)
+        self._close_audio_stream()
         Gtk.Application.do_shutdown(self)
 
     def toggle_event_log_visibility(self, show: bool | None = None) -> None:
@@ -706,23 +784,52 @@ class FranklinGuiApp(Gtk.Application):
             box.append(area)
         return box
 
-    def _set_start_light_pattern(self, classes: list[str]) -> None:
-        if len(classes) != self._start_light_count:
-            return
+    # Mirror the right stack so the green "wave" fills symmetrically outward
+    # from the timer (left-to-right on the left stack, right-to-left on the
+    # right). Set to False to keep both stacks identical (in sync).
+    MIRROR_START_LIGHTS = True
 
-        if classes == self._start_light_classes:
+    # Monotonic ordering of start-sequence phases so a late/out-of-order
+    # ``countdown_phase`` event (or a stale local timer) can never regress the
+    # GUI from a later phase back to an earlier one — that regression used to
+    # make the GUI look like it paused/re-started late.
+    _START_PHASE_ORDER = {"ready": 1, "set": 2, "go": 3, "running": 4}
+
+    def _start_phase_level(self) -> int:
+        return self._START_PHASE_ORDER.get(self._start_sequence_phase or "", 0)
+
+    def _apply_start_lights(
+        self, left_classes: list[str], right_classes: list[str] | None = None
+    ) -> None:
+        if len(left_classes) != self._start_light_count:
+            return
+        if right_classes is None:
+            right_classes = (
+                list(reversed(left_classes))
+                if self.MIRROR_START_LIGHTS
+                else list(left_classes)
+            )
+        if len(right_classes) != self._start_light_count:
+            right_classes = list(left_classes)
+
+        if (
+            left_classes == self._start_light_classes
+            and right_classes == self._start_light_right_classes
+        ):
             return
 
         previous = self._start_light_classes
-        self._start_light_classes = classes.copy()
+        previous_right = self._start_light_right_classes
+        self._start_light_classes = left_classes.copy()
+        self._start_light_right_classes = right_classes.copy()
 
         for idx, area in enumerate(self._start_light_left_areas):
             area.remove_css_class(previous[idx])
-            area.add_css_class(classes[idx])
+            area.add_css_class(left_classes[idx])
 
         for idx, area in enumerate(self._start_light_right_areas):
-            area.remove_css_class(previous[idx])
-            area.add_css_class(classes[idx])
+            area.remove_css_class(previous_right[idx])
+            area.add_css_class(right_classes[idx])
 
     def _set_start_lights(self, color_hex: str) -> None:
         target_class = {
@@ -730,15 +837,220 @@ class FranklinGuiApp(Gtk.Application):
             "#f9a825": "start-light-yellow",
             "#2e7d32": "start-light-green",
         }.get(color_hex, "start-light-red")
-        self._set_start_light_pattern([target_class] * self._start_light_count)
+        self._apply_start_lights([target_class] * self._start_light_count)
 
     def _sync_start_lights_with_race_state(self) -> None:
         if self._start_sequence_running:
             return
         if self.snapshot.is_going:
             self._set_start_lights("#2e7d32")
+        elif self.snapshot.state == "paused":
+            self._set_start_lights("#f9a825")
         else:
             self._set_start_lights("#c62828")
+
+    # --- Countdown / finish sounds -------------------------------------------
+    # The GUI synthesizes the same tones the web pages use (see
+    # static/sounds.json) as raw PCM (int16 LE mono, 44100 Hz) and plays them
+    # through a persistent ``sounddevice`` output stream for low-latency
+    # playback.  Falls back to ``aplay`` in a background thread when
+    # sounddevice is unavailable.
+
+    def _load_sound_patch(self) -> None:
+        self._sound_patch = None
+        try:
+            path = Path(__file__).resolve().parent / "static" / "sounds.json"
+            with path.open(encoding="utf-8") as fh:
+                data = json.load(fh)
+            self._sound_patch = data.get("classic", {})
+            logging.info("Loaded 'classic' sound patch from %s", path)
+        except Exception as exc:
+            logging.warning("Sound patch unavailable (sounds disabled): %s", exc)
+            self._sound_patch = None
+
+    # -- audio synthesis ------------------------------------------------------
+
+    def _render_voices_to_pcm(
+        self, voices: list[dict[str, Any]], sr: int = 44100
+    ) -> bytes:
+        """Render *voices* to raw PCM (int16 LE mono, *sr* Hz)."""
+        import math
+        import random
+        import struct
+
+        if not voices:
+            return b""
+        total = 0.0
+        for v in voices:
+            total = max(total, float(v.get("start", 0.0)) + float(v.get("dur", 0.0)))
+        total += 0.05
+        n = int(total * sr)
+        if n <= 0:
+            return b""
+        buf = [0.0] * n
+
+        for v in voices:
+            vtype = v.get("type", "sine")
+            freq = float(v.get("freq", 440.0))
+            start = float(v.get("start", 0.0))
+            dur = float(v.get("dur", 0.2))
+            attack = float(v.get("attack", 0.01))
+            vol = float(v.get("vol", 0.3))
+            s0 = int(start * sr)
+            nd = int(dur * sr)
+            if nd <= 0:
+                continue
+            attack_n = max(1, int(attack * sr))
+            for i in range(nd):
+                t = i / sr
+                if i < attack_n:
+                    env = (i / attack_n) * vol
+                elif nd > attack_n:
+                    env = vol * (1.0 - (i - attack_n) / (nd - attack_n))
+                else:
+                    env = 0.0
+                if vtype == "noise":
+                    sample = random.random() * 2.0 - 1.0
+                elif vtype == "sine":
+                    sample = math.sin(2.0 * math.pi * freq * t)
+                elif vtype == "pulse":
+                    sample = 0.5 * math.cos(2.0 * math.pi * 3.0 * freq * t)
+                    sample += 0.5 * math.cos(2.0 * math.pi * 4.0 * freq * t)
+                elif vtype == "square":
+                    sample = 1.0 if math.sin(2.0 * math.pi * freq * t) >= 0.0 else -1.0
+                else:
+                    sample = math.sin(2.0 * math.pi * freq * t)
+                idx = s0 + i
+                if 0 <= idx < n:
+                    buf[idx] += env * sample
+
+        frames = bytearray(n * 2)
+        for i, s in enumerate(buf):
+            s = max(-1.0, min(1.0, s))
+            struct.pack_into("<h", frames, i * 2, int(s * 32767))
+        return bytes(frames)
+
+    def _render_voices_to_wav(self, voices: list[dict[str, Any]], sr: int = 44100) -> bytes:
+        """Render *voices* to a WAV file (used only for aplay fallback)."""
+        import io
+        import wave
+
+        pcm = self._render_voices_to_pcm(voices, sr)
+        if not pcm:
+            return b""
+        out = io.BytesIO()
+        with wave.open(out, "wb") as w:
+            w.setnchannels(1)
+            w.setsampwidth(2)
+            w.setframerate(sr)
+            w.writeframes(pcm)
+        return out.getvalue()
+
+    # -- pre-rendering --------------------------------------------------------
+
+    def _pre_render_countdown_sounds(self) -> None:
+        """Pre-render ready/set/go/finish sounds to raw PCM for instant playback."""
+        if not self._sound_patch:
+            return
+        for name in ("ready", "set", "go", "finish"):
+            defn = self._sound_patch.get(name)
+            if not defn:
+                continue
+            voices = defn.get("voices", [])
+            if not voices:
+                continue
+            try:
+                pcm = self._render_voices_to_pcm(voices)
+                if pcm:
+                    self._pre_rendered_sounds[name] = pcm
+            except Exception as exc:
+                logging.warning("Failed to pre-render sound %r: %s", name, exc)
+        if self._pre_rendered_sounds:
+            logging.info(
+                "Pre-rendered %d countdown sounds", len(self._pre_rendered_sounds)
+            )
+
+    # -- persistent audio stream (sounddevice) --------------------------------
+
+    def _init_audio_stream(self) -> None:
+        """Open a persistent ``sounddevice.RawOutputStream`` for low-latency
+        playback.  The stream stays open between sounds to avoid device
+        open/close overhead."""
+        if not _HAS_SOUNDDEVICE:
+            return
+        try:
+            self._audio_stream = _sounddevice.RawOutputStream(  # type: ignore[union-attr]
+                samplerate=44100,
+                channels=1,
+                dtype="int16",
+            )
+            self._audio_stream.start()
+            logging.info("Opened persistent sounddevice output stream")
+        except Exception as exc:
+            logging.warning("sounddevice stream unavailable (falling back to aplay): %s", exc)
+            self._audio_stream = None
+
+    def _close_audio_stream(self) -> None:
+        """Stop and close the persistent audio stream."""
+        if self._audio_stream is None:
+            return
+        try:
+            self._audio_stream.stop()
+            self._audio_stream.close()
+        except Exception:
+            pass
+        self._audio_stream = None
+
+    # -- playback -------------------------------------------------------------
+
+    def _play_sound(self, name: str) -> None:
+        pcm: bytes | None = self._pre_rendered_sounds.get(name)
+        if pcm is None:
+            # Not pre-rendered (e.g. loaded after pre-render); render on demand.
+            if not self._sound_patch:
+                return
+            defn = self._sound_patch.get(name)
+            if not defn:
+                return
+            voices = defn.get("voices", [])
+            if not voices:
+                return
+            try:
+                pcm = self._render_voices_to_pcm(voices)
+            except Exception as exc:
+                logging.warning("Failed to render sound %r: %s", name, exc)
+                return
+            if not pcm:
+                return
+
+        # Fast path: write directly to the open sounddevice stream.
+        if self._audio_stream is not None:
+            try:
+                self._audio_stream.write(pcm)
+                return
+            except Exception as exc:
+                logging.warning("sounddevice write failed (falling back to aplay): %s", exc)
+                self._audio_stream = None
+
+        # Fallback: render WAV and play through aplay in a background thread.
+        try:
+            wav = self._render_voices_to_wav(
+                (self._sound_patch or {}).get(name, {}).get("voices", [])
+            ) if self._sound_patch else b""
+        except Exception:
+            wav = b""
+        if not wav:
+            return
+
+        def _play() -> None:
+            try:
+                subprocess.run(["aplay", "-q"], input=wav, check=False)
+            except FileNotFoundError:
+                logging.warning("aplay not found; cannot play sound %r", name)
+            except Exception as exc:
+                logging.warning("Failed to play sound %r: %s", name, exc)
+
+        threading.Thread(target=_play, daemon=True).start()
 
     def _set_start_sequence_phase(self, phase: str | None) -> None:
         self._start_sequence_phase = phase
@@ -769,7 +1081,7 @@ class FranklinGuiApp(Gtk.Application):
         # Don't exceed timer text height.
         max_by_height = max(10, timer_height - 4)
 
-        # Fit all 4 lights on each side of the timer.
+        # Fit all 3 lights on each side of the timer.
         # clock_row spacing is 24 between [left-lights][timer][right-lights] => 48 total
         approx_side_width = max(40, int((window_width - timer_width - 48) / 2))
         max_by_width = max(
@@ -791,6 +1103,7 @@ class FranklinGuiApp(Gtk.Application):
         self._start_sequence_running = True
         self._set_start_sequence_phase("Starting")
         self._set_start_lights("#c62828")
+        self._countdown_event_seen = False
         self.append_event("Start countdown")
 
         self._sync_controls_with_race_state()
@@ -822,37 +1135,28 @@ class FranklinGuiApp(Gtk.Application):
         )
         self.append_event(f"Scheduled countdown (go at {go_at:.3f})")
 
-        # Local visual countdown preview. If Redis timeline events arrive, those
-        # handlers keep this in sync; when the running snapshot arrives,
-        # handle_snapshot() clears the sequence.
-        def show_ready_local() -> bool:
-            if not self._start_sequence_running or self.snapshot.is_going:
+        # Local visual countdown preview. This is only a *fallback* for when the
+        # authoritative ``countdown_phase`` events never arrive (e.g. no recorder
+        # echo). As soon as a real event drives the lights (``_countdown_event_seen``)
+        # this preview stands down so the two never fight or regress each other.
+        def show_phase_local(phase: str, left_classes: list[str] | None) -> bool:
+            if (
+                self._countdown_event_seen
+                or not self._start_sequence_running
+                or self.snapshot.is_going
+            ):
                 return False
-            self._set_start_sequence_phase("Ready")
-            self._set_start_light_pattern(
-                [
-                    "start-light-yellow",
-                    "start-light-red",
-                    "start-light-red",
-                    "start-light-yellow",
-                ]
-            )
-            self.refresh_views()
-            return False
-
-        def show_set_local() -> bool:
-            if not self._start_sequence_running or self.snapshot.is_going:
-                return False
-            self._set_start_sequence_phase("Set")
-            self._set_start_lights("#f9a825")
-            self.refresh_views()
-            return False
-
-        def show_go_local() -> bool:
-            if not self._start_sequence_running or self.snapshot.is_going:
-                return False
-            self._set_start_sequence_phase("Go")
-            self._set_start_lights("#2e7d32")
+            if phase == "go":
+                self._set_start_sequence_phase("Go")
+                self._set_start_lights("#2e7d32")
+            else:
+                if phase == "set":
+                    set_level = self._START_PHASE_ORDER.get("set", 0)
+                    if set_level < self._start_phase_level():
+                        return False
+                self._set_start_sequence_phase(phase.capitalize())
+                if left_classes:
+                    self._apply_start_lights(left_classes)
             self.refresh_views()
             return False
 
@@ -861,9 +1165,19 @@ class FranklinGuiApp(Gtk.Application):
         set_delay_ms = max(0, int((set_at - now_epoch) * 1000))
         go_delay_ms = max(0, int((go_at - now_epoch) * 1000))
 
-        GLib.timeout_add(ready_delay_ms, show_ready_local)
-        GLib.timeout_add(set_delay_ms, show_set_local)
-        GLib.timeout_add(go_delay_ms, show_go_local)
+        GLib.timeout_add(
+            ready_delay_ms,
+            show_phase_local,
+            "ready",
+            ["start-light-green", "start-light-red", "start-light-red"],
+        )
+        GLib.timeout_add(
+            set_delay_ms,
+            show_phase_local,
+            "set",
+            ["start-light-green", "start-light-green", "start-light-red"],
+        )
+        GLib.timeout_add(go_delay_ms, show_phase_local, "go", None)
 
     def _run_command(self, args: list[str], timeout: float = 1.0) -> str:
         try:
@@ -1390,6 +1704,34 @@ class FranklinGuiApp(Gtk.Application):
                     cell_label.set_size_request(status_col_width_px, -1)
                 self.leaderboard_grid.attach(cell_label, col, row_index, 1, 1)
 
+    def _render_lap_events(self) -> None:
+        if not self.events_lap_box:
+            return
+
+        child = self.events_lap_box.get_first_child()
+        while child is not None:
+            next_child = child.get_next_sibling()
+            self.events_lap_box.remove(child)
+            child = next_child
+
+        for lap in self.snapshot.laps:
+            display_name = self.global_contestants.get_contestant_name(lap.racer_id)
+            if lap.lap_number == 0:
+                text = (
+                    f"Racer {display_name} START TRIGGER | "
+                    f"Time: {self._format_time_cs(lap.race_time)}"
+                )
+            else:
+                text = (
+                    f"Racer {display_name} Lap {lap.lap_number} | "
+                    f"Race Time: {self._format_time_cs(lap.race_time)}, "
+                    f"Lap Time: {self._format_time_cs(lap.lap_time)}"
+                )
+            label = Gtk.Label(label=text)
+            label.set_xalign(0)
+            label.set_hexpand(False)
+            self.events_lap_box.append(label)
+
     def refresh_views(self) -> None:
         self._sync_start_lights_with_race_state()
         self._sync_controls_with_race_state()
@@ -1428,7 +1770,25 @@ class FranklinGuiApp(Gtk.Application):
                     laps_remaining = self.snapshot.laps_remaining_leader
                 self.laps_remaining_label.set_text(f"Laps Remaining: {laps_remaining}")
 
-        self._render_leaderboard_grid()
+        # CPU guard: the leaderboard and lap grids are the most expensive parts
+        # of a refresh. Skip the rebuilds entirely when the underlying data has
+        # not changed — this keeps the GTK main loop responsive during the
+        # countdown and steady-state racing so snapshots/events are rendered on
+        # time (a saturated main loop was making the GUI appear to start late).
+        # ``_referee_adjusted_leaderboard`` yields plain tuples, so the signature
+        # is just the tuple-of-tuples (do NOT index attributes on them).
+        leaderboard_sig = tuple(self._referee_adjusted_leaderboard())
+        if leaderboard_sig != self._leaderboard_signature_cache:
+            self._leaderboard_signature_cache = leaderboard_sig
+            self._render_leaderboard_grid()
+
+        lap_sig = tuple(
+            (lap.racer_id, lap.lap_number, lap.race_time, lap.lap_time)
+            for lap in self.snapshot.laps
+        )
+        if lap_sig != self._lap_events_signature_cache:
+            self._lap_events_signature_cache = lap_sig
+            self._render_lap_events()
 
     def update_time(self) -> bool:
         self._update_start_light_size()
@@ -1560,6 +1920,7 @@ class FranklinGuiApp(Gtk.Application):
             ("?", "Show keyboard shortcuts"),
             ("Ctrl+S", "Start race"),
             ("Ctrl+E", "End race"),
+            ("Ctrl+P", "Pause/Resume race"),
             ("Ctrl+Shift+R", "Reset race"),
             ("Ctrl+T", "Toggle race mode"),
             ("Ctrl+L", "Toggle event log"),
@@ -1637,6 +1998,9 @@ class FranklinGuiApp(Gtk.Application):
             return True
         if keyval == Gdk.KEY_comma and not shift:
             self.on_preferences_clicked(None)
+            return True
+        if keyval in (Gdk.KEY_p, Gdk.KEY_P) and not shift:
+            self._action_pause_resume(None, None)
             return True
         return False
 
@@ -2023,10 +2387,16 @@ class FranklinGuiApp(Gtk.Application):
                 channel, msg = self._incoming_messages.get_nowait()
             except queue.Empty:
                 break
-            if channel == self.redis_race_state_channel:
-                self.handle_snapshot(msg)
-            else:
-                self.handle_hardware_message(msg)
+            try:
+                if channel == self.redis_race_state_channel:
+                    self.handle_snapshot(msg)
+                else:
+                    self.handle_hardware_message(msg)
+            except Exception as exc:
+                # Never let a single malformed message kill the drain loop —
+                # if this callback raises, GLib deschedules it and the GUI would
+                # silently freeze on the last snapshot forever.
+                logging.error("Error handling %s message: %s", channel, exc)
         return True
 
     def handle_hardware_message(self, msg: dict[str, Any]) -> None:
@@ -2076,29 +2446,64 @@ class FranklinGuiApp(Gtk.Application):
             at_epoch = (
                 float(at_raw) if isinstance(at_raw, (int, float)) else time.time()
             )
-            delay_ms = max(0, int((at_epoch - time.time()) * 1000))
+
+            # Anchor-based scheduling: mirror the web pages' algorithm so that
+            # network latency does not compress or stretch the countdown interval.
+            # When "ready" arrives we store the epoch time and the local monotonic
+            # clock.  For "set" and "go" we compute the remaining delay as:
+            #   (at - ready_at) - (now_monotonic - ready_at_monotonic)
+            # which preserves the intended spacing regardless of delivery delay.
+            if phase == "ready":
+                self._countdown_ready_at_epoch = at_epoch
+                self._countdown_ready_at_monotonic = time.monotonic()
+                delay_ms = 0
+            elif phase in ("set", "go") and self._countdown_ready_at_epoch is not None and self._countdown_ready_at_monotonic is not None:
+                anchor_mono = self._countdown_ready_at_monotonic
+                anchor_epoch = self._countdown_ready_at_epoch
+                total_seconds = at_epoch - anchor_epoch
+                total_ms = total_seconds * 1000
+                elapsed_ms = (time.monotonic() - anchor_mono) * 1000
+                delay_ms = max(0, int(total_ms - elapsed_ms))
+            else:
+                delay_ms = max(0, int((at_epoch - time.time()) * 1000))
 
             def apply_phase() -> bool:
+                # Authoritative race is running/finished: never let a late or
+                # out-of-order countdown event regress the lights.
+                if self.snapshot.is_going:
+                    return False
+                new_level = self._START_PHASE_ORDER.get(phase, 0)
+                if new_level and new_level < self._start_phase_level():
+                    return False
+
+                self._countdown_event_seen = True
+                self._start_sequence_running = True
                 if phase == "ready":
-                    self._start_sequence_running = True
                     self._set_start_sequence_phase("Ready")
-                    self._set_start_light_pattern(
+                    self._apply_start_lights(
                         [
-                            "start-light-yellow",
+                            "start-light-green",
                             "start-light-red",
                             "start-light-red",
-                            "start-light-yellow",
                         ]
                     )
+                    self._play_sound("ready")
                     self.append_event("Ready")
                 elif phase == "set":
-                    self._start_sequence_running = True
                     self._set_start_sequence_phase("Set")
-                    self._set_start_lights("#f9a825")
+                    self._apply_start_lights(
+                        [
+                            "start-light-green",
+                            "start-light-green",
+                            "start-light-red",
+                        ]
+                    )
+                    self._play_sound("set")
                     self.append_event("Set")
                 elif phase == "go":
                     self._set_start_sequence_phase("Go")
                     self._set_start_lights("#2e7d32")
+                    self._play_sound("go")
                     self.append_event("Go")
                 self.refresh_views()
                 return False
@@ -2107,6 +2512,11 @@ class FranklinGuiApp(Gtk.Application):
             return
 
         if msg_type == "start_race":
+            # Ensure countdown sounds are ready and the audio stream is open.
+            if not self._pre_rendered_sounds:
+                self._pre_render_countdown_sounds()
+            if self._audio_stream is None and _HAS_SOUNDDEVICE:
+                self._init_audio_stream()
             at_raw = msg.get("at")
             at_epoch = (
                 float(at_raw) if isinstance(at_raw, (int, float)) else time.time()

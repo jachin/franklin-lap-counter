@@ -1,0 +1,29 @@
+[Unit]
+Description=Franklin web driver (team/racer view)
+Documentation=https://github.com/jachinrupe/franklin-lap-counter
+After=franklin-redis.service
+Requires=franklin-redis.service
+
+[Service]
+Type=simple
+User=franklin
+Group=franklin
+WorkingDirectory=/opt/franklin-lap-counter
+Environment=FRANKLIN_REDIS_SOCKET=/opt/franklin-lap-counter/run/redis.sock
+ExecStart=/opt/franklin-lap-counter/.venv/bin/python /opt/franklin-lap-counter/driver_web_app.py
+Restart=always
+RestartSec=3
+
+# Logging
+LogsDirectory=franklin
+LogsDirectoryMode=0755
+StandardOutput=append:/var/log/franklin/franklin-web-driver.log
+StandardError=inherit
+
+# Sandboxing
+PrivateTmp=yes
+ProtectSystem=full
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

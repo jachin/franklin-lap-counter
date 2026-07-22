@@ -22,14 +22,14 @@ from database import LapDatabase
 
 # Redis contract reference: docs/redis-message-reference.md
 # Configuration
-REDIS_SOCKET_PATH = "./redis.sock"
+REDIS_SOCKET_PATH = os.environ.get("FRANKLIN_REDIS_SOCKET", "./redis.sock")
 REDIS_OUT_CHANNEL = "hardware:out"
 REDIS_EVENTS_CHANNEL = "franklin:events"
 RACE_STATE_CHANNEL = "franklin:race_state"
 WEB_PORT = 8085
 WEB_HOST = "0.0.0.0"  # Bind to all network interfaces
 STATIC_DIR = Path(__file__).parent / "static"
-DB_PATH = "franklin.db"
+DB_PATH = str(Path(__file__).parent / "db" / "franklin.db")
 CONFIG_PATH = Path(__file__).parent / "franklin.config.json"
 
 # Logging setup
@@ -56,6 +56,7 @@ class ScoreboardWebAppServer:
         self.redis_pubsub: Any | None = None
         self.websockets: set[web.WebSocketResponse] = set()
         self.db: LapDatabase = LapDatabase(db_path)
+        self._latest_snapshot: dict[str, Any] | None = None
 
         # Setup routes
         self.app.router.add_get("/ws", self.websocket_handler)
@@ -196,6 +197,10 @@ class ScoreboardWebAppServer:
         try:
             # Send initial connection confirmation
             await ws.send_json({"type": "connected", "message": "WebSocket connected"})
+
+            # Send latest snapshot so client immediately shows current state
+            if self._latest_snapshot is not None:
+                await ws.send_json(self._latest_snapshot)
 
             # Keep connection alive and handle incoming messages (if any)
             async for msg in ws:
@@ -349,6 +354,8 @@ class ScoreboardWebAppServer:
                 if message and message["type"] == "message":
                     try:
                         data = json.loads(message["data"])
+                        if data.get("snapshot_seq") is not None:
+                            self._latest_snapshot = data
                         logger.debug(
                             f"Broadcasting to {len(self.websockets)} clients: {data.get('type', 'unknown')}"
                         )

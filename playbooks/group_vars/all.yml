@@ -5,6 +5,7 @@ franklin_group: franklin
 franklin_home: "/home/{{ franklin_user }}"
 franklin_shell: /usr/bin/zsh
 franklin_supplementary_groups:
+  - sudo
   - dialout
   - video
   - input
@@ -30,7 +31,7 @@ franklin_wayvnc_password: franklinvnc
 pi_firmware_config_path: /boot/firmware/config.txt
 
 # Default target app directory on the Pi
-pi_dest_dir: "{{ franklin_home }}/franklin-lap-counter"
+pi_dest_dir: /opt/franklin-lap-counter
 
 # Apt packages required by Franklin setup
 system_packages:
@@ -50,6 +51,7 @@ system_packages:
   - xwayland
   - seatd
   - libudev-dev
+  - libportaudio2
 
 # Python packages installed in the app venv
 python_packages:
@@ -59,12 +61,16 @@ python_packages:
   - aiohttp
   - pygments
   - rich
+  - sounddevice
 
 # Raspberry Pi AP/router (hotspot) settings
+# Set to false to disable the hotspot playbook entirely (skips hostapd, dnsmasq, nftables AP config).
+# NOTE: Ethernet must be connected during initial install for package downloads and system configuration.
+franklin_enable_hotspot: false
 franklin_ap_interface: wlan0
 # Uplink can be set explicitly (e.g. eth0), or left as auto to resolve from
 # the Pi's current default IPv4 route (portable across different networks).
-franklin_uplink_interface: auto
+franklin_uplink_interface: eth0
 # Fallback uplink interface when no default route exists (for offline setup).
 franklin_uplink_interface_fallback: eth0
 franklin_ap_ssid: FranklinLapCounter

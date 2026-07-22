@@ -11,21 +11,29 @@ from racer_colors import COLOR_SCHEMES
 
 class TestLoadInitialConfig(unittest.TestCase):
     def test_missing_config_file_uses_defaults(self):
-        missing_path = Path("/tmp/definitely_missing_franklin_config.json")
-        race_mode, total_laps, race_end_mode, contestants, last_race_ids, color_map = (
-            load_initial_config(missing_path)
-        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            missing_path = Path(tmpdir) / "franklin.config.json"
+            db_path = Path(tmpdir) / "franklin.db"
+            (
+                race_mode,
+                total_laps,
+                race_end_mode,
+                contestants,
+                last_race_ids,
+                color_map,
+            ) = load_initial_config(missing_path, db_path=db_path)
 
-        self.assertEqual(race_mode, RaceMode.TRAINING)
-        self.assertEqual(total_laps, 10)
-        self.assertEqual(race_end_mode, RaceEndMode.LAST_CAR)
-        self.assertEqual(contestants, [])
-        self.assertEqual(last_race_ids, [])
-        self.assertEqual(color_map, {})
+            self.assertEqual(race_mode, RaceMode.TRAINING)
+            self.assertEqual(total_laps, 10)
+            self.assertEqual(race_end_mode, RaceEndMode.LAST_CAR)
+            self.assertEqual(contestants, [])
+            self.assertEqual(last_race_ids, [])
+            self.assertEqual(color_map, {})
 
     def test_missing_race_end_mode_does_not_block_startup(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             config_path = Path(tmpdir) / "franklin.config.json"
+            db_path = Path(tmpdir) / "franklin.db"
             config_path.write_text(
                 json.dumps(
                     {
@@ -43,7 +51,7 @@ class TestLoadInitialConfig(unittest.TestCase):
                 contestants,
                 last_race_ids,
                 color_map,
-            ) = load_initial_config(config_path)
+            ) = load_initial_config(config_path, db_path=db_path)
 
             self.assertEqual(race_mode, RaceMode.TRAINING)
             self.assertEqual(total_laps, 7)
@@ -55,6 +63,7 @@ class TestLoadInitialConfig(unittest.TestCase):
     def test_invalid_total_laps_preserves_other_preferences(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             config_path = Path(tmpdir) / "franklin.config.json"
+            db_path = Path(tmpdir) / "franklin.db"
             config_path.write_text(
                 json.dumps(
                     {
@@ -72,7 +81,7 @@ class TestLoadInitialConfig(unittest.TestCase):
                 contestants,
                 last_race_ids,
                 color_map,
-            ) = load_initial_config(config_path)
+            ) = load_initial_config(config_path, db_path=db_path)
 
             self.assertEqual(race_mode, RaceMode.TRAINING)
             self.assertEqual(total_laps, 10)
@@ -84,6 +93,7 @@ class TestLoadInitialConfig(unittest.TestCase):
     def test_invalid_race_end_mode_falls_back_to_default(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             config_path = Path(tmpdir) / "franklin.config.json"
+            db_path = Path(tmpdir) / "franklin.db"
             config_path.write_text(
                 json.dumps(
                     {
@@ -101,7 +111,7 @@ class TestLoadInitialConfig(unittest.TestCase):
                 contestants,
                 last_race_ids,
                 color_map,
-            ) = load_initial_config(config_path)
+            ) = load_initial_config(config_path, db_path=db_path)
 
             self.assertEqual(race_mode, RaceMode.TRAINING)
             self.assertEqual(total_laps, 12)
@@ -113,6 +123,7 @@ class TestLoadInitialConfig(unittest.TestCase):
     def test_race_mode_accepts_human_friendly_and_legacy_values(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             config_path = Path(tmpdir) / "franklin.config.json"
+            db_path = Path(tmpdir) / "franklin.db"
 
             config_path.write_text(json.dumps({"race_mode": "Fake Race Mode"}))
             (
@@ -122,11 +133,10 @@ class TestLoadInitialConfig(unittest.TestCase):
                 _contestants,
                 _last_race_ids,
                 _color_map,
-            ) = load_initial_config(config_path)
+            ) = load_initial_config(config_path, db_path=db_path)
             self.assertEqual(race_mode, RaceMode.FAKE)
 
             # Delete the SQLite database to force a fresh migration from the new JSON config file
-            db_path = config_path.parent / "franklin.db"
             if db_path.exists():
                 db_path.unlink()
 
@@ -138,12 +148,13 @@ class TestLoadInitialConfig(unittest.TestCase):
                 _contestants,
                 _last_race_ids,
                 _color_map,
-            ) = load_initial_config(config_path)
+            ) = load_initial_config(config_path, db_path=db_path)
             self.assertEqual(race_mode, RaceMode.REAL)
 
     def test_last_race_contestant_ids_are_loaded_and_sanitized(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             config_path = Path(tmpdir) / "franklin.config.json"
+            db_path = Path(tmpdir) / "franklin.db"
             config_path.write_text(
                 json.dumps(
                     {
@@ -159,12 +170,13 @@ class TestLoadInitialConfig(unittest.TestCase):
                 _contestants,
                 last_race_ids,
                 _color_map,
-            ) = load_initial_config(config_path)
+            ) = load_initial_config(config_path, db_path=db_path)
             self.assertEqual(last_race_ids, [5, 7, 9])
 
     def test_racer_color_assignments_are_loaded_and_sanitized(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             config_path = Path(tmpdir) / "franklin.config.json"
+            db_path = Path(tmpdir) / "franklin.db"
             config_path.write_text(
                 json.dumps(
                     {
@@ -188,7 +200,7 @@ class TestLoadInitialConfig(unittest.TestCase):
                 _contestants,
                 _last_race_ids,
                 color_map,
-            ) = load_initial_config(config_path)
+            ) = load_initial_config(config_path, db_path=db_path)
             self.assertEqual(
                 color_map,
                 {
@@ -203,8 +215,10 @@ class TestWriteConfig(unittest.TestCase):
     def test_write_config_round_trip_with_load_initial_config(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             config_path = Path(tmpdir) / "nested" / "franklin.config.json"
+            db_path = Path(tmpdir) / "franklin.db"
             write_config(
                 config_path,
+                db_path=db_path,
                 race_mode=RaceMode.REAL,
                 total_laps=14,
                 race_end_mode=RaceEndMode.MANUAL,
@@ -219,7 +233,6 @@ class TestWriteConfig(unittest.TestCase):
                 },
             )
 
-            db_path = config_path.parent / "franklin.db"
             self.assertTrue(db_path.exists())
 
             (
@@ -229,7 +242,7 @@ class TestWriteConfig(unittest.TestCase):
                 contestants,
                 last_race_ids,
                 color_map,
-            ) = load_initial_config(config_path)
+            ) = load_initial_config(config_path, db_path=db_path)
 
             self.assertEqual(race_mode, RaceMode.REAL)
             self.assertEqual(total_laps, 14)
@@ -253,8 +266,10 @@ class TestWriteConfig(unittest.TestCase):
     def test_write_config_persists_expected_json_shape(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             config_path = Path(tmpdir) / "franklin.config.json"
+            db_path = Path(tmpdir) / "franklin.db"
             write_config(
                 config_path,
+                db_path=db_path,
                 race_mode=RaceMode.FAKE,
                 total_laps=9,
                 race_end_mode=RaceEndMode.LAST_CAR,
@@ -265,7 +280,6 @@ class TestWriteConfig(unittest.TestCase):
 
             from database import LapDatabase
 
-            db_path = config_path.parent / "franklin.db"
             db = LapDatabase(str(db_path))
             self.assertEqual(db.get_preference("race_mode"), RaceMode.FAKE.value)
             self.assertEqual(db.get_preference("total_laps"), 9)

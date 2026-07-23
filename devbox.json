@@ -33,10 +33,7 @@
     "dpkg":                                "latest",
     "cargo-cross":                         "latest",
     "python313Packages.sounddevice":       "latest",
-    "reflex":                              "0.3.2",
-    "systemd.dev": {
-      "excluded_platforms": ["aarch64-darwin"]
-    }
+    "reflex":                              "0.3.2"
   },
   "env": {
     "GI_TYPELIB_PATH": "$GI_TYPELIB_PATH:$(${pkgs.lib.makeSearchPathOutput \"lib\" \"lib/girepository-1.0\" [ pkgs.gtk4 pkgs.pango pkgs.gdk-pixbuf pkgs.gobject-introspection ]})"

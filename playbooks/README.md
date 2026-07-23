@@ -24,7 +24,6 @@ These playbooks provide modular, idempotent infrastructure/setup and deployment 
 - `55-autologin-startup.yml` - configure boot autologin (`tty1`) and login-shell Franklin autostart (TUI via tmux)
 - `56-wayland-sway.yml` - configure sway (Wayland) session to auto-start Franklin GUI stack
 - `57-hdmi-hotplug.yml` - ensure `hdmi_force_hotplug=1` in firmware config for monitor detection reliability
-- `58-wayvnc.yml` - install/configure WayVNC for SSH-tunneled remote GUI access
 - `60-system-info.yml` - print OS/Python/glibc/Redis info
 - `61-health-check.yml` - verifies Caddy + health-check app and fetches the health report JSON
 - `62-bounce-web-apps.yml` - respawn/create tmux web windows (`web_scoreboard`, `web_referee`, `web_healthcheck`)
@@ -96,7 +95,6 @@ ansible-playbook -i playbooks/inventory.ini playbooks/site.yml \
 - Boot behavior is configurable with `franklin_enable_autologin`, `franklin_enable_autostart`, `franklin_enable_wayland_boot`, and `franklin_autologin_tty` in `group_vars/all.yml`.
 - Hotspot/router behavior is configurable with `franklin_enable_hotspot` (default: true) and `franklin_ap_*` vars in `group_vars/all.yml`.
 - Uplink interface selection is portable by default: `franklin_uplink_interface: auto` resolves from the Pi's default route and falls back to `franklin_uplink_interface_fallback` for offline setups.
-- WayVNC behavior is configurable with `franklin_enable_wayvnc`, `franklin_wayvnc_bind_address`, `franklin_wayvnc_port`, `franklin_wayvnc_enable_auth`, `franklin_wayvnc_username`, and `franklin_wayvnc_password` in `group_vars/all.yml`.
 - Firmware display setting uses `pi_firmware_config_path` (defaults to `/boot/firmware/config.txt`) and enforces `hdmi_force_hotplug=1`.
 - `30-tmuxinator.yml` installs tmuxinator only if it is missing.
 - This setup stage prepares the target machine; deployment of app binaries/files remains in your existing deploy flow.

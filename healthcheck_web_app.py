@@ -56,7 +56,6 @@ class HealthCheckWebAppServer:
             "serialmonitor": self._check_serialmonitor,
             "referee_process": self._check_referee_process,
             "driver_process": self._check_driver_process,
-            "wayvnc_process": self._check_wayvnc_process,
             "emoji_font": self._check_emoji_font,
             "scoreboard_direct_http": self._check_scoreboard_direct_http,
             "referee_direct_http": self._check_referee_direct_http,
@@ -247,9 +246,6 @@ class HealthCheckWebAppServer:
 
     async def _check_driver_process(self) -> dict[str, Any]:
         return await self._run_command_async(["pgrep", "-af", "driver_web_app.py"])
-
-    async def _check_wayvnc_process(self) -> dict[str, Any]:
-        return await self._run_command_async(["pgrep", "-af", "wayvnc"])
 
     async def _check_emoji_font(self) -> dict[str, Any]:
         return await self._run_command_async(

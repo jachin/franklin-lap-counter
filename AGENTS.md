@@ -67,11 +67,11 @@ The project uses a custom Redis instance listening on a Unix socket at `/opt/fra
 ## GUI / Start Sequence
 
 ### Start Light Pattern
-The start lights (mirrored on both sides of the timer) must fill **symmetrically outward from the timer**. 
-- **Ready:** The innermost lights (closest to the timer) turn green.
-- **Set:** The innermost and middle lights turn green.
-- **Go:** All lights turn green.
-- **Inversion Bug:** Previous versions filled lights from the outside in, which was corrected to match the "symmetrically outward" design requirement.
+The start lights (mirrored on both sides of the timer) indicate the race start sequence:
+- **Ready:** The outermost lights (farthest from the timer) turn RED, all other lights off.
+- **Set:** The middle lights turn on YELLOW (added to the RED lights).
+- **Go:** The innermost lights (closest to the timer) turn on GREEN (all three lights are now on).
+- **History:** Previously used a "symmetrically outward green fill" pattern which was replaced by this Red-Yellow-Green sequence.
 
 ### Countdown Ownership
 - **FAKE mode:** The `franklin-race-recorder.py` publishes `countdown_phase` events.

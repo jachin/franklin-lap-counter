@@ -115,7 +115,7 @@
                 height: 24px;
                 border-radius: 50%;
                 border: 2px solid #141414;
-                background: var(--bad);
+                background: #141414;
             }
 
             .light.red {
@@ -128,6 +128,10 @@
 
             .light.green {
                 background: var(--good);
+            }
+
+            .light.off {
+                background: #141414;
             }
 
             .mode-badge {
@@ -406,17 +410,17 @@
 
             function syncLightsForPhase() {
                 if (state.phase === "ready") {
-                    setLights(["green", "red", "red"]);
+                    setLights(["red", "off", "off"]);
                     el.phaseText.textContent = "State: starting - ready";
                     return;
                 }
                 if (state.phase === "set") {
-                    setLights(["green", "green", "red"]);
+                    setLights(["red", "yellow", "off"]);
                     el.phaseText.textContent = "State: starting - set";
                     return;
                 }
                 if (state.phase === "go" || state.phase === "running") {
-                    setLights(["green", "green", "green"]);
+                    setLights(["red", "yellow", "green"]);
                     el.phaseText.textContent = "State: running";
                     return;
                 }
@@ -426,7 +430,7 @@
                     return;
                 }
 
-                setLights(["red", "red", "red"]);
+                setLights(["off", "off", "off"]);
                 el.phaseText.textContent = "State: waiting";
             }
 

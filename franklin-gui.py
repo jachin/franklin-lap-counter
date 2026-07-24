@@ -770,11 +770,12 @@ class FranklinGuiApp(Gtk.Application):
         .start-light {{
             border-radius: 999px;
             border: 2px solid #141414;
-            background-color: #c62828;
+            background-color: #141414;
         }}
         .start-light-red {{ background-color: #c62828; }}
         .start-light-yellow {{ background-color: #f9a825; }}
         .start-light-green {{ background-color: #2e7d32; }}
+        .start-light-off {{ background-color: #141414; }}
         """
 
     def _build_swatch_css(self) -> str:
@@ -1193,15 +1194,20 @@ class FranklinGuiApp(Gtk.Application):
             ready_delay_ms,
             show_phase_local,
             "ready",
-            ["start-light-red", "start-light-red", "start-light-green"],
+            ["start-light-red", "start-light-off", "start-light-off"],
         )
         GLib.timeout_add(
             set_delay_ms,
             show_phase_local,
             "set",
-            ["start-light-red", "start-light-green", "start-light-green"],
+            ["start-light-red", "start-light-yellow", "start-light-off"],
         )
-        GLib.timeout_add(go_delay_ms, show_phase_local, "go", None)
+        GLib.timeout_add(
+            go_delay_ms,
+            show_phase_local,
+            "go",
+            ["start-light-red", "start-light-yellow", "start-light-green"],
+        )
 
     def _run_command(self, args: list[str], timeout: float = 1.0) -> str:
         try:
@@ -2507,8 +2513,8 @@ class FranklinGuiApp(Gtk.Application):
                     self._apply_start_lights(
                         [
                             "start-light-red",
-                            "start-light-red",
-                            "start-light-green",
+                            "start-light-off",
+                            "start-light-off",
                         ]
                     )
                     self._play_sound("ready")
@@ -2518,15 +2524,21 @@ class FranklinGuiApp(Gtk.Application):
                     self._apply_start_lights(
                         [
                             "start-light-red",
-                            "start-light-green",
-                            "start-light-green",
+                            "start-light-yellow",
+                            "start-light-off",
                         ]
                     )
                     self._play_sound("set")
                     self.append_event("Set")
                 elif phase == "go":
                     self._set_start_sequence_phase("Go")
-                    self._set_start_lights("#2e7d32")
+                    self._apply_start_lights(
+                        [
+                            "start-light-red",
+                            "start-light-yellow",
+                            "start-light-green",
+                        ]
+                    )
                     self._play_sound("go")
                     self.append_event("Go")
                 self.refresh_views()

@@ -151,6 +151,7 @@
     .status-light-red { background: var(--red); box-shadow: 0 0 5px var(--red); }
     .status-light-yellow { background: var(--yellow); box-shadow: 0 0 5px var(--yellow); }
     .status-light-green { background: var(--green); box-shadow: 0 0 5px var(--green); }
+    .status-light-off { background: var(--border); box-shadow: none; }
     .race-status-text {
       font-size: 0.95rem;
       font-weight: 600;
@@ -543,11 +544,11 @@
     function setStartLights(state, phase) {
       const lights = document.querySelectorAll('.status-light');
       let colors;
-      if (phase === 'ready') colors = ['green', 'red', 'red'];
-      else if (phase === 'set') colors = ['green', 'green', 'red'];
-      else if (phase === 'go' || state === 'running' || state === 'winner_declared') colors = ['green', 'green', 'green'];
+      if (phase === 'ready') colors = ['red', 'off', 'off'];
+      else if (phase === 'set') colors = ['red', 'yellow', 'off'];
+      else if (phase === 'go' || state === 'running' || state === 'winner_declared') colors = ['red', 'yellow', 'green'];
       else if (state === 'paused') colors = ['yellow', 'yellow', 'yellow'];
-      else colors = ['red', 'red', 'red'];
+      else colors = ['off', 'off', 'off'];
       lights.forEach((el, i) => {
         el.className = `status-light status-light-${colors[i]}`;
       });

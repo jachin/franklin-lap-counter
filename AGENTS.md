@@ -5,7 +5,7 @@
 3. A feature is not considered complete until we run linters and fix any resulting errors or warnings.
 4. `docs/redis-message-reference.md` is the canonical source for Redis channels/messages and pub/sub ownership; when Redis contracts change, update that file first and have other docs reference it.
 5. `franklin-gui.py` uses GTK4; ensure all GTK calls use GTK4 APIs and patterns.
-6. When you discover important information about this codebase (new patterns, gotchas, architectural changes, new commands, etc.), update `~/.agents/skills/franklin/SKILL.md` so the shared skill stays current. This is how the project's knowledge grows over time.
+6. When you discover important information about this codebase (new patterns, gotchas, architectural changes, new commands, etc.), update `AGENTS.md` so the shared knowledge stays current. This is how the project's knowledge grows over time.
 7. **Deploy commands to push fixes to the Pi:**
    - `devbox run deploy` — builds `.deb` then runs `ansible:deploy`
    - `devbox run ansible:deploy` — pushes files + `.deb` to Pi
@@ -48,4 +48,62 @@
      `countdown_phase` handler and in the `not_started` branch of
      `handle_snapshot`, run a FAKE race, and grep `gui.log` for those lines;
      remove the temp logs before finishing.
+
+## Architectural Patterns
+
+### Service Grouping (systemd)
+All Franklin services are grouped under `franklin.target`. To ensure that restarting the target correctly restarts all member services, each service file must include:
+- `PartOf=franklin.target` in the `[Unit]` section.
+- `Wants=` or `Requires=` in the `franklin.target` file.
+
+### Hardware Monitor (Rust)
+The `franklin-hardware-monitor` is a TUI application. To run it as a background systemd service, it must be launched with the `--headless` flag. This skips terminal initialization and prevents crashes when no TTY is available.
+
+### Redis Connectivity
+The project uses a custom Redis instance listening on a Unix socket at `/opt/franklin-lap-counter/run/redis.sock`. 
+- Services should use the `FRANKLIN_REDIS_SOCKET` environment variable to locate the socket.
+- The default `redis-server.service` (TCP 6379) should be disabled on the Pi to avoid confusion.
+
+## GUI / Start Sequence
+
+### Start Light Pattern
+The start lights (mirrored on both sides of the timer) must fill **symmetrically outward from the timer**. 
+- **Ready:** The innermost lights (closest to the timer) turn green.
+- **Set:** The innermost and middle lights turn green.
+- **Go:** All lights turn green.
+- **Inversion Bug:** Previous versions filled lights from the outside in, which was corrected to match the "symmetrically outward" design requirement.
+
+### Countdown Ownership
+- **FAKE mode:** The `franklin-race-recorder.py` publishes `countdown_phase` events.
+- **REAL/TRAINING mode:** The Rust `franklin-hardware-monitor` owns the countdown and publishes events.
+- **GUI Fallback:** The GUI implements a local visual/audio fallback countdown in case Redis events are delayed or lost. It stands down as soon as a real `countdown_phase` event is received (`_countdown_event_seen`).
+
+### Version-based Updates
+The Ansible deployment playbook (`playbooks/deploy-franklin.yml`) only re-installs the Rust Debian package if the version number in `Cargo.toml` is strictly greater than the version currently installed on the Pi.
+- **Gotcha:** If you make code changes but don't bump the version, your changes will NOT be deployed.
+- **Fix:** Always increment the version (e.g., in `rust/Cargo.toml`) before running `devbox run deploy`.
+
+### Cross-Compilation
+When deploying from a Mac to the Pi (ARM64), `devbox` uses a `container` service for cross-compilation.
+- **Fix:** If you see `docker` or `container` errors during `deploy`, ensure the `container` service is started in your devbox environment.
+
+## Troubleshooting
+
+### Hardware Monitor Logs
+- `hardware.log`: General logs from the hardware monitor.
+- `hardware_redis.log`: Specific logs related to Redis connectivity and data processing.
+- `journalctl -u franklin-hardware-monitor`: Systemd logs (useful for catching startup crashes).
+
+### Diagnosing the Pi
+Use `devbox run ansible:diagnose` for a full health check of all services, Redis socket, and web app connectivity.
+
+## Networking
+
+### Wi-Fi Hotspot (Access Point)
+When enabled via `franklin_enable_hotspot: true`, the Pi acts as a 2.4GHz access point:
+- **SSID:** `FranklinLapCounter` (default)
+- **Channel:** `7` (default)
+- **IP Address:** `10.210.1.1`
+- **DNS:** `scoreboard.frank`, `referee.frank`, `healthcheck.frank`, `racer.frank` all resolve to the Pi.
+- **Config:** Managed via `playbooks/45-network-hotspot.yml`.
 

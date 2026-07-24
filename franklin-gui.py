@@ -192,8 +192,8 @@ class FranklinGuiApp(Gtk.Application):
         self._start_light_right_areas: list[Gtk.Widget] = []
         # ``_start_light_classes`` is the LEFT stack pattern; the right stack
         # mirrors it (see ``_apply_start_lights``) so the two groups of three
-        # lights fill symmetrically outward from the timer — matching the
-        # left-to-right red→green "wave" the web pages show.
+        # lights fill symmetrically outward from the timer (right-to-left on
+        # the left stack, left-to-right on the right).
         self._start_light_classes: list[str] = [
             "start-light-red"
         ] * self._start_light_count
@@ -809,7 +809,7 @@ class FranklinGuiApp(Gtk.Application):
         return box
 
     # Mirror the right stack so the green "wave" fills symmetrically outward
-    # from the timer (left-to-right on the left stack, right-to-left on the
+    # from the timer (right-to-left on the left stack, left-to-right on the
     # right). Set to False to keep both stacks identical (in sync).
     MIRROR_START_LIGHTS = True
 
@@ -1193,13 +1193,13 @@ class FranklinGuiApp(Gtk.Application):
             ready_delay_ms,
             show_phase_local,
             "ready",
-            ["start-light-green", "start-light-red", "start-light-red"],
+            ["start-light-red", "start-light-red", "start-light-green"],
         )
         GLib.timeout_add(
             set_delay_ms,
             show_phase_local,
             "set",
-            ["start-light-green", "start-light-green", "start-light-red"],
+            ["start-light-red", "start-light-green", "start-light-green"],
         )
         GLib.timeout_add(go_delay_ms, show_phase_local, "go", None)
 
@@ -2506,9 +2506,9 @@ class FranklinGuiApp(Gtk.Application):
                     self._set_start_sequence_phase("Ready")
                     self._apply_start_lights(
                         [
+                            "start-light-red",
+                            "start-light-red",
                             "start-light-green",
-                            "start-light-red",
-                            "start-light-red",
                         ]
                     )
                     self._play_sound("ready")
@@ -2517,9 +2517,9 @@ class FranklinGuiApp(Gtk.Application):
                     self._set_start_sequence_phase("Set")
                     self._apply_start_lights(
                         [
-                            "start-light-green",
-                            "start-light-green",
                             "start-light-red",
+                            "start-light-green",
+                            "start-light-green",
                         ]
                     )
                     self._play_sound("set")

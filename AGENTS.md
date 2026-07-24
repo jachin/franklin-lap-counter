@@ -68,12 +68,13 @@ The project uses a custom Redis instance listening on a Unix socket at `/opt/fra
 ## GUI / Start Sequence
 
 ### Start Light Pattern
-The start lights (mirrored on both sides of the timer) indicate the race start sequence and current race state:
+The start lights (mirrored on both sides of the timer) indicate the race start sequence and current race state (4-light system):
 
 **Start Sequence (Countdown phases):**
-- **Ready:** The outermost lights (farthest from the timer) turn RED, all other lights off.
-- **Set:** The middle lights turn on YELLOW (added to the RED lights).
-- **Go:** The innermost lights (closest to the timer) turn on GREEN (all three lights are now on).
+- **Ready 1:** The outermost red lights turn on (1 Red).
+- **Ready 2:** The second red lights turn on (2 Reds).
+- **Set:** The yellow lights turn on (2 Reds + 1 Yellow).
+- **Go:** The green lights turn on (2 Reds + 1 Yellow + 1 Green).
 
 **Global Race States (when no countdown is running):**
 - **Race Running:** All lights GREEN.

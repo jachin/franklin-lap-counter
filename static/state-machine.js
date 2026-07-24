@@ -175,9 +175,10 @@ class FranklinRaceStateMachine {
 			case "set":
 				return ["red", "red", "yellow", "off"];
 			case "go":
+				return ["red", "red", "yellow", "green"];
 			case "running":
 			case "winner_declared":
-				return ["red", "red", "yellow", "green"];
+				return ["green", "green", "green", "green"];
 			case "paused":
 				return ["yellow", "yellow", "yellow", "yellow"];
 			case "not_started":

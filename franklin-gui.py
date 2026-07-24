@@ -66,6 +66,8 @@ from gi.repository import (  # pyright: ignore[reportAttributeAccessIssue]  # no
 # every other font size as an ``em`` multiple of it in static CSS.
 DESIGN_WIDTH = 1200
 DESIGN_HEIGHT = 760
+DEFAULT_WIDTH = 960
+DEFAULT_HEIGHT = 640
 BASE_FONT_PT = 17  # root font size at scale 1.0; all other sizes are em multiples
 UI_SCALE_MIN = 0.4
 UI_SCALE_MAX = 1.6
@@ -82,8 +84,19 @@ class FranklinGuiApp(Gtk.Application):
         last_race_contestant_ids: list[int],
         racer_color_assignments: dict[int, RacerColorScheme],
         redis_socket: str | None = None,
+        initial_width: int | None = None,
+        initial_height: int | None = None,
     ) -> None:
-        super().__init__(application_id="com.franklin.lapcounter.gui")
+        try:
+            super().__init__(application_id="com.franklin.lapcounter.gui")
+        except TypeError:
+            # Fallback for environments where GObject introspection might be
+            # partially broken or properties aren't recognized during __init__.
+            super().__init__()
+            self.set_application_id("com.franklin.lapcounter.gui")
+
+        self.initial_width = initial_width
+        self.initial_height = initial_height
 
         # Logging
         logging.basicConfig(
@@ -657,16 +670,27 @@ class FranklinGuiApp(Gtk.Application):
         Also records ``self._initial_scale`` so first-paint fonts match the
         chosen window size (GTK has no viewport-relative CSS units).
         """
-        win_w, win_h = DESIGN_WIDTH, DESIGN_HEIGHT
-        display = Gdk.Display.get_default()
-        monitors = display.get_monitors() if display is not None else None
-        if monitors is not None and monitors.get_n_items() > 0:
-            monitor = monitors.get_item(0)
-            geometry = monitor.get_geometry()  # type: ignore[union-attr]
-            if geometry.width > 0 and geometry.height > 0:
-                # Leave a margin so window decorations/panels still fit.
-                win_w = min(DESIGN_WIDTH, int(geometry.width * 0.95))
-                win_h = min(DESIGN_HEIGHT, int(geometry.height * 0.92))
+        win_w = self.initial_width
+        win_h = self.initial_height
+
+        if win_w is None or win_h is None:
+            # At least one dimension is not explicitly provided, calculate
+            # defaults based on monitor size.
+            mon_w, mon_h = DEFAULT_WIDTH, DEFAULT_HEIGHT
+            display = Gdk.Display.get_default()
+            monitors = display.get_monitors() if display is not None else None
+            if monitors is not None and monitors.get_n_items() > 0:
+                monitor = monitors.get_item(0)
+                geometry = monitor.get_geometry()  # type: ignore[union-attr]
+                if geometry.width > 0 and geometry.height > 0:
+                    # Leave a margin so window decorations/panels still fit.
+                    mon_w = min(DEFAULT_WIDTH, int(geometry.width * 0.95))
+                    mon_h = min(DEFAULT_HEIGHT, int(geometry.height * 0.92))
+
+            if win_w is None:
+                win_w = mon_w
+            if win_h is None:
+                win_h = mon_h
 
         self._initial_scale = self._scale_for_size(win_w, win_h)
         return win_w, win_h
@@ -2632,23 +2656,19 @@ class FranklinGuiApp(Gtk.Application):
             self.append_event(f"Publish failed for {command}: {exc}")
 
 
-def parse_mode_override() -> RaceMode | None:
+def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Start Franklin GTK GUI in chosen initial mode."
+        description="Start Franklin GTK GUI with chosen options."
     )
     group = parser.add_mutually_exclusive_group()
     group.add_argument("--race", action="store_true", help="Start in Race Mode")
     group.add_argument("--fake", action="store_true", help="Start in Fake Race Mode")
     group.add_argument("--training", action="store_true", help="Start in Training Mode")
-    args = parser.parse_args()
 
-    if args.race:
-        return RaceMode.REAL
-    if args.fake:
-        return RaceMode.FAKE
-    if args.training:
-        return RaceMode.TRAINING
-    return None
+    parser.add_argument("--width", type=int, help="Initial window width")
+    parser.add_argument("--height", type=int, help="Initial window height")
+
+    return parser.parse_args()
 
 
 def main() -> None:
@@ -2660,7 +2680,17 @@ def main() -> None:
         last_race_contestant_ids,
         racer_color_assignments,
     ) = load_initial_config(Path("franklin.config.json"))
-    mode_override = parse_mode_override()
+
+    args = parse_args()
+
+    mode_override = None
+    if args.race:
+        mode_override = RaceMode.REAL
+    elif args.fake:
+        mode_override = RaceMode.FAKE
+    elif args.training:
+        mode_override = RaceMode.TRAINING
+
     initial_mode = mode_override or configured_mode
     app = FranklinGuiApp(
         initial_mode=initial_mode,
@@ -2669,6 +2699,8 @@ def main() -> None:
         race_end_mode=race_end_mode,
         last_race_contestant_ids=last_race_contestant_ids,
         racer_color_assignments=racer_color_assignments,
+        initial_width=args.width,
+        initial_height=args.height,
     )
     app.run([])
 

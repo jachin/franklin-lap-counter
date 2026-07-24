@@ -1,6 +1,7 @@
 [Unit]
 Description=Franklin Redis server (Unix socket)
 Documentation=https://github.com/jachinrupe/franklin-lap-counter
+PartOf=franklin.target
 After=network.target
 
 [Service]

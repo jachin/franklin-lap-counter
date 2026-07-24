@@ -379,7 +379,7 @@
   <div id="setupModal" style="position:fixed;inset:0;background:rgba(0,0,0,0.7);display:flex;align-items:center;justify-content:center;z-index:999">
     <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:24px;max-width:320px;width:90vw;text-align:center">
       <p style="margin:0 0 16px;font-weight:600;font-size:1.05rem">Referee Setup</p>
-      <label style="display:block;text-align:left;margin-bottom:4px;font-size:0.78rem;opacity:0.55">Your name</label>
+      <label for="ref-name" style="display:block;text-align:left;margin-bottom:4px;font-size:0.78rem;opacity:0.55">Your name</label>
       <input id="ref-name" style="width:100%;box-sizing:border-box;padding:9px;border:1px solid var(--border);background:var(--bg);color:var(--text);border-radius:6px;margin-bottom:16px;font-size:1rem" />
       <button type="button" id="setupOkBtn" class="btn btn-primary" style="width:100%">OK</button>
     </div>
@@ -388,7 +388,7 @@
   <!-- Header -->
   <header class="header-bar">
     <div class="header-left">
-      <a id="dashLink" class="nav-link" href="#">← Dashboard</a>
+      <a id="dashLink" class="nav-link" href="/dashboard">← Dashboard</a>
       <script>document.getElementById('dashLink').href = `${location.protocol}//${location.hostname}:8085/dashboard`</script>
       <h1>Referee</h1>
     </div>

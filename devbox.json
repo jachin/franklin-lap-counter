@@ -21,13 +21,13 @@
     "lnav":                                "latest",
     "nodejs":                              "latest",
     "gtk4":                                "latest",
+    "glib":                                "latest",
     "python313Packages.pygobject3":        "latest",
     "biome":                               "latest",
     "gobject-introspection":               "latest",
     "pango":                               "latest",
     "graphene":                            "latest",
     "harfbuzz":                            "latest",
-    "pango.dev":                           "",
     "cairo":                               "latest",
     "gdk-pixbuf":                          "latest",
     "dpkg":                                "latest",
@@ -35,16 +35,15 @@
     "python313Packages.sounddevice":       "latest",
     "reflex":                              "0.3.2"
   },
-  "env": {
-    "GI_TYPELIB_PATH": "$GI_TYPELIB_PATH:$(${pkgs.lib.makeSearchPathOutput \"lib\" \"lib/girepository-1.0\" [ pkgs.gtk4 pkgs.pango pkgs.gdk-pixbuf pkgs.gobject-introspection ]})"
-  },
+  "env": {},
   "shell": {
     "init_hook": [
-      "export GI_TYPELIB_PATH=\"$(find /nix/store -maxdepth 3 -type d -path '*/lib/girepository-1.0' 2>/dev/null | tr '\\n' ':')$GI_TYPELIB_PATH\"",
+      "eval $(python3 scripts/generate_gi_path.py)",
       "redis-server --daemonize yes --unixsocket ./redis.sock --unixsocketperm 700"
     ],
     "scripts": {
       "start:franklin": ["tmuxinator start -p tmuxinator/franklin.yml"],
+      "start:franklin-gui": ["python franklin-gui.py \"$@\""],
       "start:franklin-simulator": [
         "tmuxinator start -p tmuxinator/franklin-simulator.yml"
       ],

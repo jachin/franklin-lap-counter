@@ -3,6 +3,7 @@ Description=Franklin race recorder (authoritative race model + DB writer)
 Documentation=https://github.com/jachinrupe/franklin-lap-counter
 After=franklin-redis.service franklin-hardware-monitor.service
 Requires=franklin-redis.service
+PartOf=franklin.target
 BindsTo=franklin-redis.service
 
 [Service]

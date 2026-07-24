@@ -3,6 +3,7 @@ Description=Franklin hardware monitor (serial -> Redis bridge)
 Documentation=https://github.com/jachinrupe/franklin-lap-counter
 After=franklin-redis.service
 Requires=franklin-redis.service
+PartOf=franklin.target
 
 [Service]
 Type=simple
@@ -11,7 +12,7 @@ Group=franklin
 SupplementaryGroups=dialout
 WorkingDirectory=/opt/franklin-lap-counter
 Environment=FRANKLIN_REDIS_SOCKET=/opt/franklin-lap-counter/run/redis.sock
-ExecStart=/usr/bin/franklin-hardware-monitor
+ExecStart=/usr/bin/franklin-hardware-monitor --headless
 Restart=always
 RestartSec=3
 

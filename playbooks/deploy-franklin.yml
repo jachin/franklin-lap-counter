@@ -328,6 +328,19 @@
         - systemd_dir_stat.stat.isdir
         - systemd_deploy is changed
 
+    - name: Ensure default redis-server is stopped and disabled
+      ansible.builtin.service:
+        name: redis-server
+        state: stopped
+        enabled: false
+      ignore_errors: true
+
+    - name: Ensure franklin-redis is enabled and started
+      ansible.builtin.service:
+        name: franklin-redis
+        state: started
+        enabled: true
+
     # Startup scripts live under scripts/ in the repo but are expected at the
     # root of pi_dest_dir (referenced by systemd, wayland-sway, and users).
     # They are NOT rsynced to the correct location automatically.

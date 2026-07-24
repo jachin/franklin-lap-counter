@@ -1527,6 +1527,7 @@ async fn main() -> Result<()> {
     );
     let simulation_mode = args.contains(&"--sim".to_string()) || args.contains(&"-s".to_string());
     let verbose = args.contains(&"--verbose".to_string()) || args.contains(&"-v".to_string());
+    let headless = args.contains(&"--headless".to_string());
 
     // Parse redis socket path (--redis-socket <path> or FRANKLIN_REDIS_SOCKET env)
     let default_path = std::env::var("FRANKLIN_REDIS_SOCKET")
@@ -1622,6 +1623,15 @@ async fn main() -> Result<()> {
                 error!("Command handler task error: {}", e);
             }
         });
+    }
+
+    if headless {
+        info!("Running in headless mode. Press Ctrl+C to exit.");
+        // In headless mode, we just wait forever (or until signal)
+        // Background tasks are already running.
+        tokio::signal::ctrl_c().await?;
+        info!("Shutting down...");
+        return Ok(());
     }
 
     // Setup terminal

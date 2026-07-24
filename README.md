@@ -110,6 +110,12 @@ You can launch the entire system (including background services) inside a pre-co
 # Hardware Mode (assumes real hardware is connected)
 devbox run start:franklin
 
+# GUI Mode (GTK4 application)
+devbox run start:franklin-gui
+
+# Custom GUI window size
+devbox run start:franklin-gui -- --width 1024 --height 768
+
 # Simulator Mode (no hardware required; web apps auto-restart via reflex)
 devbox run start:franklin-simulator
 ```
@@ -133,7 +139,7 @@ devbox run hardware-monitor:run -- --sim
 devbox shell
 python franklin-tui.py --race
 # OR
-python franklin-gui.py --race
+devbox run start:franklin-gui -- --race
 ```
 
 #### 2. Running a Real Race (with physical hardware connected)
@@ -149,7 +155,7 @@ devbox run hardware-monitor:run
 devbox shell
 python franklin-tui.py --race
 # OR
-python franklin-gui.py --race
+devbox run start:franklin-gui -- --race
 ```
 
 #### 3. Running a Fake Race (no hardware required)
@@ -167,7 +173,7 @@ python franklin-race-recorder.py
 devbox shell
 python franklin-tui.py --fake
 # OR
-python franklin-gui.py --fake
+devbox run start:franklin-gui -- --fake
 ```
 
 You can also launch the full stack (redis + hardware simulator + recorder + web apps + TUI) in a single tmux session for local development:

@@ -1,10 +1,47 @@
 ---
-- name: Ensure Redis service is enabled and running
+- name: Ensure Franklin Redis service is configured and running
   hosts: all
   become: true
   tasks:
-    - name: Enable and start redis-server
+    - name: Disable and stop default redis-server
       ansible.builtin.service:
         name: redis-server
+        enabled: false
+        state: stopped
+      ignore_errors: true
+
+    - name: Ensure Franklin app directory exists
+      ansible.builtin.file:
+        path: "{{ pi_dest_dir }}"
+        state: directory
+        owner: "{{ franklin_user }}"
+        group: "{{ franklin_group }}"
+        mode: "0755"
+
+    - name: Ensure Franklin run directory exists
+      ansible.builtin.file:
+        path: "{{ pi_dest_dir }}/run"
+        state: directory
+        owner: "{{ franklin_user }}"
+        group: "{{ franklin_group }}"
+        mode: "0755"
+
+    - name: Deploy franklin-redis service file
+      ansible.builtin.copy:
+        src: "{{ playbook_dir }}/../systemd/franklin-redis.service"
+        dest: /etc/systemd/system/franklin-redis.service
+        owner: root
+        group: root
+        mode: "0644"
+      register: redis_service_deployed
+
+    - name: Reload systemd daemon
+      ansible.builtin.systemd:
+        daemon_reload: true
+      when: redis_service_deployed is changed
+
+    - name: Enable and start franklin-redis
+      ansible.builtin.service:
+        name: franklin-redis
         enabled: true
         state: started

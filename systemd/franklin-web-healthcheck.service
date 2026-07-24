@@ -3,6 +3,7 @@ Description=Franklin web health check
 Documentation=https://github.com/jachinrupe/franklin-lap-counter
 After=franklin-redis.service
 Requires=franklin-redis.service
+PartOf=franklin.target
 
 [Service]
 Type=simple

@@ -14,6 +14,7 @@ Environment=FRANKLIN_REDIS_SOCKET=/opt/franklin-lap-counter/run/redis.sock
 ExecStart=/opt/franklin-lap-counter/.venv/bin/python /opt/franklin-lap-counter/referee_web_app.py
 Restart=always
 RestartSec=3
+TimeoutStopSec=5s
 
 # Logging
 LogsDirectory=franklin

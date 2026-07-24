@@ -570,7 +570,10 @@ class DriverWebAppServer:
 
     async def cleanup_background_tasks(self, app: web.Application) -> None:
         app["redis_listener_task"].cancel()
-        await app["redis_listener_task"]
+        try:
+            await app["redis_listener_task"]
+        except asyncio.CancelledError:
+            pass
         self.db.close()
 
     def run(self) -> None:

@@ -382,7 +382,11 @@ class ScoreboardWebAppServer:
     async def cleanup_background_tasks(self, app: web.Application) -> None:
         """Cleanup background tasks when app stops"""
         app["redis_listener_task"].cancel()
-        await app["redis_listener_task"]
+        try:
+            await app["redis_listener_task"]
+        except asyncio.CancelledError:
+            pass
+        self.db.close()
 
     def run(self) -> None:
         """Start the scoreboard web app server"""

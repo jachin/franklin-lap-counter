@@ -101,6 +101,13 @@
       ansible.builtin.set_fact:
         pip_needed: "{{ (stored_hash.content | default('')) | b64decode != requirements_hash }}"
 
+  handlers:
+    - name: Restart Franklin services
+      ansible.builtin.systemd:
+        name: franklin.target
+        state: restarted
+      ignore_errors: true
+
   tasks:
     - name: Ensure destination directory exists
       ansible.builtin.file:
@@ -149,6 +156,7 @@
         deb: "/tmp/{{ rust_deb_local | basename }}"
         state: present
       when: pkg_version is version(installed_version, '>')
+      notify: Restart Franklin services
 
     - name: Remove temporary Debian package from Pi
       ansible.builtin.file:
@@ -188,6 +196,7 @@
         state: present
         virtualenv: "{{ pi_dest_dir }}/.venv"
       when: pip_needed
+      notify: Restart Franklin services
 
     - name: Store updated requirements hash on Pi
       ansible.builtin.copy:
@@ -257,6 +266,7 @@
           - "--exclude=terminfo/"
           - "--exclude=systemd/"
       become: false
+      notify: Restart Franklin services
 
     # Per-directory rsync with delete so stale Pi-only files are cleaned up.
     # Safe because these dirs hold only source-controlled content.
@@ -320,6 +330,7 @@
         - "{{ project_root }}/systemd/franklin.target"
       register: systemd_deploy
       when: systemd_dir_stat.stat.isdir
+      notify: Restart Franklin services
 
     - name: Reload systemd daemon after deploying service files
       ansible.builtin.systemd:
@@ -354,6 +365,7 @@
       loop:
         - start_franklin.py
         - start_franklin_gui_session.py
+      notify: Restart Franklin services
 
     - name: Verify deployed files on remote host
       ansible.builtin.stat:
@@ -395,12 +407,6 @@
       when: >-
         ('ARM aarch64' not in binary_file_info.stdout)
         and ('ARM 64-bit' not in binary_file_info.stdout)
-
-    - name: Restart all Franklin services via target
-      ansible.builtin.systemd:
-        name: franklin.target
-        state: restarted
-      ignore_errors: true
 
     - name: Deployment summary
       ansible.builtin.debug:

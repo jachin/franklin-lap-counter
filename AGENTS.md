@@ -55,6 +55,7 @@
 All Franklin services are grouped under `franklin.target`. To ensure that restarting the target correctly restarts all member services, each service file must include:
 - `PartOf=franklin.target` in the `[Unit]` section.
 - `Wants=` or `Requires=` in the `franklin.target` file.
+- `TimeoutStopSec=5s` in the `[Service]` section to avoid the default 90s delay if a service fails to stop cleanly (common in web apps with long-lived background tasks).
 
 ### Hardware Monitor (Rust)
 The `franklin-hardware-monitor` is a TUI application. To run it as a background systemd service, it must be launched with the `--headless` flag. This skips terminal initialization and prevents crashes when no TTY is available.
@@ -96,6 +97,7 @@ The start lights (mirrored on both sides of the timer) indicate the race start s
 - **Gotcha:** `devbox run deploy` / `ansible:deploy` runs `deploy-franklin.yml` only — it does NOT run the setup playbooks (56/57 etc.), so display config changes must be applied by running those playbooks explicitly.
 - **Gotcha — sway version vs DPMS:** Sway 1.7 (on Debian 12/Pi) uses `output * dpms on`. Newer sway versions might use `output * power on`. If you see "Unknown command: power" in sway logs, use `dpms`.
 - **Gotcha — Window alignment/overscan:** If the GUI appears shifted or cut off, ensure the resolution matches the monitor's native mode and that `for_window [app_id="com.franklin.lapcounter.gui"] fullscreen enable` is present in the sway config to force the app to fill the output.
+- **Gotcha — Slow Shutdown/Restart:** Web apps using `aiohttp` must catch `asyncio.CancelledError` in their `on_cleanup` handlers (specifically when awaiting background tasks) and explicitly close database connections. Without this, the process may hang or fail to exit cleanly, triggering a 90s systemd timeout. `TimeoutStopSec=5s` is set in all services as a fail-safe.
 - The sway mode can be applied without a reboot: run `scripts/reload_sway_and_report.sh` on the Pi as `franklin` (e.g. `ansible all -i playbooks/inventory.ini -b --become-user=franklin -m script -a scripts/reload_sway_and_report.sh`); it reloads sway and prints the active mode. The kernel `video=` cmdline part only affects boot/console and still needs a reboot.
 
 ### Version-based Updates

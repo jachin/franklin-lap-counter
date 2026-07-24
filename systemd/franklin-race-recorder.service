@@ -15,6 +15,7 @@ Environment=FRANKLIN_REDIS_SOCKET=/opt/franklin-lap-counter/run/redis.sock
 ExecStart=/opt/franklin-lap-counter/.venv/bin/python /opt/franklin-lap-counter/franklin-race-recorder.py --db /opt/franklin-lap-counter/db/franklin.db
 Restart=always
 RestartSec=3
+TimeoutStopSec=5s
 
 # Logging
 LogsDirectory=franklin

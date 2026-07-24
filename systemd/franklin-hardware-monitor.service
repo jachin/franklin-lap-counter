@@ -15,6 +15,7 @@ Environment=FRANKLIN_REDIS_SOCKET=/opt/franklin-lap-counter/run/redis.sock
 ExecStart=/usr/bin/franklin-hardware-monitor --headless
 Restart=always
 RestartSec=3
+TimeoutStopSec=5s
 
 # Logging
 LogsDirectory=franklin

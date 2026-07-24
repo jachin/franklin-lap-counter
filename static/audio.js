@@ -155,6 +155,12 @@ const FranklinAudio = (() => {
 			return audioCtx !== null && audioCtx.state !== "suspended";
 		},
 
+		playReady1() {
+			dispatch("ready1");
+		},
+		playReady2() {
+			dispatch("ready2");
+		},
 		playReady() {
 			dispatch("ready");
 		},

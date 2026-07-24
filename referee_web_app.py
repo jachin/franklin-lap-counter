@@ -166,12 +166,15 @@ class RefereeWebAppServer:
                 status=409,
             )
         base = time.time() + 0.25
-        ready_at = base
-        set_at = base + 1.0
-        go_at = base + 2.0
+        ready1_at = base
+        ready2_at = base + 1.5
+        set_at = base + 3.0
+        go_at = base + 4.5
         payload: dict[str, Any] = {
             "command": "start_race",
-            "ready_at": ready_at,
+            "ready1_at": ready1_at,
+            "ready2_at": ready2_at,
+            "ready_at": ready1_at,
             "set_at": set_at,
             "go_at": go_at,
             "start_at": go_at,

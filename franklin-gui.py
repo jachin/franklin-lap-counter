@@ -187,7 +187,7 @@ class FranklinGuiApp(Gtk.Application):
         self._swatch_css_classes: dict[tuple[str, str], str] = {}
 
         # Start light UI (mirrored on both sides of the timer)
-        self._start_light_count = 3
+        self._start_light_count = 4
         self._start_light_left_areas: list[Gtk.Widget] = []
         self._start_light_right_areas: list[Gtk.Widget] = []
         # ``_start_light_classes`` is the LEFT stack pattern; the right stack
@@ -818,7 +818,14 @@ class FranklinGuiApp(Gtk.Application):
     # ``countdown_phase`` event (or a stale local timer) can never regress the
     # GUI from a later phase back to an earlier one — that regression used to
     # make the GUI look like it paused/re-started late.
-    _START_PHASE_ORDER = {"ready": 1, "set": 2, "go": 3, "running": 4}
+    _START_PHASE_ORDER = {
+        "ready": 1,
+        "ready1": 1,
+        "ready2": 2,
+        "set": 3,
+        "go": 4,
+        "running": 5,
+    }
 
     def _start_phase_level(self) -> int:
         return self._START_PHASE_ORDER.get(self._start_sequence_phase or "", 0)
@@ -984,7 +991,7 @@ class FranklinGuiApp(Gtk.Application):
         """Pre-render ready/set/go/finish sounds to raw PCM for instant playback."""
         if not self._sound_patch:
             return
-        for name in ("ready", "set", "go", "finish"):
+        for name in ("ready1", "ready2", "ready", "set", "go", "finish"):
             defn = self._sound_patch.get(name)
             if not defn:
                 continue
@@ -1147,16 +1154,18 @@ class FranklinGuiApp(Gtk.Application):
             return
 
         base = time.time() + 0.25
-        ready_at = base
-        set_at = base + 1.0
-        go_at = base + 2.0
+        ready1_at = base
+        ready2_at = base + 1.5
+        set_at = base + 3.0
+        go_at = base + 4.5
 
         # The recorder owns the race; we only request a start (with config) and
         # render the snapshot it publishes. The countdown visuals below are a
         # local preview that the authoritative snapshot supersedes once running.
         self.publish_command(
             "start_race",
-            ready_at=ready_at,
+            ready1_at=ready1_at,
+            ready2_at=ready2_at,
             set_at=set_at,
             go_at=go_at,
             start_at=go_at,
@@ -1165,7 +1174,7 @@ class FranklinGuiApp(Gtk.Application):
             total_laps=self.total_laps,
             race_end_mode=self.race_end_mode.value,
         )
-        self.append_event(f"Scheduled countdown (go at {go_at:.3f})")
+        self.append_event(f"Scheduled 4-phase countdown (go at {go_at:.3f})")
 
         # Local visual countdown preview. This is only a *fallback* for when the
         # authoritative ``countdown_phase`` events never arrive (e.g. no recorder
@@ -1182,10 +1191,9 @@ class FranklinGuiApp(Gtk.Application):
                 self._set_start_sequence_phase("Go")
                 self._set_start_lights("#2e7d32")
             else:
-                if phase == "set":
-                    set_level = self._START_PHASE_ORDER.get("set", 0)
-                    if set_level < self._start_phase_level():
-                        return False
+                new_level = self._START_PHASE_ORDER.get(phase, 0)
+                if new_level and new_level < self._start_phase_level():
+                    return False
                 self._set_start_sequence_phase(phase.capitalize())
                 if left_classes:
                     self._apply_start_lights(left_classes)
@@ -1193,27 +1201,34 @@ class FranklinGuiApp(Gtk.Application):
             return False
 
         now_epoch = time.time()
-        ready_delay_ms = max(0, int((ready_at - now_epoch) * 1000))
+        ready1_delay_ms = max(0, int((ready1_at - now_epoch) * 1000))
+        ready2_delay_ms = max(0, int((ready2_at - now_epoch) * 1000))
         set_delay_ms = max(0, int((set_at - now_epoch) * 1000))
         go_delay_ms = max(0, int((go_at - now_epoch) * 1000))
 
         GLib.timeout_add(
-            ready_delay_ms,
+            ready1_delay_ms,
             show_phase_local,
-            "ready",
-            ["start-light-red", "start-light-off", "start-light-off"],
+            "ready1",
+            ["start-light-red", "start-light-off", "start-light-off", "start-light-off"],
+        )
+        GLib.timeout_add(
+            ready2_delay_ms,
+            show_phase_local,
+            "ready2",
+            ["start-light-red", "start-light-red", "start-light-off", "start-light-off"],
         )
         GLib.timeout_add(
             set_delay_ms,
             show_phase_local,
             "set",
-            ["start-light-red", "start-light-yellow", "start-light-off"],
+            ["start-light-red", "start-light-red", "start-light-yellow", "start-light-off"],
         )
         GLib.timeout_add(
             go_delay_ms,
             show_phase_local,
             "go",
-            ["start-light-red", "start-light-yellow", "start-light-green"],
+            ["start-light-red", "start-light-red", "start-light-yellow", "start-light-green"],
         )
 
     def _run_command(self, args: list[str], timeout: float = 1.0) -> str:
@@ -2490,11 +2505,15 @@ class FranklinGuiApp(Gtk.Application):
             # clock.  For "set" and "go" we compute the remaining delay as:
             #   (at - ready_at) - (now_monotonic - ready_at_monotonic)
             # which preserves the intended spacing regardless of delivery delay.
-            if phase == "ready":
+            if phase in ("ready", "ready1"):
                 self._countdown_ready_at_epoch = at_epoch
                 self._countdown_ready_at_monotonic = time.monotonic()
                 delay_ms = 0
-            elif phase in ("set", "go") and self._countdown_ready_at_epoch is not None and self._countdown_ready_at_monotonic is not None:
+            elif (
+                phase in ("ready2", "set", "go")
+                and self._countdown_ready_at_epoch is not None
+                and self._countdown_ready_at_monotonic is not None
+            ):
                 anchor_mono = self._countdown_ready_at_monotonic
                 anchor_epoch = self._countdown_ready_at_epoch
                 total_seconds = at_epoch - anchor_epoch
@@ -2516,21 +2535,35 @@ class FranklinGuiApp(Gtk.Application):
                 self._countdown_event_seen = True
                 self._start_sequence_running = True
                 logging.info("Countdown phase: %s", phase)
-                if phase == "ready":
+                if phase in ("ready", "ready1"):
                     self._set_start_sequence_phase("Ready")
                     self._apply_start_lights(
                         [
                             "start-light-red",
                             "start-light-off",
                             "start-light-off",
+                            "start-light-off",
                         ]
                     )
-                    self._play_sound("ready")
+                    self._play_sound("ready1" if phase == "ready1" else "ready")
+                    self.append_event("Ready")
+                elif phase == "ready2":
+                    self._set_start_sequence_phase("Ready")
+                    self._apply_start_lights(
+                        [
+                            "start-light-red",
+                            "start-light-red",
+                            "start-light-off",
+                            "start-light-off",
+                        ]
+                    )
+                    self._play_sound("ready2")
                     self.append_event("Ready")
                 elif phase == "set":
                     self._set_start_sequence_phase("Set")
                     self._apply_start_lights(
                         [
+                            "start-light-red",
                             "start-light-red",
                             "start-light-yellow",
                             "start-light-off",
@@ -2542,6 +2575,7 @@ class FranklinGuiApp(Gtk.Application):
                     self._set_start_sequence_phase("Go")
                     self._apply_start_lights(
                         [
+                            "start-light-red",
                             "start-light-red",
                             "start-light-yellow",
                             "start-light-green",

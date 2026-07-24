@@ -1,5 +1,77 @@
 {
 	"classic": {
+		"ready1": {
+			"voices": [
+				{
+					"type": "square",
+					"freq": 174.61,
+					"start": 0,
+					"dur": 0.9,
+					"attack": 0.03,
+					"vol": 0.25
+				},
+				{
+					"type": "square",
+					"freq": 220.0,
+					"start": 0,
+					"dur": 0.9,
+					"attack": 0.03,
+					"vol": 0.25
+				},
+				{
+					"type": "square",
+					"freq": 261.63,
+					"start": 0,
+					"dur": 0.9,
+					"attack": 0.03,
+					"vol": 0.25
+				},
+				{
+					"type": "square",
+					"freq": 349.23,
+					"start": 0,
+					"dur": 0.9,
+					"attack": 0.03,
+					"vol": 0.25
+				}
+			]
+		},
+		"ready2": {
+			"voices": [
+				{
+					"type": "square",
+					"freq": 174.61,
+					"start": 0,
+					"dur": 0.9,
+					"attack": 0.03,
+					"vol": 0.25
+				},
+				{
+					"type": "square",
+					"freq": 220.0,
+					"start": 0,
+					"dur": 0.9,
+					"attack": 0.03,
+					"vol": 0.25
+				},
+				{
+					"type": "square",
+					"freq": 261.63,
+					"start": 0,
+					"dur": 0.9,
+					"attack": 0.03,
+					"vol": 0.25
+				},
+				{
+					"type": "square",
+					"freq": 349.23,
+					"start": 0,
+					"dur": 0.9,
+					"attack": 0.03,
+					"vol": 0.25
+				}
+			]
+		},
 		"ready": {
 			"voices": [
 				{
@@ -193,6 +265,64 @@
 		}
 	},
 	"8bit": {
+		"ready1": {
+			"bitcrush": true,
+			"voices": [
+				{
+					"type": "pulse",
+					"freq": 130.81,
+					"start": 0.0,
+					"dur": 0.15,
+					"attack": 0.005,
+					"vol": 0.3
+				},
+				{
+					"type": "pulse",
+					"freq": 130.81,
+					"start": 0.25,
+					"dur": 0.15,
+					"attack": 0.005,
+					"vol": 0.3
+				},
+				{
+					"type": "pulse",
+					"freq": 130.81,
+					"start": 0.5,
+					"dur": 0.15,
+					"attack": 0.005,
+					"vol": 0.3
+				}
+			]
+		},
+		"ready2": {
+			"bitcrush": true,
+			"voices": [
+				{
+					"type": "pulse",
+					"freq": 130.81,
+					"start": 0.0,
+					"dur": 0.15,
+					"attack": 0.005,
+					"vol": 0.3
+				},
+				{
+					"type": "pulse",
+					"freq": 130.81,
+					"start": 0.25,
+					"dur": 0.15,
+					"attack": 0.005,
+					"vol": 0.3
+				},
+				{
+					"type": "pulse",
+					"freq": 130.81,
+					"start": 0.5,
+					"dur": 0.15,
+					"attack": 0.005,
+					"vol": 0.3
+				}
+			]
+		},
 		"ready": {
 			"bitcrush": true,
 			"voices": [

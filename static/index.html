@@ -345,10 +345,24 @@
             }
 
             /* Time formatting */
-            .time {
-                font-weight: 700;
-                font-family: "Roboto Mono", monospace;
+            /* Lights */
+            .lights-container {
+                display: flex;
+                gap: 8px;
+                margin: 1rem 0;
+                justify-content: center;
             }
+            .light {
+                width: 24px;
+                height: 24px;
+                border-radius: 50%;
+                background-color: #141414;
+                border: 2px solid var(--border-color);
+            }
+            .light.red { background-color: #c62828; box-shadow: 0 0 10px #c62828; }
+            .light.yellow { background-color: #f9a825; box-shadow: 0 0 10px #f9a825; }
+            .light.green { background-color: #2e7d32; box-shadow: 0 0 10px #2e7d32; }
+            .light.off { background-color: #141414; box-shadow: none; }
         </style>
     </head>
     <body>
@@ -391,6 +405,12 @@
             <div class="main-content">
                 <div class="panel">
                     <h2>Race Information</h2>
+                    <div class="lights-container" id="lightsContainer">
+                        <div class="light"></div>
+                        <div class="light"></div>
+                        <div class="light"></div>
+                        <div class="light"></div>
+                    </div>
                     <div id="raceInfo" class="race-info">
                         <div class="race-info-item">
                             <span class="race-info-label">Status:</span>
@@ -449,9 +469,25 @@
             </div>
         </div>
 
+        <script src="/static/state-machine.js"></script>
         <script src="/static/audio.js"></script>
         <script>
             // State management
+            const stateMachine = new FranklinRaceStateMachine({
+                onStateChange: (_newState) => {
+                    updateUIFromStateMachine();
+                },
+                onSoundTrigger: (sound) => {
+                    FranklinAudio.init();
+                    if (sound === "ready1") FranklinAudio.playReady1();
+                    else if (sound === "ready2") FranklinAudio.playReady2();
+                    else if (sound === "ready") FranklinAudio.playReady();
+                    else if (sound === "set") FranklinAudio.playSet();
+                    else if (sound === "go") FranklinAudio.playGo();
+                    else if (sound === "finish") FranklinAudio.playFinish();
+                }
+            });
+
             const state = {
                 ws: null,
                 reconnectTimeout: null,
@@ -541,6 +577,29 @@
                     (c) => c.transmitter_id === parseInt(transmitterId, 10),
                 );
                 return driver ? driver.name : `Driver ${transmitterId}`;
+            }
+
+            function updateUIFromStateMachine() {
+                const pattern = stateMachine.getLightPattern();
+                const lightEls = document.querySelectorAll("#lightsContainer .light");
+                lightEls.forEach((el, i) => {
+                    el.className = `light ${pattern[i]}`;
+                });
+
+                elements.raceStateDisplay.textContent = stateMachine.getStatusText();
+                
+                // Update class for race state display
+                elements.raceStateDisplay.className = "race-state";
+                const logicalState = stateMachine.state;
+                if (logicalState === "running" || logicalState === "go") {
+                    elements.raceStateDisplay.classList.add("running");
+                } else if (logicalState === "finished" || logicalState === "winner_declared") {
+                    elements.raceStateDisplay.classList.add("finished");
+                } else if (logicalState === "not_started" || logicalState.startsWith("ready") || logicalState === "set") {
+                    elements.raceStateDisplay.classList.add("not-started");
+                } else if (logicalState === "paused") {
+                    elements.raceStateDisplay.classList.add("paused");
+                }
             }
 
             // Update UI functions
@@ -1049,6 +1108,7 @@
 
                         // For race state snapshots, refresh immediately
                         if (data.snapshot_seq !== undefined) {
+                            stateMachine.handleSnapshot(data);
                             console.log(
                                 "Race snapshot received, state:",
                                 data.state,
@@ -1056,10 +1116,6 @@
                             // Track the authoritative race state from the snapshot
                             state.snapshotRaceState = data.state || null;
 
-                            if (state.snapshotRaceState === "finished" && state.lastSnapshotRaceState !== "finished") {
-                                FranklinAudio.init();
-                                FranklinAudio.playFinish();
-                            }
                             state.lastSnapshotRaceState = state.snapshotRaceState;
 
                             // Merge disqualification status from snapshot
@@ -1109,48 +1165,13 @@
                         }
 
                         if (data.type === "countdown_phase") {
-                            const phase = String(data.phase || "").toLowerCase();
-                            const atRaw = data.at;
-                            const atEpoch = (typeof atRaw === "number" && Number.isFinite(atRaw)) ? atRaw : 0;
-                            if (phase === "ready" && !state.countdownActive) {
-                                for (const t of state.countdownTimers) clearTimeout(t);
-                                state.countdownTimers = [];
-                                state.raceReady = false;
-                                state.countdownActive = true;
-                                state.countdownReadyAt = atEpoch;
-                                state.countdownReadyAtMs = Date.now();
-                                FranklinAudio.playReady();
-                                elements.raceStateDisplay.textContent = "Ready!";
-                                elements.raceStateDisplay.className = "race-state not-started";
-                            } else if (phase === "set" && state.countdownActive) {
-                                const totalMs = (atEpoch - state.countdownReadyAt) * 1000;
-                                const elapsedMs = Date.now() - state.countdownReadyAtMs;
-                                const remainingMs = Math.max(0, totalMs - elapsedMs);
-                                state.countdownTimers.push(setTimeout(() => {
-                                    if (state.countdownActive) {
-                                        FranklinAudio.playSet();
-                                        elements.raceStateDisplay.textContent = "Set…";
-                                        elements.raceStateDisplay.className = "race-state not-started";
-                                    }
-                                }, remainingMs));
-                            } else if (phase === "go" && state.countdownActive) {
-                                const totalMs = (atEpoch - state.countdownReadyAt) * 1000;
-                                const elapsedMs = Date.now() - state.countdownReadyAtMs;
-                                const remainingMs = Math.max(0, totalMs - elapsedMs);
-                                state.countdownTimers.push(setTimeout(() => {
-                                    if (state.countdownActive) {
-                                        FranklinAudio.playGo();
-                                        elements.raceStateDisplay.textContent = "Go!";
-                                        elements.raceStateDisplay.className = "race-state running";
-                                        state.countdownActive = false;
-                                    }
-                                }, remainingMs));
-                            }
+                            stateMachine.handleCountdownPhase(data);
                         }
 
                         if (data.type === "race_control") {
                             const cmd = String(data.command || "");
                             if ((cmd === "end_race" || cmd === "reset_race") && data.accepted) {
+                                stateMachine.stopCountdown();
                                 for (const t of state.countdownTimers) clearTimeout(t);
                                 state.countdownTimers = [];
                                 state.countdownActive = false;

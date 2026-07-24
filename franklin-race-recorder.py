@@ -330,21 +330,32 @@ class RaceRecorder:
         if isinstance(command_id, str) and command_id:
             self._pending_start_config[command_id] = config
 
+        ready1_at = msg.get("ready1_at")
+        ready2_at = msg.get("ready2_at")
+        ready_at = msg.get("ready_at")
+        set_at = msg.get("set_at")
+        go_at = msg.get("go_at")
+
         # Announce the ready/set/go countdown only for FAKE races. For
         # REAL/TRAINING the Rust hardware monitor owns the countdown and
         # publishes countdown_phase itself, so announcing here too would
         # duplicate the lights/sounds on the web clients.
-        ready_at = msg.get("ready_at")
-        set_at = msg.get("set_at")
-        go_at = msg.get("go_at")
-        if (
-            ready_at is not None
-            and set_at is not None
-            and go_at is not None
-            and config.get("race_mode") is RaceMode.FAKE
-        ):
+        if config.get("race_mode") is RaceMode.FAKE:
+            now = time.time()
+            start_epoch = float(msg.get("start_at") or go_at or now + 4.5)
+
+            ready1_val = float(ready1_at) if ready1_at is not None else (float(ready_at) if ready_at is not None else start_epoch - 4.5)
+            ready2_val = float(ready2_at) if ready2_at is not None else start_epoch - 3.0
+            set_val = float(set_at) if set_at is not None else start_epoch - 1.5
+            go_val = float(go_at) if go_at is not None else start_epoch
+
             self._publish_countdown_phases(
-                ready_at, set_at, go_at, command_id, msg.get("source")
+                ready1_at=ready1_val,
+                ready2_at=ready2_val,
+                set_at=set_val,
+                go_at=go_val,
+                command_id=command_id,
+                source=msg.get("source"),
             )
         else:
             logging.info(
@@ -358,6 +369,9 @@ class RaceRecorder:
         # from the command itself. A real hardware echo with the same command_id
         # cancels this fallback in _start_race_from_event().
         start_at_raw = msg.get("start_at") or msg.get("go_at")
+        if start_at_raw is None and config.get("race_mode") is RaceMode.FAKE:
+            start_at_raw = time.time() + 4.5
+
         if isinstance(start_at_raw, (int, float)):
             fallback_msg = {
                 "type": "start_race",
@@ -608,7 +622,8 @@ class RaceRecorder:
 
     def _publish_countdown_phases(
         self,
-        ready_at: float,
+        ready1_at: float,
+        ready2_at: float,
         set_at: float,
         go_at: float,
         command_id: str | None = None,
@@ -617,7 +632,13 @@ class RaceRecorder:
         """Publish countdown_phase events to franklin:events so all clients
         can display ready/set/go lights and play sounds even when the Rust
         hardware monitor is not running."""
-        for phase, at in [("ready", ready_at), ("set", set_at), ("go", go_at)]:
+        phases = [
+            ("ready1", ready1_at),
+            ("ready2", ready2_at),
+            ("set", set_at),
+            ("go", go_at),
+        ]
+        for phase, at in phases:
             event: dict[str, Any] = {
                 "type": "countdown_phase",
                 "phase": phase,

@@ -46,7 +46,7 @@ All Python command producers (`franklin-tui.py`, `franklin-gui.py`, `referee_web
 Supported commands:
 
 - `start_race`
-  - supports synchronized schedule fields: `ready_at`, `set_at`, `go_at`, `start_at` (epoch seconds, float)
+  - supports synchronized schedule fields: `ready1_at`, `ready2_at`, `set_at`, `go_at`, `start_at` (epoch seconds, float)
   - if omitted, owner falls back to immediate start timing
   - optional race-config fields consumed by the headless recorder (ignored by the Rust owner): `race_mode` (RaceMode value string), `total_laps` (int), `race_end_mode` (RaceEndMode value string). The recorder caches these (keyed by `command_id`/`start_at`) and applies them when it sees the authoritative `hardware:out` `start_race` event.
 - `end_race`
@@ -174,7 +174,7 @@ Emitted by any client (such as `franklin-gui` or `franklin-tui` via `gui_config.
 {"type":"countdown_phase","phase":"ready","at":1736200000.250,"recorded_at":1736199998.250,"command_id":"optional-id","source":"franklin_tui"}
 ```
 
-Phases emitted for scheduled starts: `ready`, `set`, `go`.
+Phases emitted for scheduled starts: `ready1`, `ready2`, `set`, `go`.
 
 ### `race_control`
 

@@ -321,9 +321,10 @@
                 </div>
 
                 <div class="lights" id="lights">
-                    <div class="light red"></div>
-                    <div class="light red"></div>
-                    <div class="light red"></div>
+                    <div class="light"></div>
+                    <div class="light"></div>
+                    <div class="light"></div>
+                    <div class="light"></div>
                 </div>
                 <div class="meta" id="phaseText">State: waiting</div>
             </div>
@@ -341,8 +342,23 @@
             </div>
         </div>
 
+        <script src="/static/state-machine.js"></script>
         <script src="/static/audio.js"></script>
         <script>
+            const stateMachine = new FranklinRaceStateMachine({
+                onStateChange: (_newState) => {
+                    updateUIFromStateMachine();
+                },
+                onSoundTrigger: (sound) => {
+                    FranklinAudio.init();
+                    if (sound === "ready1") FranklinAudio.playReady1();
+                    else if (sound === "ready2") FranklinAudio.playReady2();
+                    else if (sound === "set") FranklinAudio.playSet();
+                    else if (sound === "go") FranklinAudio.playGo();
+                    else if (sound === "finish") FranklinAudio.playFinish();
+                }
+            });
+
             const state = {
                 ws: null,
                 current: null,
@@ -379,6 +395,16 @@
 
             // Sync the select element to the loaded setting
             el.soundStyleSelect.value = FranklinAudio.getStyle();
+
+            function updateUIFromStateMachine() {
+                const pattern = stateMachine.getLightPattern();
+                const lightEls = el.lights.querySelectorAll('.light');
+                lightEls.forEach((el, i) => {
+                    el.className = `light ${pattern[i]}`;
+                });
+
+                el.phaseText.textContent = `State: ${stateMachine.getStatusText()}`;
+            }
 
             function fmtTime(seconds) {
                 const n = Number(seconds);
@@ -865,25 +891,8 @@
                         if (msg.snapshot_seq !== undefined) {
                             const raceState = String(msg.state || "").toLowerCase();
                             dbg("snapshot", `state=${raceState} skipByCountdown=${state.countdownActive}`);
-                            if (raceState === "finished" && state.lastSnapshotRaceState !== "finished") {
-                                FranklinAudio.init();
-                                FranklinAudio.playFinish();
-                            }
+                            stateMachine.handleSnapshot(msg);
                             state.lastSnapshotRaceState = raceState;
-                            if (!state.countdownActive) {
-                                if (raceState === "running" || raceState === "winner_declared") {
-                                    state.phase = "running";
-                                } else if (raceState === "paused") {
-                                    state.phase = "paused";
-                                } else if (raceState === "finished") {
-                                    state.phase = "finished";
-                                } else if (raceState === "not_started") {
-                                    state.phase = "not_started";
-                                } else {
-                                    state.phase = "waiting";
-                                }
-                                syncLightsForPhase();
-                            }
                             renderAll(true).catch((err) => {
                                 el.connection.textContent = `Refresh error: ${err.message}`;
                             });
@@ -891,54 +900,7 @@
                         }
 
                         if (type === "countdown_phase") {
-                            const phase = String(msg.phase || "").toLowerCase();
-                            const atRaw = msg.at;
-                            const atEpoch = (typeof atRaw === "number" && Number.isFinite(atRaw)) ? atRaw : 0;
-                            dbg("countdown_phase", `phase=${phase} at=${atEpoch}`);
-                            if (phase === "ready" && !state.countdownActive && state.phase !== "running") {
-                                for (const t of state.countdownTimers) clearTimeout(t);
-                                state.countdownTimers = [];
-                                state.raceReady = false;
-                                state.countdownActive = true;
-                                state.countdownReadyAt = atEpoch;
-                                state.countdownReadyAtMs = Date.now();
-                                console.log("[COUNTDOWN] → ready (immediate)");
-                                FranklinAudio.playReady();
-                                state.phase = "ready";
-                                syncLightsForPhase();
-                            } else if (phase === "set" && state.countdownActive) {
-                                const totalMs = (atEpoch - state.countdownReadyAt) * 1000;
-                                const elapsedMs = Date.now() - state.countdownReadyAtMs;
-                                const remainingMs = Math.max(0, totalMs - elapsedMs);
-                                console.log(`[COUNTDOWN] set in ${remainingMs}ms (total=${totalMs} elapsed=${elapsedMs})`);
-                                state.countdownTimers.push(setTimeout(() => {
-                                    if (state.countdownActive) {
-                                        console.log("[COUNTDOWN] → set");
-                                        FranklinAudio.playSet();
-                                        state.phase = "set";
-                                        syncLightsForPhase();
-                                    }
-                                }, remainingMs));
-                            } else if (phase === "go" && state.countdownActive) {
-                                const totalMs = (atEpoch - state.countdownReadyAt) * 1000;
-                                const elapsedMs = Date.now() - state.countdownReadyAtMs;
-                                const remainingMs = Math.max(0, totalMs - elapsedMs);
-                                console.log(`[COUNTDOWN] go in ${remainingMs}ms (total=${totalMs} elapsed=${elapsedMs})`);
-                                state.countdownTimers.push(setTimeout(() => {
-                                    if (state.countdownActive) {
-                                        console.log(`[COUNTDOWN] → go${state.raceReady ? " → running" : ""}`);
-                                        FranklinAudio.playGo();
-                                        state.phase = state.raceReady ? "running" : "go";
-                                        syncLightsForPhase();
-                                        state.countdownActive = false;
-                                        if (state.raceReady) {
-                                            renderAll(true).catch((err) => {
-                                                el.connection.textContent = `Refresh error: ${err.message}`;
-                                            });
-                                        }
-                                    }
-                                }, remainingMs));
-                            }
+                            stateMachine.handleCountdownPhase(msg);
                         }
 
                         if (type === "start_race") {
@@ -968,12 +930,12 @@
                             const txt = String(msg.message || "").toLowerCase();
                             dbg("status", `msg=${txt} endsOrReset=${txt.includes("end") || txt.includes("reset")}`);
                             if (txt.includes("end") || txt.includes("reset")) {
+                                stateMachine.stopCountdown();
                                 for (const t of state.countdownTimers) clearTimeout(t);
                                 state.countdownTimers = [];
                                 state.countdownActive = false;
                                 state.raceReady = false;
                                 state.phase = txt.includes("reset") ? "not_started" : "finished";
-                                syncLightsForPhase();
                                 renderAll().catch((err) => {
                                     el.connection.textContent = `Refresh error: ${err.message}`;
                                 });
@@ -984,12 +946,12 @@
                             const cmd = String(msg.command || "");
                             if ((cmd === "end_race" || cmd === "reset_race") && msg.accepted) {
                                 dbg("race_control", `cmd=${cmd} accepted`);
+                                stateMachine.stopCountdown();
                                 for (const t of state.countdownTimers) clearTimeout(t);
                                 state.countdownTimers = [];
                                 state.countdownActive = false;
                                 state.raceReady = false;
                                 state.phase = (cmd === "reset_race") ? "not_started" : "finished";
-                                syncLightsForPhase();
                                 renderAll().catch((err) => {
                                     el.connection.textContent = `Refresh error: ${err.message}`;
                                 });

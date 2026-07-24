@@ -427,9 +427,10 @@
       <section class="card">
         <div class="card-title">Race Status</div>
         <div class="status-lights" id="start-lights">
-          <div class="status-light status-light-red"></div>
-          <div class="status-light status-light-red"></div>
-          <div class="status-light status-light-red"></div>
+          <div class="status-light"></div>
+          <div class="status-light"></div>
+          <div class="status-light"></div>
+          <div class="status-light"></div>
         </div>
         <div class="race-status-text" id="race-status">Ready to start</div>
         <div class="race-clock" id="race-clock">00:00.00</div>
@@ -513,16 +514,28 @@
   <h2 id="events-heading" class="hidden">Live Events</h2>
   <div id="events" class="hidden"></div>
 
+  <script src="/static/state-machine.js"></script>
   <script src="/static/audio.js"></script>
   <script>
     const eventsEl = document.getElementById('events');
     const eventsHeading = document.getElementById('events-heading');
 
+    const stateMachine = new FranklinRaceStateMachine({
+      onStateChange: (_newState) => {
+        updateUIFromStateMachine();
+      },
+      onSoundTrigger: (sound) => {
+        FranklinAudio.init();
+        if (sound === 'ready1') FranklinAudio.playReady1();
+        else if (sound === 'ready2') FranklinAudio.playReady2();
+        else if (sound === 'set') FranklinAudio.playSet();
+        else if (sound === 'go') FranklinAudio.playGo();
+        else if (sound === 'finish') FranklinAudio.playFinish();
+      }
+    });
+
     const allEntries = [];
     const countdownTimers = [];
-    let countdownActive = false;
-    let countdownReadyAt = 0;
-    let countdownReadyAtMs = 0;
     let currentSnapshot = null;
     let lastRaceState = null;
     let _currentRacers = [];
@@ -563,6 +576,44 @@
       lights.forEach((el, i) => {
         el.className = `status-light status-light-${colors[i]}`;
       });
+    }
+
+    function updateUIFromStateMachine() {
+      const pattern = stateMachine.getLightPattern();
+      const lightEls = document.querySelectorAll('.status-light');
+      lightEls.forEach((el, i) => {
+        el.className = `status-light status-light-${pattern[i]}`;
+      });
+
+      document.getElementById('race-status').textContent = stateMachine.getStatusText();
+      
+      const buttons = stateMachine.getButtonStates();
+      document.getElementById('start-race').disabled = !buttons.canStart;
+      document.getElementById('end-race').disabled = !buttons.canEnd;
+      document.getElementById('reset-race').disabled = !buttons.canReset;
+      document.getElementById('pause-resume-race').disabled = !(buttons.canPause || buttons.canResume);
+      document.getElementById('pause-resume-race').textContent = buttons.canResume ? 'Resume Race' : 'Pause Race';
+
+      const actionControls = [
+        'add-penalty', 'penalty-racer', 'penalty-seconds', 'penalty-reason',
+        'remove-lap', 'remove-lap-racer', 'remove-lap-number', 'remove-lap-reason',
+        'disqualify-racer', 'dq-racer', 'dq-reason'
+      ];
+      actionControls.forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.disabled = !buttons.canManage;
+      });
+
+      if (stateMachine.snapshot) {
+        const snapshot = stateMachine.snapshot;
+        const modeInfo = [];
+        if (snapshot.race_mode) modeInfo.push(snapshot.race_mode);
+        if (snapshot.total_laps && snapshot.race_mode !== 'Training Mode') {
+          modeInfo.push(`${snapshot.total_laps} laps`);
+        }
+        document.getElementById('race-mode-label').textContent = modeInfo.join(' · ');
+        updateClock(snapshot);
+      }
     }
 
     /* ---- Race status ---- */
@@ -917,55 +968,17 @@
         if (msg.snapshot_seq !== undefined) {
           msg._receivedAt = Date.now();
           currentSnapshot = msg;
-          updateRaceBar(msg);
+          stateMachine.handleSnapshot(msg);
           renderLeaderboard(msg);
           if (debugVisible) log(`RACE STATE: ${String(msg.state || 'unknown').toUpperCase()}`, msg);
           return;
         }
 
         if (msg.type === 'countdown_phase') {
+          stateMachine.handleCountdownPhase(msg);
           const at = Number(msg.at);
           const when = Number.isFinite(at) ? new Date(at * 1000).toLocaleTimeString() : 'n/a';
           log(`COUNTDOWN ${String(msg.phase || '').toUpperCase()} at ${when}`, msg);
-
-          const phase = String(msg.phase || '').toLowerCase();
-          const atEpoch = Number.isFinite(at) ? at : 0;
-          const statusEl = document.getElementById('race-status');
-
-          if (phase === 'ready' && !countdownActive) {
-            for (const t of countdownTimers) clearTimeout(t);
-            countdownTimers.length = 0;
-            countdownActive = true;
-            countdownReadyAt = atEpoch;
-            countdownReadyAtMs = Date.now();
-            setStartLights('not_started', 'ready');
-            statusEl.textContent = 'Ready!';
-            FranklinAudio.init();
-            FranklinAudio.playReady();
-          } else if (phase === 'set' && countdownActive) {
-            const totalMs = (atEpoch - countdownReadyAt) * 1000;
-            const elapsedMs = Date.now() - countdownReadyAtMs;
-            const remainingMs = Math.max(0, totalMs - elapsedMs);
-            countdownTimers.push(setTimeout(() => {
-              if (countdownActive) {
-                statusEl.textContent = 'Set…';
-                setStartLights('not_started', 'set');
-                FranklinAudio.playSet();
-              }
-            }, remainingMs));
-          } else if (phase === 'go' && countdownActive) {
-            const totalMs = (atEpoch - countdownReadyAt) * 1000;
-            const elapsedMs = Date.now() - countdownReadyAtMs;
-            const remainingMs = Math.max(0, totalMs - elapsedMs);
-            countdownTimers.push(setTimeout(() => {
-              if (countdownActive) {
-                statusEl.textContent = 'Go!';
-                setStartLights('running', 'go');
-                FranklinAudio.playGo();
-                countdownActive = false;
-              }
-            }, remainingMs));
-          }
         } else if (msg.type === 'start_race') {
           const at = Number(msg.at);
           const when = Number.isFinite(at) ? new Date(at * 1000).toLocaleTimeString() : 'n/a';
@@ -973,6 +986,7 @@
         } else if (msg.type === 'status') {
           const txt = String(msg.message || '').toLowerCase();
           if (txt.includes('end') || txt.includes('reset')) {
+            stateMachine.stopCountdown();
             for (const t of countdownTimers) clearTimeout(t);
             countdownTimers.length = 0;
             countdownActive = false;
@@ -981,6 +995,7 @@
         } else if (msg.type === 'race_control') {
           const cmd = String(msg.command || '');
           if ((cmd === 'end_race' || cmd === 'reset_race') && msg.accepted) {
+            stateMachine.stopCountdown();
             for (const t of countdownTimers) clearTimeout(t);
             countdownTimers.length = 0;
             countdownActive = false;

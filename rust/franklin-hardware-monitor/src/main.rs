@@ -135,6 +135,10 @@ enum InMessage {
         #[serde(skip_serializing_if = "Option::is_none")]
         ready_at: Option<f64>,
         #[serde(skip_serializing_if = "Option::is_none")]
+        ready1_at: Option<f64>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        ready2_at: Option<f64>,
+        #[serde(skip_serializing_if = "Option::is_none")]
         set_at: Option<f64>,
         #[serde(skip_serializing_if = "Option::is_none")]
         go_at: Option<f64>,
@@ -1027,6 +1031,8 @@ async fn command_handler_task(hw: Arc<HardwareComm>, app: Arc<Mutex<App>>) -> Re
                         race_time,
                         start_at,
                         ready_at,
+                        ready1_at,
+                        ready2_at,
                         set_at,
                         go_at,
                         penalty_seconds,
@@ -1054,14 +1060,25 @@ async fn command_handler_task(hw: Arc<HardwareComm>, app: Arc<Mutex<App>>) -> Re
 
                                 sim_mode
                             });
-                            let ready_epoch = ready_at.unwrap_or(start_epoch - 2.0);
-                            let set_epoch = set_at.unwrap_or(start_epoch - 1.0);
+
+                            // 4-phase countdown with 1.5s intervals (Total 4.5s)
+                            let ready1_epoch = ready1_at.or(ready_at).unwrap_or(start_epoch - 4.5);
+                            let ready2_epoch = ready2_at.unwrap_or(start_epoch - 3.0);
+                            let set_epoch = set_at.unwrap_or(start_epoch - 1.5);
                             let go_epoch = go_at.unwrap_or(start_epoch);
 
-                            info!("COUNTDOWN: phase=ready at={:.3}", ready_epoch);
+                            info!("COUNTDOWN: phase=ready1 at={:.3}", ready1_epoch);
                             let _ = hw.send_message(&OutMessage::CountdownPhase {
-                                phase: "ready".to_string(),
-                                at: ready_epoch,
+                                phase: "ready1".to_string(),
+                                at: ready1_epoch,
+                                recorded_at: now_epoch_seconds(),
+                                command_id: command_id.clone(),
+                                source: source.clone(),
+                            });
+                            info!("COUNTDOWN: phase=ready2 at={:.3}", ready2_epoch);
+                            let _ = hw.send_message(&OutMessage::CountdownPhase {
+                                phase: "ready2".to_string(),
+                                at: ready2_epoch,
                                 recorded_at: now_epoch_seconds(),
                                 command_id: command_id.clone(),
                                 source: source.clone(),

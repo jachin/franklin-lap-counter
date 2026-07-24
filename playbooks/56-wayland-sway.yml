@@ -27,6 +27,13 @@
           default_border pixel 1
           output * bg #1e1e1e solid_color
 
+          # Pin the display mode and keep the output powered (no DPMS blanking)
+          output * mode {{ franklin_display_mode }}
+          output * dpms on
+
+          # Ensure the GUI occupies the full screen
+          for_window [app_id="com.franklin.lapcounter.gui"] fullscreen enable
+
           # Start Franklin GUI stack once per sway session
           exec {{ pi_dest_dir }}/start_franklin_gui_session.py
       when: franklin_enable_wayland_boot

@@ -20,6 +20,18 @@ franklin_enable_wayland_boot: true
 # Firmware config path for Raspberry Pi boot settings
 pi_firmware_config_path: /boot/firmware/config.txt
 
+# Kernel cmdline path for Raspberry Pi boot settings
+pi_cmdline_path: /boot/firmware/cmdline.txt
+
+# Display configuration
+# Sway output mode (supports fractional refresh rates).
+franklin_display_mode: "1920x1080@60Hz"
+# Kernel KMS forced video mode: keeps the HDMI output driven from early boot
+# (including during reboot/shutdown) so the monitor never loses signal.
+# "M" = compute CVT timings, "D" = force digital output enabled even if
+# no display is detected. Kernel only accepts integer refresh rates here.
+franklin_kms_video: "HDMI-A-1:1920x1080@60D"
+
 # Default target app directory on the Pi
 pi_dest_dir: /opt/franklin-lap-counter
 
@@ -56,7 +68,7 @@ python_packages:
 # Raspberry Pi AP/router (hotspot) settings
 # Set to false to disable the hotspot playbook entirely (skips hostapd, dnsmasq, nftables AP config).
 # NOTE: Ethernet must be connected during initial install for package downloads and system configuration.
-franklin_enable_hotspot: false
+franklin_enable_hotspot: true
 franklin_ap_interface: wlan0
 # Uplink can be set explicitly (e.g. eth0), or left as auto to resolve from
 # the Pi's current default IPv4 route (portable across different networks).

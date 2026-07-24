@@ -1,5 +1,5 @@
 ---
-- name: Configure Raspberry Pi HDMI hotplug behavior
+- name: Configure Raspberry Pi HDMI hotplug and display mode behavior
   hosts: all
   become: true
   tasks:
@@ -9,3 +9,21 @@
         regexp: '^#?hdmi_force_hotplug='
         line: "hdmi_force_hotplug=1"
         insertafter: EOF
+
+    - name: Update existing forced KMS video mode in kernel cmdline
+      ansible.builtin.replace:
+        path: "{{ pi_cmdline_path }}"
+        regexp: 'video=HDMI-A-1:\S+'
+        replace: "video={{ franklin_kms_video }}"
+
+    - name: Append forced KMS video mode to kernel cmdline if missing
+      ansible.builtin.replace:
+        path: "{{ pi_cmdline_path }}"
+        regexp: '^((?!.*video=HDMI-A-1).*\S)\s*$'
+        replace: '\1 video={{ franklin_kms_video }}'
+
+    - name: Disable kernel console blanking in kernel cmdline
+      ansible.builtin.replace:
+        path: "{{ pi_cmdline_path }}"
+        regexp: '^((?!.*consoleblank=).*\S)\s*$'
+        replace: '\1 consoleblank=0'

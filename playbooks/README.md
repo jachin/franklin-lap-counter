@@ -23,7 +23,7 @@ These playbooks provide modular, idempotent infrastructure/setup and deployment 
 - `50-startup-script.yml` - copy startup scripts and tmuxinator project configs to target dir
 - `55-autologin-startup.yml` - configure boot autologin (`tty1`) and login-shell Franklin autostart (TUI via tmux)
 - `56-wayland-sway.yml` - configure sway (Wayland) session to auto-start Franklin GUI stack
-- `57-hdmi-hotplug.yml` - ensure `hdmi_force_hotplug=1` in firmware config for monitor detection reliability
+- `57-hdmi-hotplug.yml` - ensure `hdmi_force_hotplug=1` in firmware config, force a KMS video mode (`video=...`) and disable console blanking (`consoleblank=0`) in the kernel cmdline so the monitor keeps signal through reboots
 - `60-system-info.yml` - print OS/Python/glibc/Redis info
 - `61-health-check.yml` - verifies Caddy + health-check app and fetches the health report JSON
 - `62-bounce-web-apps.yml` - respawn/create tmux web windows (`web_scoreboard`, `web_referee`, `web_healthcheck`)
@@ -96,6 +96,7 @@ ansible-playbook -i playbooks/inventory.ini playbooks/site.yml \
 - Hotspot/router behavior is configurable with `franklin_enable_hotspot` (default: true) and `franklin_ap_*` vars in `group_vars/all.yml`.
 - Uplink interface selection is portable by default: `franklin_uplink_interface: auto` resolves from the Pi's default route and falls back to `franklin_uplink_interface_fallback` for offline setups.
 - Firmware display setting uses `pi_firmware_config_path` (defaults to `/boot/firmware/config.txt`) and enforces `hdmi_force_hotplug=1`.
+- Display resolution is pinned via `franklin_display_mode` (sway output mode, default `1024x768@60.004Hz`) and `franklin_kms_video` (kernel `video=` parameter in `pi_cmdline_path`, default `HDMI-A-1:1024x768M@60D`; the `D` forces the HDMI output on so the monitor does not turn off during reboot).
 - `30-tmuxinator.yml` installs tmuxinator only if it is missing.
 - This setup stage prepares the target machine; deployment of app binaries/files remains in your existing deploy flow.
 - `deploy-franklin.yml` does not copy `.env`; host/runtime settings should be managed in Ansible vars.

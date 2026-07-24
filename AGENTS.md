@@ -78,6 +78,17 @@ The start lights (mirrored on both sides of the timer) indicate the race start s
 - **REAL/TRAINING mode:** The Rust `franklin-hardware-monitor` owns the countdown and publishes events.
 - **GUI Fallback:** The GUI implements a local visual/audio fallback countdown in case Redis events are delayed or lost. It stands down as soon as a real `countdown_phase` event is received (`_countdown_event_seen`).
 
+### Display Resolution & Reboot Blanking
+- The monitor resolution is pinned in two places (both driven by `playbooks/group_vars/all.yml`):
+  - `franklin_display_mode` (default `1920x1080@60Hz`) → sway `output * mode` in `playbooks/56-wayland-sway.yml` (sway accepts fractional refresh rates).
+  - `franklin_kms_video` (default `HDMI-A-1:1920x1080@60D`) → kernel `video=` parameter in `/boot/firmware/cmdline.txt` via `playbooks/57-hdmi-hotplug.yml` (kernel only accepts integer refresh; `M` = CVT timings, `D` = force the digital output on even without EDID/hotplug — this keeps the monitor from turning off during reboot).
+- `57-hdmi-hotplug.yml` also adds `consoleblank=0` to the cmdline (no console blanking) and keeps `hdmi_force_hotplug=1` in `config.txt`; the sway config sets `output * dpms on` so DPMS never blanks the kiosk display.
+- Apply with `devbox run ansible-playbook -i playbooks/inventory.ini playbooks/56-wayland-sway.yml` / `57-hdmi-hotplug.yml`; cmdline/firmware changes need a reboot to take effect.
+- **Gotcha:** `devbox run deploy` / `ansible:deploy` runs `deploy-franklin.yml` only — it does NOT run the setup playbooks (56/57 etc.), so display config changes must be applied by running those playbooks explicitly.
+- **Gotcha — sway version vs DPMS:** Sway 1.7 (on Debian 12/Pi) uses `output * dpms on`. Newer sway versions might use `output * power on`. If you see "Unknown command: power" in sway logs, use `dpms`.
+- **Gotcha — Window alignment/overscan:** If the GUI appears shifted or cut off, ensure the resolution matches the monitor's native mode and that `for_window [app_id="com.franklin.lapcounter.gui"] fullscreen enable` is present in the sway config to force the app to fill the output.
+- The sway mode can be applied without a reboot: run `scripts/reload_sway_and_report.sh` on the Pi as `franklin` (e.g. `ansible all -i playbooks/inventory.ini -b --become-user=franklin -m script -a scripts/reload_sway_and_report.sh`); it reloads sway and prints the active mode. The kernel `video=` cmdline part only affects boot/console and still needs a reboot.
+
 ### Version-based Updates
 The Ansible deployment playbook (`playbooks/deploy-franklin.yml`) only re-installs the Rust Debian package if the version number in `Cargo.toml` is strictly greater than the version currently installed on the Pi.
 - **Gotcha:** If you make code changes but don't bump the version, your changes will NOT be deployed.
@@ -93,6 +104,11 @@ When deploying from a Mac to the Pi (ARM64), `devbox` uses a `container` service
 - `hardware.log`: General logs from the hardware monitor.
 - `hardware_redis.log`: Specific logs related to Redis connectivity and data processing.
 - `journalctl -u franklin-hardware-monitor`: Systemd logs (useful for catching startup crashes).
+
+### Caddy Reverse Proxy Logs
+- Caddy access logs (every HTTP request) are enabled and sent to the systemd journal.
+- **View logs:** `journalctl -u caddy -f`
+- **Search logs:** `journalctl -u caddy | grep "handled request"`
 
 ### Diagnosing the Pi
 Use `devbox run ansible:diagnose` for a full health check of all services, Redis socket, and web app connectivity.
@@ -118,4 +134,5 @@ When enabled via `franklin_enable_hotspot: true`, the Pi acts as a 2.4GHz access
 - **IP Address:** `10.210.1.1`
 - **DNS:** `scoreboard.frank`, `referee.frank`, `healthcheck.frank`, `racer.frank` all resolve to the Pi.
 - **Config:** Managed via `playbooks/45-network-hotspot.yml`.
+- **Ethernet Access:** Web services (ports 80, 8081, 8082, 8083, 8085) are allowed on the ethernet (uplink) interface, but DNS resolution is only provided on the Wi-Fi interface.
 

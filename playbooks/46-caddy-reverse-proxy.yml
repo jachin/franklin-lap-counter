@@ -19,18 +19,22 @@
 
           http://{{ franklin_scoreboard_domain }} {
               reverse_proxy {{ franklin_scoreboard_upstream }}
+              log
           }
 
           http://{{ franklin_referee_domain }} {
               reverse_proxy {{ franklin_referee_upstream }}
+              log
           }
 
           http://{{ franklin_healthcheck_domain }} {
               reverse_proxy {{ franklin_healthcheck_upstream }}
+              log
           }
 
           http://{{ franklin_racer_domain }} {
               reverse_proxy {{ franklin_racer_upstream }}
+              log
           }
       notify: Validate and restart caddy
 

@@ -152,7 +152,7 @@
                   ct state established,related accept
                   iifname "lo" accept
                   iifname "{{ franklin_ap_interface }}" accept
-                  iifname "{{ resolved_uplink_interface }}" tcp dport 22 accept
+                  iifname "{{ resolved_uplink_interface }}" tcp dport { 22, 80, 443, 8081, 8082, 8083, 8085 } accept
                   counter drop
               }
               chain forward {

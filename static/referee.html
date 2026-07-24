@@ -548,6 +548,8 @@
       else if (phase === 'set') colors = ['red', 'yellow', 'off'];
       else if (phase === 'go' || state === 'running' || state === 'winner_declared') colors = ['red', 'yellow', 'green'];
       else if (state === 'paused') colors = ['yellow', 'yellow', 'yellow'];
+      else if (state === 'not_started') colors = ['red', 'red', 'red'];
+      else if (state === 'finished') colors = ['off', 'off', 'off'];
       else colors = ['off', 'off', 'off'];
       lights.forEach((el, i) => {
         el.className = `status-light status-light-${colors[i]}`;

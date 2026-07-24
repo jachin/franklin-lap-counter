@@ -67,11 +67,20 @@ The project uses a custom Redis instance listening on a Unix socket at `/opt/fra
 ## GUI / Start Sequence
 
 ### Start Light Pattern
-The start lights (mirrored on both sides of the timer) indicate the race start sequence:
+The start lights (mirrored on both sides of the timer) indicate the race start sequence and current race state:
+
+**Start Sequence (Countdown phases):**
 - **Ready:** The outermost lights (farthest from the timer) turn RED, all other lights off.
 - **Set:** The middle lights turn on YELLOW (added to the RED lights).
 - **Go:** The innermost lights (closest to the timer) turn on GREEN (all three lights are now on).
-- **History:** Previously used a "symmetrically outward green fill" pattern which was replaced by this Red-Yellow-Green sequence.
+
+**Global Race States (when no countdown is running):**
+- **Race Running:** All lights GREEN.
+- **Race Paused:** All lights YELLOW.
+- **Race Ready to Start (not_started):** All lights RED.
+- **Race Finished:** All lights OFF (gray).
+
+**History:** Previously used a "symmetrically outward green fill" pattern which was replaced by this Red-Yellow-Green sequence.
 
 ### Countdown Ownership
 - **FAKE mode:** The `franklin-race-recorder.py` publishes `countdown_phase` events.

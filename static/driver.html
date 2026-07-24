@@ -429,6 +429,16 @@
                     el.phaseText.textContent = "State: paused";
                     return;
                 }
+                if (state.phase === "not_started") {
+                    setLights(["red", "red", "red"]);
+                    el.phaseText.textContent = "State: ready";
+                    return;
+                }
+                if (state.phase === "finished") {
+                    setLights(["off", "off", "off"]);
+                    el.phaseText.textContent = "State: finished";
+                    return;
+                }
 
                 setLights(["off", "off", "off"]);
                 el.phaseText.textContent = "State: waiting";
@@ -437,18 +447,27 @@
             function applyRaceDerivedPhase() {
                 if (state.countdownActive) return;
                 const race = state.current?.race;
-                if (!race) {
+                const snapshot = state.current?.snapshot || (state.current?.snapshot_seq !== undefined ? state.current : null);
+                const raceState = (snapshot?.state || race?.state || race?.status || "").toLowerCase();
+
+                if (!race && !snapshot) {
                     state.phase = "waiting";
                     syncLightsForPhase();
                     return;
                 }
 
-                const inProgress =
-                    race.status === "in_progress" ||
-                    ((race.start_at || race.start_time) &&
-                        !(race.end_at || race.end_time));
-
-                state.phase = inProgress ? "running" : "waiting";
+                if (raceState === "running" || raceState === "winner_declared" || raceState === "in_progress") {
+                    state.phase = "running";
+                } else if (raceState === "paused") {
+                    state.phase = "paused";
+                } else if (raceState === "finished") {
+                    state.phase = "finished";
+                } else if (raceState === "not_started") {
+                    state.phase = "not_started";
+                } else {
+                    const inProgress = (race?.start_at || race?.start_time) && !(race?.end_at || race?.end_time);
+                    state.phase = inProgress ? "running" : "waiting";
+                }
                 syncLightsForPhase();
             }
 
@@ -841,10 +860,14 @@
                             const raceState = String(msg.state || "").toLowerCase();
                             dbg("snapshot", `state=${raceState} skipByCountdown=${state.countdownActive}`);
                             if (!state.countdownActive) {
-                                if (raceState === "running") {
+                                if (raceState === "running" || raceState === "winner_declared") {
                                     state.phase = "running";
                                 } else if (raceState === "paused") {
                                     state.phase = "paused";
+                                } else if (raceState === "finished") {
+                                    state.phase = "finished";
+                                } else if (raceState === "not_started") {
+                                    state.phase = "not_started";
                                 } else {
                                     state.phase = "waiting";
                                 }
@@ -939,7 +962,7 @@
                                 state.countdownTimers = [];
                                 state.countdownActive = false;
                                 state.raceReady = false;
-                                state.phase = "waiting";
+                                state.phase = txt.includes("reset") ? "not_started" : "finished";
                                 syncLightsForPhase();
                                 renderAll().catch((err) => {
                                     el.connection.textContent = `Refresh error: ${err.message}`;
@@ -956,7 +979,7 @@
                                 state.countdownTimers = [];
                                 state.countdownActive = false;
                                 state.raceReady = false;
-                                state.phase = "waiting";
+                                state.phase = (cmd === "reset_race") ? "not_started" : "finished";
                                 syncLightsForPhase();
                                 renderAll().catch((err) => {
                                     el.connection.textContent = `Refresh error: ${err.message}`;

@@ -861,17 +861,24 @@ class FranklinGuiApp(Gtk.Application):
             "#c62828": "start-light-red",
             "#f9a825": "start-light-yellow",
             "#2e7d32": "start-light-green",
+            "#141414": "start-light-off",
         }.get(color_hex, "start-light-red")
         self._apply_start_lights([target_class] * self._start_light_count)
 
     def _sync_start_lights_with_race_state(self) -> None:
         if self._start_sequence_running:
             return
-        if self.snapshot.is_going:
-            self._set_start_lights("#2e7d32")
+        if self.snapshot.state == "finished":
+            # Race finished: all lights off (gray)
+            self._set_start_lights("#141414")
         elif self.snapshot.state == "paused":
+            # Race paused: all lights yellow
             self._set_start_lights("#f9a825")
+        elif self.snapshot.is_going:
+            # Race running: all lights green
+            self._set_start_lights("#2e7d32")
         else:
+            # Race not started (ready after reset): all lights red
             self._set_start_lights("#c62828")
 
     # --- Countdown / finish sounds -------------------------------------------

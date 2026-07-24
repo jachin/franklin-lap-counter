@@ -563,6 +563,7 @@ class Franklin(App[Any]):  # type: ignore[type-arg]
         elif msg_type == "countdown_phase":
             phase = str(msg.get("phase", "")).lower()
             at_raw = msg.get("at")
+            logging.info("Countdown phase: %s at %s", phase, at_raw)
             if isinstance(at_raw, (int, float)):
                 delay = max(0.0, float(at_raw) - time.time())
                 self.set_timer(

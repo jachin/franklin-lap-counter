@@ -2508,6 +2508,7 @@ class FranklinGuiApp(Gtk.Application):
 
                 self._countdown_event_seen = True
                 self._start_sequence_running = True
+                logging.info("Countdown phase: %s", phase)
                 if phase == "ready":
                     self._set_start_sequence_phase("Ready")
                     self._apply_start_lights(

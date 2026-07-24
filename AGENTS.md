@@ -97,6 +97,18 @@ When deploying from a Mac to the Pi (ARM64), `devbox` uses a `container` service
 ### Diagnosing the Pi
 Use `devbox run ansible:diagnose` for a full health check of all services, Redis socket, and web app connectivity.
 
+## Logging Strategy
+
+### Race Start Sequence
+To observe the race start sequence across components, check the following logs:
+- **Recorder:** `race_recorder.log` (logs when it publishes FAKE countdown phases).
+- **GUI:** `gui.log` (logs when it receives and applies countdown phases).
+- **TUI:** `race.log` (logs when it receives countdown phases).
+- **Hardware Monitor (Rust):** `hardware_redis.log` (logs when it publishes REAL/TRAINING countdown phases).
+- **Web Apps:** Browser `console.log` or the internal debug log on the Referee page.
+
+Search for "Countdown phase" or "COUNTDOWN" in these logs to verify the Ready-Set-Go sequence.
+
 ## Networking
 
 ### Wi-Fi Hotspot (Access Point)

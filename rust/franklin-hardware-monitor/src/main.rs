@@ -1058,6 +1058,7 @@ async fn command_handler_task(hw: Arc<HardwareComm>, app: Arc<Mutex<App>>) -> Re
                             let set_epoch = set_at.unwrap_or(start_epoch - 1.0);
                             let go_epoch = go_at.unwrap_or(start_epoch);
 
+                            info!("COUNTDOWN: phase=ready at={:.3}", ready_epoch);
                             let _ = hw.send_message(&OutMessage::CountdownPhase {
                                 phase: "ready".to_string(),
                                 at: ready_epoch,
@@ -1065,6 +1066,7 @@ async fn command_handler_task(hw: Arc<HardwareComm>, app: Arc<Mutex<App>>) -> Re
                                 command_id: command_id.clone(),
                                 source: source.clone(),
                             });
+                            info!("COUNTDOWN: phase=set at={:.3}", set_epoch);
                             let _ = hw.send_message(&OutMessage::CountdownPhase {
                                 phase: "set".to_string(),
                                 at: set_epoch,
@@ -1072,6 +1074,7 @@ async fn command_handler_task(hw: Arc<HardwareComm>, app: Arc<Mutex<App>>) -> Re
                                 command_id: command_id.clone(),
                                 source: source.clone(),
                             });
+                            info!("COUNTDOWN: phase=go at={:.3}", go_epoch);
                             let _ = hw.send_message(&OutMessage::CountdownPhase {
                                 phase: "go".to_string(),
                                 at: go_epoch,

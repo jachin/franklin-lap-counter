@@ -354,6 +354,7 @@
                 countdownReadyAt: 0,
                 countdownReadyAtMs: 0,
                 raceReady: false,
+                lastSnapshotRaceState: null,
             };
 
             const el = {
@@ -411,37 +412,42 @@
             function syncLightsForPhase() {
                 if (state.phase === "ready") {
                     setLights(["red", "off", "off"]);
-                    el.phaseText.textContent = "State: starting - ready";
+                    el.phaseText.textContent = "State: Ready!";
                     return;
                 }
                 if (state.phase === "set") {
                     setLights(["red", "yellow", "off"]);
-                    el.phaseText.textContent = "State: starting - set";
+                    el.phaseText.textContent = "State: Set…";
                     return;
                 }
-                if (state.phase === "go" || state.phase === "running") {
+                if (state.phase === "go") {
                     setLights(["red", "yellow", "green"]);
-                    el.phaseText.textContent = "State: running";
+                    el.phaseText.textContent = "State: Go!";
+                    return;
+                }
+                if (state.phase === "running" || state.phase === "winner_declared") {
+                    setLights(["red", "yellow", "green"]);
+                    el.phaseText.textContent = "State: Race Running";
                     return;
                 }
                 if (state.phase === "paused") {
                     setLights(["yellow", "yellow", "yellow"]);
-                    el.phaseText.textContent = "State: paused";
+                    el.phaseText.textContent = "State: Race Paused";
                     return;
                 }
                 if (state.phase === "not_started") {
                     setLights(["red", "red", "red"]);
-                    el.phaseText.textContent = "State: ready";
+                    el.phaseText.textContent = "State: Ready to start";
                     return;
                 }
                 if (state.phase === "finished") {
                     setLights(["off", "off", "off"]);
-                    el.phaseText.textContent = "State: finished";
+                    el.phaseText.textContent = "State: Race Finished";
                     return;
                 }
 
                 setLights(["off", "off", "off"]);
-                el.phaseText.textContent = "State: waiting";
+                el.phaseText.textContent = "State: Waiting";
             }
 
             function applyRaceDerivedPhase() {
@@ -859,6 +865,11 @@
                         if (msg.snapshot_seq !== undefined) {
                             const raceState = String(msg.state || "").toLowerCase();
                             dbg("snapshot", `state=${raceState} skipByCountdown=${state.countdownActive}`);
+                            if (raceState === "finished" && state.lastSnapshotRaceState !== "finished") {
+                                FranklinAudio.init();
+                                FranklinAudio.playFinish();
+                            }
+                            state.lastSnapshotRaceState = raceState;
                             if (!state.countdownActive) {
                                 if (raceState === "running" || raceState === "winner_declared") {
                                     state.phase = "running";
@@ -957,7 +968,6 @@
                             const txt = String(msg.message || "").toLowerCase();
                             dbg("status", `msg=${txt} endsOrReset=${txt.includes("end") || txt.includes("reset")}`);
                             if (txt.includes("end") || txt.includes("reset")) {
-                                FranklinAudio.playFinish();
                                 for (const t of state.countdownTimers) clearTimeout(t);
                                 state.countdownTimers = [];
                                 state.countdownActive = false;
@@ -974,7 +984,6 @@
                             const cmd = String(msg.command || "");
                             if ((cmd === "end_race" || cmd === "reset_race") && msg.accepted) {
                                 dbg("race_control", `cmd=${cmd} accepted`);
-                                FranklinAudio.playFinish();
                                 for (const t of state.countdownTimers) clearTimeout(t);
                                 state.countdownTimers = [];
                                 state.countdownActive = false;

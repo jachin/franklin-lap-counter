@@ -211,9 +211,6 @@ class RefereeWebAppServer:
         return web.json_response({"ok": True, "published": payload})
 
     async def reset_race_handler(self, request: web.Request) -> web.Response:
-        guard = self._require_race_in_progress()
-        if guard:
-            return guard
         payload = {"command": "reset_race"}
         await self._publish_command(payload)
         return web.json_response({"ok": True, "published": payload})

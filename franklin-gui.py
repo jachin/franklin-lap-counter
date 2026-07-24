@@ -314,7 +314,7 @@ class FranklinGuiApp(Gtk.Application):
 
         reset_action = self.lookup_action("reset_race")
         if reset_action:
-            reset_action.set_enabled(self.snapshot.state == "finished" and not starting)
+            reset_action.set_enabled(self.snapshot.state != "not_started" and not starting)
 
         mode_action = self.lookup_action("mode")
         if mode_action:
@@ -1854,7 +1854,7 @@ class FranklinGuiApp(Gtk.Application):
         self.append_event("Requested race end")
 
     def on_reset_clicked(self, _button: Gtk.Button | None) -> None:
-        if self._start_sequence_running or self.snapshot.state != "finished":
+        if self._start_sequence_running or self.snapshot.state == "not_started":
             return
 
         self.publish_command("reset_race")

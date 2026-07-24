@@ -467,6 +467,7 @@
                 countdownReadyAtMs: 0,
                 raceReady: false,
                 snapshotRaceState: null,
+                lastSnapshotRaceState: null,
             };
 
             // DOM elements
@@ -565,7 +566,16 @@
                 // Use the authoritative snapshot state if available
                 // (the REST API doesn't expose paused state directly)
                 let raceState = state.snapshotRaceState || "not_started";
-                if (raceState === "not_started" && state.currentRace) {
+                if (raceState === "not_started") {
+                    // If the snapshot says not started, force UI to zero/ready
+                    elements.raceStateDisplay.textContent = "Ready to start";
+                    elements.raceStateDisplay.className = "race-state not-started";
+                    elements.raceTimeDisplay.textContent = "00:00:00";
+                    elements.raceTypeDisplay.textContent = state.config?.race_mode || "Standard";
+                    return;
+                }
+
+                if (state.currentRace) {
                     if (
                         state.currentRace.status === "in_progress" ||
                         ((state.currentRace.start_at ||
@@ -587,35 +597,38 @@
 
                 console.log("Determined race state:", raceState);
 
-                elements.raceStateDisplay.textContent = raceState
-                    .replace(/_/g, " ")
-                    .replace(/\b\w/g, (c) => c.toUpperCase());
+                // Do not clobber the status text if a countdown is currently running.
+                if (!state.countdownActive) {
+                    elements.raceStateDisplay.textContent = raceState
+                        .replace(/_/g, " ")
+                        .replace(/\b\w/g, (c) => c.toUpperCase());
 
-                // Add appropriate class to race state display
-                elements.raceStateDisplay.className = "";
-                if (raceState === "running") {
-                    elements.raceStateDisplay.classList.add(
-                        "race-state",
-                        "running",
-                    );
-                } else if (
-                    raceState === "finished" ||
-                    raceState === "winner_declared"
-                ) {
-                    elements.raceStateDisplay.classList.add(
-                        "race-state",
-                        "finished",
-                    );
-                } else if (raceState === "not_started") {
-                    elements.raceStateDisplay.classList.add(
-                        "race-state",
-                        "not-started",
-                    );
-                } else if (raceState === "paused") {
-                    elements.raceStateDisplay.classList.add(
-                        "race-state",
-                        "paused",
-                    );
+                    // Add appropriate class to race state display
+                    elements.raceStateDisplay.className = "";
+                    if (raceState === "running") {
+                        elements.raceStateDisplay.classList.add(
+                            "race-state",
+                            "running",
+                        );
+                    } else if (
+                        raceState === "finished" ||
+                        raceState === "winner_declared"
+                    ) {
+                        elements.raceStateDisplay.classList.add(
+                            "race-state",
+                            "finished",
+                        );
+                    } else if (raceState === "not_started") {
+                        elements.raceStateDisplay.classList.add(
+                            "race-state",
+                            "not-started",
+                        );
+                    } else if (raceState === "paused") {
+                        elements.raceStateDisplay.classList.add(
+                            "race-state",
+                            "paused",
+                        );
+                    }
                 }
 
                 // Extract race type from notes field
@@ -908,6 +921,17 @@
             async function fetchRaceData() {
                 try {
                     console.log("Fetching race data...");
+
+                    if (state.snapshotRaceState === "not_started") {
+                        console.log("Snapshot says race not started, clearing data");
+                        state.currentRace = null;
+                        state.raceLaps = { laps: [] };
+                        state.raceStats = { stats: {} };
+                        updateRaceInfo();
+                        updateStandings();
+                        return;
+                    }
+
                     // First get list of races to find the most recent one
                     const racesResponse = await fetch("/api/races?limit=1");
                     if (!racesResponse.ok)
@@ -1031,6 +1055,13 @@
                             );
                             // Track the authoritative race state from the snapshot
                             state.snapshotRaceState = data.state || null;
+
+                            if (state.snapshotRaceState === "finished" && state.lastSnapshotRaceState !== "finished") {
+                                FranklinAudio.init();
+                                FranklinAudio.playFinish();
+                            }
+                            state.lastSnapshotRaceState = state.snapshotRaceState;
+
                             // Merge disqualification status from snapshot
                             state.disqualified = data.disqualified || [];
                             fetchRaceData().catch((err) => {
@@ -1054,7 +1085,6 @@
                             );
                             const txt = String(data.message || "").toLowerCase();
                             if (txt.includes("end") || txt.includes("reset")) {
-                                FranklinAudio.playFinish();
                                 for (const t of state.countdownTimers) clearTimeout(t);
                                 state.countdownTimers = [];
                                 state.countdownActive = false;
@@ -1090,6 +1120,8 @@
                                 state.countdownReadyAt = atEpoch;
                                 state.countdownReadyAtMs = Date.now();
                                 FranklinAudio.playReady();
+                                elements.raceStateDisplay.textContent = "Ready!";
+                                elements.raceStateDisplay.className = "race-state not-started";
                             } else if (phase === "set" && state.countdownActive) {
                                 const totalMs = (atEpoch - state.countdownReadyAt) * 1000;
                                 const elapsedMs = Date.now() - state.countdownReadyAtMs;
@@ -1097,6 +1129,8 @@
                                 state.countdownTimers.push(setTimeout(() => {
                                     if (state.countdownActive) {
                                         FranklinAudio.playSet();
+                                        elements.raceStateDisplay.textContent = "Set…";
+                                        elements.raceStateDisplay.className = "race-state not-started";
                                     }
                                 }, remainingMs));
                             } else if (phase === "go" && state.countdownActive) {
@@ -1106,6 +1140,8 @@
                                 state.countdownTimers.push(setTimeout(() => {
                                     if (state.countdownActive) {
                                         FranklinAudio.playGo();
+                                        elements.raceStateDisplay.textContent = "Go!";
+                                        elements.raceStateDisplay.className = "race-state running";
                                         state.countdownActive = false;
                                     }
                                 }, remainingMs));
@@ -1115,7 +1151,6 @@
                         if (data.type === "race_control") {
                             const cmd = String(data.command || "");
                             if ((cmd === "end_race" || cmd === "reset_race") && data.accepted) {
-                                FranklinAudio.playFinish();
                                 for (const t of state.countdownTimers) clearTimeout(t);
                                 state.countdownTimers = [];
                                 state.countdownActive = false;

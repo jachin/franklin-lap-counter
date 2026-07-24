@@ -182,10 +182,13 @@ class RefereeWebAppServer:
         body = await request.json() if request.body_exists else {}
         race_mode = body.get("race_mode")
         total_laps = body.get("total_laps")
+        operator = body.get("operator")
         if race_mode:
             payload["race_mode"] = str(race_mode)
         if total_laps is not None:
             payload["total_laps"] = int(total_laps)
+        if operator:
+            payload["operator"] = str(operator)
         await self._publish_command(payload)
         return web.json_response({"ok": True, "published": payload})
 
@@ -193,7 +196,10 @@ class RefereeWebAppServer:
         guard = self._require_race_in_progress()
         if guard:
             return guard
-        payload = {"command": "end_race"}
+        body = await request.json() if request.body_exists else {}
+        payload: dict[str, Any] = {"command": "end_race"}
+        if body.get("operator"):
+            payload["operator"] = str(body["operator"])
         await self._publish_command(payload)
         return web.json_response({"ok": True, "published": payload})
 
@@ -201,7 +207,10 @@ class RefereeWebAppServer:
         guard = self._require_race_in_progress()
         if guard:
             return guard
-        payload = {"command": "pause_race"}
+        body = await request.json() if request.body_exists else {}
+        payload: dict[str, Any] = {"command": "pause_race"}
+        if body.get("operator"):
+            payload["operator"] = str(body["operator"])
         await self._publish_command(payload)
         return web.json_response({"ok": True, "published": payload})
 
@@ -209,12 +218,18 @@ class RefereeWebAppServer:
         guard = self._require_race_in_progress()
         if guard:
             return guard
-        payload = {"command": "resume_race"}
+        body = await request.json() if request.body_exists else {}
+        payload: dict[str, Any] = {"command": "resume_race"}
+        if body.get("operator"):
+            payload["operator"] = str(body["operator"])
         await self._publish_command(payload)
         return web.json_response({"ok": True, "published": payload})
 
     async def reset_race_handler(self, request: web.Request) -> web.Response:
-        payload = {"command": "reset_race"}
+        body = await request.json() if request.body_exists else {}
+        payload: dict[str, Any] = {"command": "reset_race"}
+        if body.get("operator"):
+            payload["operator"] = str(body["operator"])
         await self._publish_command(payload)
         return web.json_response({"ok": True, "published": payload})
 
@@ -248,6 +263,8 @@ class RefereeWebAppServer:
             "penalty_seconds": penalty_seconds,
             "reason": reason,
         }
+        if body.get("operator"):
+            payload["operator"] = str(body["operator"])
         await self._publish_command(payload)
         return web.json_response({"ok": True, "published": payload})
 
@@ -280,6 +297,8 @@ class RefereeWebAppServer:
         }
         if lap_number is not None:
             payload["lap_number"] = lap_number
+        if body.get("operator"):
+            payload["operator"] = str(body["operator"])
 
         await self._publish_command(payload)
         return web.json_response({"ok": True, "published": payload})
@@ -303,6 +322,8 @@ class RefereeWebAppServer:
             "racer_id": racer_id,
             "reason": reason,
         }
+        if body.get("operator"):
+            payload["operator"] = str(body["operator"])
         await self._publish_command(payload)
         return web.json_response({"ok": True, "published": payload})
 

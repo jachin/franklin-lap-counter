@@ -583,7 +583,9 @@
                 const pattern = stateMachine.getLightPattern();
                 const lightEls = document.querySelectorAll("#lightsContainer .light");
                 lightEls.forEach((el, i) => {
-                    el.className = `light ${pattern[i]}`;
+                    if (i < pattern.length) {
+                        el.className = `light ${pattern[i]}`;
+                    }
                 });
 
                 elements.raceStateDisplay.textContent = stateMachine.getStatusText();
@@ -600,6 +602,18 @@
                 } else if (logicalState === "paused") {
                     elements.raceStateDisplay.classList.add("paused");
                 }
+
+                if (stateMachine.snapshot) {
+                    const snapshot = stateMachine.snapshot;
+                    const raceType = snapshot.race_mode || state.config?.race_mode || "Standard";
+                    elements.raceTypeDisplay.textContent = raceType;
+                    elements.totalLapsDisplay.textContent = snapshot.total_laps || state.config?.total_laps || "?";
+                    
+                    // Clock update
+                    if (snapshot.elapsed_seconds !== undefined) {
+                        elements.raceTimeDisplay.textContent = formatTime(snapshot.elapsed_seconds);
+                    }
+                }
             }
 
             // Update UI functions
@@ -608,118 +622,6 @@
                 elements.status.textContent = text;
             }
 
-            function updateRaceInfo() {
-                if (!state.currentRace) {
-                    elements.raceStateDisplay.textContent = "No Active Race";
-                    elements.raceTypeDisplay.textContent = "N/A";
-                    elements.raceTimeDisplay.textContent = "00:00:00";
-                    elements.totalLapsDisplay.textContent = state.config
-                        ? state.config.total_laps
-                        : "?";
-                    return;
-                }
-
-                console.log("Updating race info with data:", state.currentRace);
-
-                // Determine race state from status and times
-                // Use the authoritative snapshot state if available
-                // (the REST API doesn't expose paused state directly)
-                let raceState = state.snapshotRaceState || "not_started";
-                if (raceState === "not_started") {
-                    // If the snapshot says not started, force UI to zero/ready
-                    elements.raceStateDisplay.textContent = "Ready to start";
-                    elements.raceStateDisplay.className = "race-state not-started";
-                    elements.raceTimeDisplay.textContent = "00:00:00";
-                    elements.raceTypeDisplay.textContent = state.config?.race_mode || "Standard";
-                    return;
-                }
-
-                if (state.currentRace) {
-                    if (
-                        state.currentRace.status === "in_progress" ||
-                        ((state.currentRace.start_at ||
-                            state.currentRace.start_time) &&
-                            !(
-                                state.currentRace.end_at ||
-                                state.currentRace.end_time
-                            ))
-                    ) {
-                        raceState = "running";
-                    } else if (
-                        state.currentRace.status === "completed" ||
-                        state.currentRace.end_at ||
-                        state.currentRace.end_time
-                    ) {
-                        raceState = "finished";
-                    }
-                }
-
-                console.log("Determined race state:", raceState);
-
-                // Do not clobber the status text if a countdown is currently running.
-                if (!state.countdownActive) {
-                    elements.raceStateDisplay.textContent = raceState
-                        .replace(/_/g, " ")
-                        .replace(/\b\w/g, (c) => c.toUpperCase());
-
-                    // Add appropriate class to race state display
-                    elements.raceStateDisplay.className = "";
-                    if (raceState === "running") {
-                        elements.raceStateDisplay.classList.add(
-                            "race-state",
-                            "running",
-                        );
-                    } else if (
-                        raceState === "finished" ||
-                        raceState === "winner_declared"
-                    ) {
-                        elements.raceStateDisplay.classList.add(
-                            "race-state",
-                            "finished",
-                        );
-                    } else if (raceState === "not_started") {
-                        elements.raceStateDisplay.classList.add(
-                            "race-state",
-                            "not-started",
-                        );
-                    } else if (raceState === "paused") {
-                        elements.raceStateDisplay.classList.add(
-                            "race-state",
-                            "paused",
-                        );
-                    }
-                }
-
-                // Extract race type from notes field
-                const raceType = state.currentRace.notes?.includes("Mode:")
-                    ? state.currentRace.notes
-                          .split("Mode:")[1]
-                          .split(",")[0]
-                          .trim()
-                    : "Standard";
-
-                elements.raceTypeDisplay.textContent = raceType;
-
-                // Update race elapsed time from lap stream (epoch fields).
-                if (state.raceLaps?.laps && state.raceLaps.laps.length > 0) {
-                    let maxElapsed = 0;
-                    state.raceLaps.laps.forEach((lap) => {
-                        const elapsed = lapElapsedSeconds(lap);
-                        if (Number.isFinite(elapsed) && elapsed > maxElapsed) {
-                            maxElapsed = elapsed;
-                        }
-                    });
-                    elements.raceTimeDisplay.textContent =
-                        formatTime(maxElapsed);
-                } else {
-                    elements.raceTimeDisplay.textContent = "00:00:00";
-                }
-
-                // Update total laps
-                elements.totalLapsDisplay.textContent = state.config
-                    ? state.config.total_laps
-                    : "?";
-            }
 
             function updateStandings() {
                 // Clear the standings table
@@ -967,7 +869,7 @@
                         state.config.total_laps;
 
                     // Force update of race info with new config
-                    updateRaceInfo();
+                    updateUIFromStateMachine();
                 } catch (error) {
                     console.error("Error fetching config:", error);
                     addEvent({
@@ -986,7 +888,7 @@
                         state.currentRace = null;
                         state.raceLaps = { laps: [] };
                         state.raceStats = { stats: {} };
-                        updateRaceInfo();
+                        updateUIFromStateMachine();
                         updateStandings();
                         return;
                     }
@@ -1065,7 +967,7 @@
                     }
 
                     // Update UI with new data
-                    updateRaceInfo();
+                    updateUIFromStateMachine();
                     updateStandings();
                 } catch (error) {
                     console.error("Error fetching race data:", error);

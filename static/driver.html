@@ -400,7 +400,9 @@
                 const pattern = stateMachine.getLightPattern();
                 const lightEls = el.lights.querySelectorAll('.light');
                 lightEls.forEach((el, i) => {
-                    el.className = `light ${pattern[i]}`;
+                    if (i < pattern.length) {
+                        el.className = `light ${pattern[i]}`;
+                    }
                 });
 
                 el.phaseText.textContent = `State: ${stateMachine.getStatusText()}`;
@@ -427,81 +429,6 @@
                 return "Unknown";
             }
 
-            function setLights(pattern) {
-                const children = Array.from(el.lights.children);
-                if (children.length !== 3) return;
-                children.forEach((node, idx) => {
-                    node.className = `light ${pattern[idx]}`;
-                });
-            }
-
-            function syncLightsForPhase() {
-                if (state.phase === "ready") {
-                    setLights(["red", "off", "off"]);
-                    el.phaseText.textContent = "State: Ready!";
-                    return;
-                }
-                if (state.phase === "set") {
-                    setLights(["red", "yellow", "off"]);
-                    el.phaseText.textContent = "State: Set…";
-                    return;
-                }
-                if (state.phase === "go") {
-                    setLights(["red", "yellow", "green"]);
-                    el.phaseText.textContent = "State: Go!";
-                    return;
-                }
-                if (state.phase === "running" || state.phase === "winner_declared") {
-                    setLights(["red", "yellow", "green"]);
-                    el.phaseText.textContent = "State: Race Running";
-                    return;
-                }
-                if (state.phase === "paused") {
-                    setLights(["yellow", "yellow", "yellow"]);
-                    el.phaseText.textContent = "State: Race Paused";
-                    return;
-                }
-                if (state.phase === "not_started") {
-                    setLights(["red", "red", "red"]);
-                    el.phaseText.textContent = "State: Ready to start";
-                    return;
-                }
-                if (state.phase === "finished") {
-                    setLights(["off", "off", "off"]);
-                    el.phaseText.textContent = "State: Race Finished";
-                    return;
-                }
-
-                setLights(["off", "off", "off"]);
-                el.phaseText.textContent = "State: Waiting";
-            }
-
-            function applyRaceDerivedPhase() {
-                if (state.countdownActive) return;
-                const race = state.current?.race;
-                const snapshot = state.current?.snapshot || (state.current?.snapshot_seq !== undefined ? state.current : null);
-                const raceState = (snapshot?.state || race?.state || race?.status || "").toLowerCase();
-
-                if (!race && !snapshot) {
-                    state.phase = "waiting";
-                    syncLightsForPhase();
-                    return;
-                }
-
-                if (raceState === "running" || raceState === "winner_declared" || raceState === "in_progress") {
-                    state.phase = "running";
-                } else if (raceState === "paused") {
-                    state.phase = "paused";
-                } else if (raceState === "finished") {
-                    state.phase = "finished";
-                } else if (raceState === "not_started") {
-                    state.phase = "not_started";
-                } else {
-                    const inProgress = (race?.start_at || race?.start_time) && !(race?.end_at || race?.end_time);
-                    state.phase = inProgress ? "running" : "waiting";
-                }
-                syncLightsForPhase();
-            }
 
             function chosenRacer() {
                 const all = state.current?.racers || [];
@@ -821,13 +748,11 @@
                 return data.laps || [];
             }
 
-            async function renderAll(skipPhaseDerive = false) {
+            async function renderAll() {
                 await fetchCurrent();
                 renderRacerPicker();
                 renderHeader();
-                if (!skipPhaseDerive) {
-                    applyRaceDerivedPhase();
-                }
+                updateUIFromStateMachine();
 
                 const mode = state.current?.mode || "unknown";
                 renderTopThreeStrip(
@@ -890,10 +815,10 @@
 
                         if (msg.snapshot_seq !== undefined) {
                             const raceState = String(msg.state || "").toLowerCase();
-                            dbg("snapshot", `state=${raceState} skipByCountdown=${state.countdownActive}`);
+                            dbg("snapshot", `state=${raceState}`);
                             stateMachine.handleSnapshot(msg);
                             state.lastSnapshotRaceState = raceState;
-                            renderAll(true).catch((err) => {
+                            renderAll().catch((err) => {
                                 el.connection.textContent = `Refresh error: ${err.message}`;
                             });
                             return;
@@ -906,13 +831,9 @@
                         if (type === "start_race") {
                             state.raceReady = true;
                             dbg("start_race", `countdownActive=${state.countdownActive}`);
-                            if (!state.countdownActive) {
-                                state.phase = "running";
-                                syncLightsForPhase();
-                                renderAll(true).catch((err) => {
-                                    el.connection.textContent = `Refresh error: ${err.message}`;
-                                });
-                            }
+                            renderAll().catch((err) => {
+                                el.connection.textContent = `Refresh error: ${err.message}`;
+                            });
                         }
 
                         if (type === "lap") {

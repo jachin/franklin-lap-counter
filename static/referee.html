@@ -535,9 +535,7 @@
     });
 
     const allEntries = [];
-    const countdownTimers = [];
     let currentSnapshot = null;
-    let lastRaceState = null;
     let _currentRacers = [];
     let racerLookup = {};
     let debugVisible = false;
@@ -562,27 +560,14 @@
       if (debugVisible) renderEvents();
     });
 
-    /* ---- Start lights ---- */
-    function setStartLights(state, phase) {
-      const lights = document.querySelectorAll('.status-light');
-      let colors;
-      if (phase === 'ready') colors = ['red', 'off', 'off'];
-      else if (phase === 'set') colors = ['red', 'yellow', 'off'];
-      else if (phase === 'go' || state === 'running' || state === 'winner_declared') colors = ['red', 'yellow', 'green'];
-      else if (state === 'paused') colors = ['yellow', 'yellow', 'yellow'];
-      else if (state === 'not_started') colors = ['red', 'red', 'red'];
-      else if (state === 'finished') colors = ['off', 'off', 'off'];
-      else colors = ['off', 'off', 'off'];
-      lights.forEach((el, i) => {
-        el.className = `status-light status-light-${colors[i]}`;
-      });
-    }
 
     function updateUIFromStateMachine() {
       const pattern = stateMachine.getLightPattern();
       const lightEls = document.querySelectorAll('.status-light');
       lightEls.forEach((el, i) => {
-        el.className = `status-light status-light-${pattern[i]}`;
+        if (i < pattern.length) {
+          el.className = `status-light status-light-${pattern[i]}`;
+        }
       });
 
       document.getElementById('race-status').textContent = stateMachine.getStatusText();
@@ -593,6 +578,7 @@
       document.getElementById('reset-race').disabled = !buttons.canReset;
       document.getElementById('pause-resume-race').disabled = !(buttons.canPause || buttons.canResume);
       document.getElementById('pause-resume-race').textContent = buttons.canResume ? 'Resume Race' : 'Pause Race';
+      isPaused = buttons.canResume;
 
       const actionControls = [
         'add-penalty', 'penalty-racer', 'penalty-seconds', 'penalty-reason',
@@ -614,78 +600,6 @@
         document.getElementById('race-mode-label').textContent = modeInfo.join(' · ');
         updateClock(snapshot);
       }
-    }
-
-    /* ---- Race status ---- */
-    function humanizeState(state) {
-      switch (state) {
-        case 'not_started': return 'Ready to start';
-        case 'running': return 'Race in progress';
-        case 'winner_declared': return 'Winner declared';
-        case 'finished': return 'Race finished';
-        case 'paused': return 'Race paused';
-        default: return state;
-      }
-    }
-
-    function updateRaceBar(snapshot) {
-      const state = snapshot ? snapshot.state : 'not_started';
-      const isNotStarted = state === 'not_started';
-      const isFinished = state === 'finished';
-      const isRunning = state === 'running' || state === 'winner_declared' || state === 'paused';
-
-      // Update control buttons
-      // - End Race: disabled if finished or not_started
-      document.getElementById('end-race').disabled = isFinished || isNotStarted;
-      // - Reset Race: disabled if not_started
-      document.getElementById('reset-race').disabled = isNotStarted;
-      // - Pause/Resume: disabled if finished or not_started
-      document.getElementById('pause-resume-race').disabled = isFinished || isNotStarted;
-      // - Start Race: disabled if running/paused/winner_declared
-      document.getElementById('start-race').disabled = isRunning;
-
-      // Action buttons (Penalty, Remove Lap, DQ) should only be enabled if a race is in progress
-      const actionControls = [
-        'add-penalty', 'penalty-racer', 'penalty-seconds', 'penalty-reason',
-        'remove-lap', 'remove-lap-racer', 'remove-lap-number', 'remove-lap-reason',
-        'disqualify-racer', 'dq-racer', 'dq-reason'
-      ];
-      actionControls.forEach(id => {
-        const el = document.getElementById(id);
-        if (el) el.disabled = isNotStarted || isFinished;
-      });
-
-      if (!snapshot) {
-        document.getElementById('race-status').textContent = 'Ready to start';
-        document.getElementById('race-mode-label').textContent = '';
-        document.getElementById('race-clock').textContent = '00:00.00';
-        setStartLights('not_started', null);
-        return;
-      }
-      isPaused = snapshot.state === 'paused';
-      document.getElementById('pause-resume-race').textContent = isPaused ? 'Resume Race' : 'Pause Race';
-
-      // Do not clobber the status text if a countdown is currently running.
-      if (!countdownActive) {
-        document.getElementById('race-status').textContent = humanizeState(snapshot.state);
-      }
-      const modeInfo = [];
-      if (snapshot.race_mode) modeInfo.push(snapshot.race_mode);
-      if (snapshot.total_laps && snapshot.race_mode !== 'Training Mode') {
-        modeInfo.push(`${snapshot.total_laps} laps`);
-      }
-      document.getElementById('race-mode-label').textContent = modeInfo.join(' · ');
-      updateClock(snapshot);
-      setStartLights(snapshot.state, null);
-
-      // Play the finish/end sound when the race transitions into a finished
-      // state. The recorder reliably publishes this snapshot transition, so
-      // this works regardless of whether the hardware monitor is running.
-      if (snapshot.state === 'finished' && lastRaceState !== 'finished') {
-        FranklinAudio.init();
-        FranklinAudio.playFinish();
-      }
-      lastRaceState = snapshot.state;
     }
 
     /* ---- Clock ---- */
@@ -970,7 +884,6 @@
           currentSnapshot = msg;
           stateMachine.handleSnapshot(msg);
           renderLeaderboard(msg);
-          if (debugVisible) log(`RACE STATE: ${String(msg.state || 'unknown').toUpperCase()}`, msg);
           return;
         }
 
@@ -987,18 +900,12 @@
           const txt = String(msg.message || '').toLowerCase();
           if (txt.includes('end') || txt.includes('reset')) {
             stateMachine.stopCountdown();
-            for (const t of countdownTimers) clearTimeout(t);
-            countdownTimers.length = 0;
-            countdownActive = false;
           }
           log(JSON.stringify(msg), msg);
         } else if (msg.type === 'race_control') {
           const cmd = String(msg.command || '');
           if ((cmd === 'end_race' || cmd === 'reset_race') && msg.accepted) {
             stateMachine.stopCountdown();
-            for (const t of countdownTimers) clearTimeout(t);
-            countdownTimers.length = 0;
-            countdownActive = false;
           }
           log(JSON.stringify(msg), msg);
         } else if (msg.type === 'preferences_changed') {
@@ -1015,7 +922,10 @@
     ws.onclose = () => log('WebSocket closed');
 
     /* ---- Init ---- */
-    updateRaceBar(null);
+    if (localStorage.getItem('referee_name')) {
+      dismissSetup();
+    }
+    updateUIFromStateMachine();
     void loadRacers();
   </script>
 </body>

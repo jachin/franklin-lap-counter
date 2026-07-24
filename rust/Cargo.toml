@@ -5,7 +5,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.3.4"
+version = "0.3.6"
 edition = "2024"
 authors = ["Jachin Rupe <jachin@jachin.rupe.name>"]
 

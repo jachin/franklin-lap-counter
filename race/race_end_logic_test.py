@@ -44,6 +44,38 @@ class TestResolvePostLapState(unittest.TestCase):
         )
         self.assertEqual(state, RaceState.FINISHED)
 
+    def test_last_car_mode_ignores_active_contestants_with_no_laps(self):
+        # Racer 3 is an active contestant (e.g. carried over from a previous
+        # race) but has not completed a single lap in this race. It should
+        # not block the race from finishing once racer 2 (the last car
+        # actually putting up laps) crosses the line.
+        leaderboard = [
+            (1, 1, 10, 9.0, 9.1, 90.0),
+            (2, 2, 10, 9.2, 9.4, 98.0),
+        ]
+        state = resolve_post_lap_state(
+            current_state=RaceState.WINNER_DECLARED,
+            race_end_mode=RaceEndMode.LAST_CAR,
+            total_laps=10,
+            leaderboard=leaderboard,
+            active_contestants={1, 2, 3},
+        )
+        self.assertEqual(state, RaceState.FINISHED)
+
+    def test_last_car_mode_does_not_finish_when_no_one_has_laps(self):
+        leaderboard = [
+            (1, 1, 0, float("inf"), float("inf"), 0.0),
+            (2, 2, 0, float("inf"), float("inf"), 0.0),
+        ]
+        state = resolve_post_lap_state(
+            current_state=RaceState.RUNNING,
+            race_end_mode=RaceEndMode.LAST_CAR,
+            total_laps=10,
+            leaderboard=leaderboard,
+            active_contestants={1, 2},
+        )
+        self.assertEqual(state, RaceState.RUNNING)
+
     def test_manual_mode_never_auto_finishes(self):
         leaderboard = [(1, 1, 10, 9.0, 9.2, 90.0)]
         state = resolve_post_lap_state(

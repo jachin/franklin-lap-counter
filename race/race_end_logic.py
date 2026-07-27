@@ -30,12 +30,18 @@ def resolve_post_lap_state(
         and active_contestants
         and next_state in (RaceState.RUNNING, RaceState.WINNER_DECLARED)
     ):
-        all_active_finished = all(
-            lap_count >= total_laps
+        # Only racers who have actually put up at least one lap in this race
+        # count towards "everyone finished". Contestants carried over from a
+        # previous race (or otherwise registered) who never complete a single
+        # lap must not block the race from auto-ending.
+        lap_counts_of_lapping_racers = [
+            lap_count
             for _position, racer_id, lap_count, _best, _last, _total in leaderboard
-            if racer_id in active_contestants
-        )
-        if all_active_finished:
+            if racer_id in active_contestants and lap_count > 0
+        ]
+        if lap_counts_of_lapping_racers and all(
+            lap_count >= total_laps for lap_count in lap_counts_of_lapping_racers
+        ):
             return RaceState.FINISHED
 
     return next_state

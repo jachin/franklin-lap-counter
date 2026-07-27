@@ -91,6 +91,18 @@ class TestRaceLeaderboard(unittest.TestCase):
         self.assertEqual(leaderboard[0][1], 2)
         self.assertEqual(leaderboard[1][1], 1)
 
+    def test_best_lap_excludes_lap_zero_start_trigger(self):
+        self.race.add_fake_lap(rel_lap(1, 0, 0.5, 0.5))
+        completed_lap = rel_lap(1, 1, 10.0, 9.5)
+        self.race.add_fake_lap(completed_lap)
+
+        self.assertEqual(self.race.best_lap(), completed_lap)
+
+    def test_best_lap_is_none_when_only_start_triggers_exist(self):
+        self.race.add_fake_lap(rel_lap(1, 0, 0.5, 0.5))
+
+        self.assertIsNone(self.race.best_lap())
+
     def test_positions_are_correct(self):
         self.race.add_fake_lap(rel_lap(1, 1, 10.0, 10.0))
         self.race.add_fake_lap(rel_lap(1, 2, 11.0, 11.0))

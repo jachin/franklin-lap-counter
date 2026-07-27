@@ -262,10 +262,11 @@ class Race:
         return (leader_remaining, last_remaining)
 
     def best_lap(self) -> Optional[Lap]:
-        """Returns the best (fastest) lap out of all laps in the race, or None if no laps."""
-        if not self.laps:
+        """Returns the best completed lap, or None if no completed laps exist."""
+        completed_laps = [lap for lap in self.laps if lap.lap_number > 0]
+        if not completed_laps:
             return None
-        return min(self.laps, key=lambda lap: lap.lap_time)
+        return min(completed_laps, key=lambda lap: lap.lap_time)
 
     def __str__(self) -> str:
         leader_remaining, last_remaining = self.laps_remaining()

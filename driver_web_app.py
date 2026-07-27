@@ -276,7 +276,9 @@ class DriverWebAppServer:
 
             lap_times = [
                 float(lap_time)
-                for lap_time in (lap.get("lap_time") for lap in racer_laps)
+                for lap in racer_laps
+                if self._coerce_int(lap.get("lap_number"), default=0) > 0
+                for lap_time in [lap.get("lap_time")]
                 if isinstance(lap_time, (int, float))
             ]
             best_lap_time = min(lap_times) if lap_times else None

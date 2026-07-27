@@ -45,9 +45,11 @@ class TestStartAndPersist(RaceEngineTestBase):
             race_mode=RaceMode.REAL,
             total_laps=5,
             race_end_mode=RaceEndMode.LAST_CAR,
+            min_lap_seconds=4.5,
         )
         self.assertIsNotNone(self.engine.current_race_id)
         self.assertEqual(self.engine.race.state, RaceState.RUNNING)
+        self.assertEqual(self.engine.min_lap_seconds, 4.5)
 
         row = self.db.get_in_progress_race()
         assert row is not None
@@ -55,6 +57,7 @@ class TestStartAndPersist(RaceEngineTestBase):
         self.assertEqual(notes["total_laps"], 5)
         self.assertEqual(notes["end_mode"], "last_car")
         self.assertEqual(notes["mode"], RaceMode.REAL.value)
+        self.assertEqual(notes["min_lap_seconds"], 4.5)
 
     def test_training_mode_maps_to_unlimited_manual(self):
         self.engine.start(
@@ -65,6 +68,20 @@ class TestStartAndPersist(RaceEngineTestBase):
         )
         self.assertEqual(self.engine.race.race_end_mode, RaceEndMode.MANUAL)
         self.assertGreater(self.engine.race.total_laps, 1000)
+
+    def test_invalid_min_lap_seconds_is_rejected(self):
+        for value in (float("nan"), float("inf"), -0.1):
+            with self.subTest(value=value):
+                with self.assertRaisesRegex(
+                    ValueError, "min_lap_seconds must be finite and non-negative"
+                ):
+                    self.engine.start(
+                        start_at=START_AT,
+                        race_mode=RaceMode.REAL,
+                        total_laps=5,
+                        race_end_mode=RaceEndMode.LAST_CAR,
+                        min_lap_seconds=value,
+                    )
 
 
 class TestLapIngestion(RaceEngineTestBase):
@@ -113,6 +130,39 @@ class TestLapIngestion(RaceEngineTestBase):
         result = self.lap(1, START_AT + 5.0)
         self.assertFalse(result.changed)
         self.assertEqual(result.note, "race_not_running")
+
+
+class TestMinLapValidation(RaceEngineTestBase):
+    def setUp(self) -> None:
+        super().setUp()
+        self.engine.start(
+            start_at=START_AT,
+            race_mode=RaceMode.REAL,
+            total_laps=10,
+            race_end_mode=RaceEndMode.LAST_CAR,
+            min_lap_seconds=5.0,
+        )
+
+    def test_lap_shorter_than_min_is_dropped(self):
+        self.lap(1, START_AT + 0.5)  # lap 0
+        first = self.lap(1, START_AT + 6.0)  # lap 1 (time 5.5s)
+        too_short = self.lap(1, START_AT + 10.0)  # lap 2? (time 4.0s)
+        valid = self.lap(1, START_AT + 16.0)  # lap 2 (time 10.0s since last VALID lap)
+
+        self.assertTrue(first.changed)
+        self.assertEqual(first.lap_number, 1)
+
+        self.assertFalse(too_short.changed)
+        self.assertEqual(too_short.note, "too_short")
+
+        self.assertTrue(valid.changed)
+        self.assertEqual(valid.lap_number, 2)
+
+    def test_lap_0_always_allowed(self):
+        # Even if min lap is 5s, the start trigger can happen at any time.
+        result = self.lap(1, START_AT + 0.1)
+        self.assertTrue(result.changed)
+        self.assertEqual(result.lap_number, 0)
 
 
 class TestAutoFinish(RaceEngineTestBase):

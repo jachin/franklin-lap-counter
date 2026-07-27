@@ -81,6 +81,7 @@ class RaceSnapshot:
     race_mode: str
     total_laps: int
     effective_total_laps: int
+    min_lap_seconds: float
     race_end_mode: str
     leaderboard: list[SnapshotLeaderRow]
     laps_remaining_leader: int
@@ -113,6 +114,7 @@ class RaceSnapshot:
             race_mode=str(data.get("race_mode", "")),
             total_laps=int(data.get("total_laps", 0)),
             effective_total_laps=int(data.get("effective_total_laps", 0)),
+            min_lap_seconds=float(data.get("min_lap_seconds", 3.0)),
             race_end_mode=str(data.get("race_end_mode", "")),
             leaderboard=[
                 SnapshotLeaderRow.from_dict(row)
@@ -177,6 +179,7 @@ def idle_snapshot() -> RaceSnapshot:
             "race_mode": "",
             "total_laps": 0,
             "effective_total_laps": 0,
+            "min_lap_seconds": 3.0,
             "race_end_mode": "",
             "leaderboard": [],
             "laps_remaining": {"leader": 0, "last_place": 0},

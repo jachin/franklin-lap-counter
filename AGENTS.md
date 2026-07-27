@@ -48,6 +48,20 @@
      `countdown_phase` handler and in the `not_started` branch of
      `handle_snapshot`, run a FAKE race, and grep `gui.log` for those lines;
      remove the temp logs before finishing.
+   - **Gotcha — Duplicate vs Short Laps:** `RaceEngine` must check for duplicate
+     `lap_at` timestamps *before* checking the minimum lap length. If the
+     duplicate check is second, a redelivered lap event will be dropped as
+     "too_short" (because its time-since-last is 0) rather than "duplicate",
+     which is confusing for debugging and can affect state-sync.
+
+## Race Configuration / Validation
+
+### Minimum Lap Length
+To prevent accidental double-triggers (e.g. car bouncing on the finish line), `RaceEngine` enforces a `min_lap_seconds` preference (default 3.0s).
+- Any lap with a `lap_time` shorter than this value is dropped by the recorder.
+- This preference is carried in the `start_race` command and the `franklin:race_state` snapshot.
+- It can be adjusted in the Referee web app before starting a race.
+- Lap 0 (start trigger) is exempt from this check.
 
 ## Architectural Patterns
 

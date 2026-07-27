@@ -32,6 +32,7 @@ def load_initial_config(
     list[dict[str, Any]],
     list[int],
     dict[int, RacerColorScheme],
+    float,
 ]:
     if db_path is None:
         db_path = Path(__file__).resolve().parent / "db" / "franklin.db"
@@ -40,6 +41,7 @@ def load_initial_config(
     race_mode_val = db.get_preference("race_mode")
     total_laps_val = db.get_preference("total_laps")
     race_end_mode_val = db.get_preference("race_end_mode")
+    min_lap_seconds_val = db.get_preference("min_lap_seconds")
     contestants_val = db.get_preference("contestants")
     last_race_contestant_ids_val = db.get_preference("last_race_contestant_ids")
     racer_color_assignments_val = db.get_preference("racer_color_assignments")
@@ -49,6 +51,7 @@ def load_initial_config(
         race_mode_val is None
         and total_laps_val is None
         and race_end_mode_val is None
+        and min_lap_seconds_val is None
         and contestants_val is None
         and last_race_contestant_ids_val is None
         and racer_color_assignments_val is None
@@ -69,6 +72,7 @@ def load_initial_config(
                     race_mode_val = raw_data.get("race_mode")
                     total_laps_val = raw_data.get("total_laps")
                     race_end_mode_val = raw_data.get("race_end_mode")
+                    min_lap_seconds_val = raw_data.get("min_lap_seconds")
                     contestants_val = raw_data.get("contestants")
                     last_race_contestant_ids_val = raw_data.get(
                         "last_race_contestant_ids"
@@ -83,6 +87,7 @@ def load_initial_config(
     race_mode = RaceMode.TRAINING
     total_laps = 10
     race_end_mode = RaceEndMode.LAST_CAR
+    min_lap_seconds = 3.0
     contestants_data: list[dict[str, Any]] = []
     last_race_contestant_ids: list[int] = []
     racer_color_assignments: dict[int, RacerColorScheme] = {}
@@ -103,6 +108,14 @@ def load_initial_config(
             race_end_mode = RaceEndMode(str(race_end_mode_val))
         except ValueError:
             logging.warning("Invalid race_end_mode in config: %r", race_end_mode_val)
+
+    if min_lap_seconds_val is not None:
+        try:
+            parsed_min_lap = float(min_lap_seconds_val)
+            if parsed_min_lap >= 0:
+                min_lap_seconds = parsed_min_lap
+        except (TypeError, ValueError):
+            logging.warning("Invalid min_lap_seconds in config: %r", min_lap_seconds_val)
 
     if contestants_val is not None:
         if isinstance(contestants_val, list):
@@ -143,6 +156,7 @@ def load_initial_config(
         contestants_data,
         last_race_contestant_ids,
         racer_color_assignments,
+        min_lap_seconds,
     )
 
 
@@ -153,6 +167,7 @@ def write_config(
     race_mode: RaceMode,
     total_laps: int,
     race_end_mode: RaceEndMode,
+    min_lap_seconds: float,
     contestants_data: list[dict[str, Any]],
     last_race_contestant_ids: list[int],
     racer_color_assignments: dict[int, RacerColorScheme],
@@ -173,6 +188,7 @@ def write_config(
         db.set_preference("race_mode", race_mode.value)
         db.set_preference("total_laps", total_laps)
         db.set_preference("race_end_mode", race_end_mode.value)
+        db.set_preference("min_lap_seconds", min_lap_seconds)
         db.set_preference("contestants", contestants_data)
         db.set_preference(
             "last_race_contestant_ids", normalized_last_race_contestant_ids

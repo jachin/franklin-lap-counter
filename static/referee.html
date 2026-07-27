@@ -449,6 +449,9 @@
           <label>Laps:
             <input type="number" id="total-laps-input" value="10" min="1" max="999" />
           </label>
+          <label>Min Lap (s):
+            <input type="number" id="min-lap-seconds-input" value="3.0" min="0" max="60" step="0.1" />
+          </label>
         </div>
         <div class="btn-grid">
           <button type="button" id="start-race" class="btn btn-primary">Start Race</button>
@@ -716,8 +719,13 @@
       try {
         const raceMode = document.getElementById('race-mode-select').value;
         const totalLaps = parseInt(document.getElementById('total-laps-input').value, 10) || 10;
-        await postJson('/api/control/start_race', { race_mode: raceMode, total_laps: totalLaps });
-        log(`Sent: start_race mode=${raceMode} laps=${totalLaps}`);
+        const minLapSeconds = parseFloat(document.getElementById('min-lap-seconds-input').value) ?? 3.0;
+        await postJson('/api/control/start_race', {
+          race_mode: raceMode,
+          total_laps: totalLaps,
+          min_lap_seconds: minLapSeconds
+        });
+        log(`Sent: start_race mode=${raceMode} laps=${totalLaps} min_lap=${minLapSeconds}s`);
       } catch (err) { log(`ERROR: ${err.message}`); }
     };
 
@@ -836,10 +844,13 @@
 
     const raceModeEl = document.getElementById('race-mode-select');
     const lapsEl = document.getElementById('total-laps-input');
+    const minLapEl = document.getElementById('min-lap-seconds-input');
     raceModeEl.value = localStorage.getItem('referee_race_mode') || 'Real Race Mode';
     lapsEl.value = localStorage.getItem('referee_total_laps') || '10';
+    minLapEl.value = localStorage.getItem('referee_min_lap_seconds') ?? '3.0';
     raceModeEl.addEventListener('change', () => localStorage.setItem('referee_race_mode', raceModeEl.value));
     lapsEl.addEventListener('input', () => localStorage.setItem('referee_total_laps', lapsEl.value));
+    minLapEl.addEventListener('input', () => localStorage.setItem('referee_min_lap_seconds', minLapEl.value));
 
     document.getElementById('setupOkBtn').addEventListener('click', async () => {
       const name = refNameInput.value.trim() || 'Referee';

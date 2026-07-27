@@ -247,6 +247,7 @@ class Franklin(App[Any]):  # type: ignore[type-arg]
         race_end_mode: RaceEndMode,
         last_race_contestant_ids: list[int],
         racer_color_assignments: dict[int, RacerColorScheme],
+        min_lap_seconds: float = 3.0,
         redis_socket: str = "./redis.sock",
         **kwargs,
     ):
@@ -255,6 +256,7 @@ class Franklin(App[Any]):  # type: ignore[type-arg]
         self.total_laps = total_laps
         self.race_mode = initial_mode
         self.race_end_mode = race_end_mode
+        self.min_lap_seconds = min_lap_seconds
         self.global_contestants = RaceContestants(contestants_data)
         self.racer_color_assignments = dict(racer_color_assignments)
         self.last_race_contestant_ids: set[int] = set(last_race_contestant_ids)
@@ -340,12 +342,12 @@ class Franklin(App[Any]):  # type: ignore[type-arg]
         ]
 
         last_race_contestant_ids = sorted(self.last_race_contestant_ids)
-
         write_config(
             self.config_path,
             race_mode=self.race_mode,
             total_laps=self.total_laps,
             race_end_mode=self.race_end_mode,
+            min_lap_seconds=self.min_lap_seconds,
             contestants_data=contestants,
             last_race_contestant_ids=last_race_contestant_ids,
             racer_color_assignments=self.racer_color_assignments,
@@ -546,11 +548,13 @@ class Franklin(App[Any]):  # type: ignore[type-arg]
                 contestants_data,
                 last_race_contestant_ids,
                 racer_color_assignments,
+                min_lap_seconds,
             ) = load_initial_config(self.config_path)
 
             self.total_laps = total_laps
             self.race_mode = configured_mode
             self.race_end_mode = race_end_mode
+            self.min_lap_seconds = min_lap_seconds
             self.global_contestants = RaceContestants(contestants_data)
             self.last_race_contestant_ids = set(last_race_contestant_ids)
             self.racer_color_assignments = racer_color_assignments
@@ -719,6 +723,7 @@ class Franklin(App[Any]):  # type: ignore[type-arg]
             race_mode=self.race_mode.value,
             total_laps=self.total_laps,
             race_end_mode=self.race_end_mode.value,
+            min_lap_seconds=self.min_lap_seconds,
         ):
             self.query_one("#start_btn", Button).disabled = True
             self.notify("Start countdown scheduled", severity="information")
@@ -1026,6 +1031,7 @@ if __name__ == "__main__":
         contestants_data,
         last_race_contestant_ids,
         racer_color_assignments,
+        min_lap_seconds,
     ) = load_initial_config(Path("franklin.config.json"))
 
     app = Franklin(
@@ -1035,5 +1041,6 @@ if __name__ == "__main__":
         race_end_mode=race_end_mode,
         last_race_contestant_ids=last_race_contestant_ids,
         racer_color_assignments=racer_color_assignments,
+        min_lap_seconds=min_lap_seconds,
     )
     app.run()

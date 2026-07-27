@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import re
 import time
 from dataclasses import dataclass
@@ -59,6 +60,7 @@ class _RaceConfig:
     mode: RaceMode = RaceMode.REAL
     total_laps: int = 10
     end_mode: RaceEndMode = RaceEndMode.LAST_CAR
+    min_lap_seconds: float = 3.0
 
 
 class RaceEngine:
@@ -81,6 +83,7 @@ class RaceEngine:
         self.race_mode: RaceMode = RaceMode.REAL
         self.total_laps: int = 10
         self.race_end_mode: RaceEndMode = RaceEndMode.LAST_CAR
+        self.min_lap_seconds: float = 3.0
 
         # Referee adjustments (persisted by the command producer's audit rows).
         self.racer_penalties_seconds: dict[int, int] = {}
@@ -107,6 +110,7 @@ class RaceEngine:
         race_mode: RaceMode,
         total_laps: int,
         race_end_mode: RaceEndMode,
+        min_lap_seconds: float | None = None,
     ) -> EngineResult:
         """Begin a new race and create its DB row.
 
@@ -116,6 +120,11 @@ class RaceEngine:
         self.race_mode = race_mode
         self.total_laps = total_laps
         self.race_end_mode = race_end_mode
+        if min_lap_seconds is not None:
+            parsed_min_lap_seconds = float(min_lap_seconds)
+            if not math.isfinite(parsed_min_lap_seconds) or parsed_min_lap_seconds < 0:
+                raise ValueError("min_lap_seconds must be finite and non-negative")
+            self.min_lap_seconds = parsed_min_lap_seconds
 
         race = Race(previous_race=self.previous_race)
         if race_mode == RaceMode.TRAINING:
@@ -143,11 +152,12 @@ class RaceEngine:
             row = self.db.get_in_progress_race()
             self.current_race_id = int(row["id"]) if row else None
         logging.info(
-            "RaceEngine started race %s (mode=%s, total_laps=%s, end_mode=%s)",
+            "RaceEngine started race %s (mode=%s, total_laps=%s, end_mode=%s, min_lap=%.3fs)",
             self.current_race_id,
             race_mode,
             race.total_laps,
             race.race_end_mode.value,
+            self.min_lap_seconds,
         )
         return EngineResult(changed=True, note="started")
 
@@ -271,9 +281,27 @@ class RaceEngine:
             return EngineResult(changed=False, note="disqualified")
 
         lap_at_f = float(lap_at)
+
         key = (racer_id_i, round(lap_at_f, 3))
         if key in self._seen_laps:
             return EngineResult(changed=False, note="duplicate")
+
+        # Minimum lap length check: a racer cannot complete a lap faster than
+        # min_lap_seconds. Lap 0 (start trigger) is always allowed.
+        racer_laps = [lap_obj for lap_obj in self.race.laps if lap_obj.racer_id == racer_id_i]
+        if racer_laps:
+            last_lap_at = float(racer_laps[-1].lap_at)
+            actual_lap_time = lap_at_f - last_lap_at
+            if actual_lap_time < self.min_lap_seconds:
+                logging.info(
+                    "Dropping lap for racer %s: lap time %.3fs < min %.3fs",
+                    racer_id_i,
+                    actual_lap_time,
+                    self.min_lap_seconds,
+                )
+                return EngineResult(changed=False, note="too_short")
+        elif self.race.start_time is not None:
+            pass
 
         recorded_f = (
             float(recorded_at) if isinstance(recorded_at, (int, float)) else lap_at_f
@@ -429,6 +457,7 @@ class RaceEngine:
         self.race_mode = config.mode
         self.total_laps = config.total_laps
         self.race_end_mode = config.end_mode
+        self.min_lap_seconds = config.min_lap_seconds
 
         race = Race(previous_race=self.previous_race)
         if config.mode == RaceMode.TRAINING:
@@ -551,6 +580,7 @@ class RaceEngine:
                 "mode": self.race_mode.value,
                 "total_laps": self.total_laps,
                 "end_mode": self.race_end_mode.value,
+                "min_lap_seconds": self.min_lap_seconds,
             }
         )
 
@@ -573,6 +603,9 @@ class RaceEngine:
             total_laps_raw = data.get("total_laps")
             if isinstance(total_laps_raw, int):
                 config.total_laps = total_laps_raw
+            min_lap_seconds_raw = data.get("min_lap_seconds")
+            if isinstance(min_lap_seconds_raw, (int, float)):
+                config.min_lap_seconds = float(min_lap_seconds_raw)
             end_mode_raw = data.get("end_mode")
             if end_mode_raw is not None:
                 try:
@@ -589,6 +622,9 @@ class RaceEngine:
         laps_match = re.search(r"Total Laps:\s*(\d+)", notes)
         if laps_match:
             config.total_laps = int(laps_match.group(1))
+        min_lap_match = re.search(r"Min Lap:\s*([\d.]+)", notes)
+        if min_lap_match:
+            config.min_lap_seconds = float(min_lap_match.group(1))
         end_match = re.search(r"End Mode:\s*(\w+)", notes)
         if end_match:
             try:
@@ -616,6 +652,7 @@ class RaceEngine:
             "race_mode": self.race_mode.value,
             "total_laps": self.total_laps,
             "effective_total_laps": self.race.total_laps,
+            "min_lap_seconds": self.min_lap_seconds,
             "race_end_mode": self.race.race_end_mode.value,
             "leaderboard": self._snapshot_leaderboard(),
             "laps_remaining": {

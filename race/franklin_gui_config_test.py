@@ -21,11 +21,13 @@ class TestLoadInitialConfig(unittest.TestCase):
                 contestants,
                 last_race_ids,
                 color_map,
+                min_lap,
             ) = load_initial_config(missing_path, db_path=db_path)
 
             self.assertEqual(race_mode, RaceMode.TRAINING)
             self.assertEqual(total_laps, 10)
             self.assertEqual(race_end_mode, RaceEndMode.LAST_CAR)
+            self.assertEqual(min_lap, 3.0)
             self.assertEqual(contestants, [])
             self.assertEqual(last_race_ids, [])
             self.assertEqual(color_map, {})
@@ -51,11 +53,13 @@ class TestLoadInitialConfig(unittest.TestCase):
                 contestants,
                 last_race_ids,
                 color_map,
+                min_lap,
             ) = load_initial_config(config_path, db_path=db_path)
 
             self.assertEqual(race_mode, RaceMode.TRAINING)
             self.assertEqual(total_laps, 7)
             self.assertEqual(race_end_mode, RaceEndMode.LAST_CAR)
+            self.assertEqual(min_lap, 3.0)
             self.assertEqual(contestants, [{"transmitter_id": 3, "name": "Alice"}])
             self.assertEqual(last_race_ids, [])
             self.assertEqual(color_map, {})
@@ -81,6 +85,7 @@ class TestLoadInitialConfig(unittest.TestCase):
                 contestants,
                 last_race_ids,
                 color_map,
+                _min_lap,
             ) = load_initial_config(config_path, db_path=db_path)
 
             self.assertEqual(race_mode, RaceMode.TRAINING)
@@ -111,6 +116,7 @@ class TestLoadInitialConfig(unittest.TestCase):
                 contestants,
                 last_race_ids,
                 color_map,
+                _min_lap,
             ) = load_initial_config(config_path, db_path=db_path)
 
             self.assertEqual(race_mode, RaceMode.TRAINING)
@@ -133,6 +139,7 @@ class TestLoadInitialConfig(unittest.TestCase):
                 _contestants,
                 _last_race_ids,
                 _color_map,
+                _min_lap,
             ) = load_initial_config(config_path, db_path=db_path)
             self.assertEqual(race_mode, RaceMode.FAKE)
 
@@ -148,6 +155,7 @@ class TestLoadInitialConfig(unittest.TestCase):
                 _contestants,
                 _last_race_ids,
                 _color_map,
+                _min_lap,
             ) = load_initial_config(config_path, db_path=db_path)
             self.assertEqual(race_mode, RaceMode.REAL)
 
@@ -170,6 +178,7 @@ class TestLoadInitialConfig(unittest.TestCase):
                 _contestants,
                 last_race_ids,
                 _color_map,
+                _min_lap,
             ) = load_initial_config(config_path, db_path=db_path)
             self.assertEqual(last_race_ids, [5, 7, 9])
 
@@ -200,6 +209,7 @@ class TestLoadInitialConfig(unittest.TestCase):
                 _contestants,
                 _last_race_ids,
                 color_map,
+                _min_lap,
             ) = load_initial_config(config_path, db_path=db_path)
             self.assertEqual(
                 color_map,
@@ -222,6 +232,7 @@ class TestWriteConfig(unittest.TestCase):
                 race_mode=RaceMode.REAL,
                 total_laps=14,
                 race_end_mode=RaceEndMode.MANUAL,
+                min_lap_seconds=4.2,
                 contestants_data=[
                     {"transmitter_id": 2, "name": "Alice"},
                     {"transmitter_id": 7, "name": "Bob"},
@@ -242,11 +253,13 @@ class TestWriteConfig(unittest.TestCase):
                 contestants,
                 last_race_ids,
                 color_map,
+                min_lap,
             ) = load_initial_config(config_path, db_path=db_path)
 
             self.assertEqual(race_mode, RaceMode.REAL)
             self.assertEqual(total_laps, 14)
             self.assertEqual(race_end_mode, RaceEndMode.MANUAL)
+            self.assertEqual(min_lap, 4.2)
             self.assertEqual(
                 contestants,
                 [
@@ -273,6 +286,7 @@ class TestWriteConfig(unittest.TestCase):
                 race_mode=RaceMode.FAKE,
                 total_laps=9,
                 race_end_mode=RaceEndMode.LAST_CAR,
+                min_lap_seconds=2.5,
                 contestants_data=[{"transmitter_id": 4, "name": "Cara"}],
                 last_race_contestant_ids=[4],
                 racer_color_assignments={4: ("#0a0b0c", "#0d0e0f")},
@@ -286,6 +300,7 @@ class TestWriteConfig(unittest.TestCase):
             self.assertEqual(
                 db.get_preference("race_end_mode"), RaceEndMode.LAST_CAR.value
             )
+            self.assertEqual(db.get_preference("min_lap_seconds"), 2.5)
             self.assertEqual(
                 db.get_preference("contestants"),
                 [{"transmitter_id": 4, "name": "Cara"}],

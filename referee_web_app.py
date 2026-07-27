@@ -15,6 +15,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import math
 import os
 import time
 from pathlib import Path
@@ -91,6 +92,7 @@ class RefereeWebAppServer:
                 "race_mode",
                 "total_laps",
                 "race_end_mode",
+                "min_lap_seconds",
                 "contestants",
                 "last_race_contestant_ids",
                 "racer_color_assignments",
@@ -100,6 +102,8 @@ class RefereeWebAppServer:
                     config[key] = val
             if "total_laps" not in config:
                 config["total_laps"] = 10
+            if "min_lap_seconds" not in config:
+                config["min_lap_seconds"] = 3.0
             if "contestants" not in config:
                 config["contestants"] = []
             return web.json_response(config)
@@ -182,11 +186,29 @@ class RefereeWebAppServer:
         body = await request.json() if request.body_exists else {}
         race_mode = body.get("race_mode")
         total_laps = body.get("total_laps")
+        min_lap_seconds = body.get("min_lap_seconds")
         operator = body.get("operator")
         if race_mode:
             payload["race_mode"] = str(race_mode)
         if total_laps is not None:
             payload["total_laps"] = int(total_laps)
+        if min_lap_seconds is not None:
+            try:
+                parsed_min_lap_seconds = float(min_lap_seconds)
+            except (TypeError, ValueError):
+                return web.json_response(
+                    {"ok": False, "error": "min_lap_seconds must be finite and non-negative"},
+                    status=400,
+                )
+            if (
+                not math.isfinite(parsed_min_lap_seconds)
+                or parsed_min_lap_seconds < 0
+            ):
+                return web.json_response(
+                    {"ok": False, "error": "min_lap_seconds must be finite and non-negative"},
+                    status=400,
+                )
+            payload["min_lap_seconds"] = parsed_min_lap_seconds
         if operator:
             payload["operator"] = str(operator)
         await self._publish_command(payload)

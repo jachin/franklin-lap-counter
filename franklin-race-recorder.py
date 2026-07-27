@@ -406,6 +406,7 @@ class RaceRecorder:
                 contestants_data,
                 last_race_contestant_ids,
                 racer_color_assignments,
+                min_lap_seconds,
             ) = load_initial_config(config_path)
 
             # Find or add the contestant
@@ -424,6 +425,7 @@ class RaceRecorder:
                 race_mode=race_mode,
                 total_laps=total_laps,
                 race_end_mode=race_end_mode,
+                min_lap_seconds=min_lap_seconds,
                 contestants_data=contestants_data,
                 last_race_contestant_ids=last_race_contestant_ids,
                 racer_color_assignments=racer_color_assignments,
@@ -487,17 +489,23 @@ class RaceRecorder:
         race_mode = config.get("race_mode") or RaceMode.REAL
         total_laps = config.get("total_laps")
         race_end_mode = config.get("race_end_mode") or RaceEndMode.LAST_CAR
+        min_lap_seconds = config.get("min_lap_seconds")
+
         if total_laps is None:
             total_laps = self.engine.total_laps
             logging.warning(
                 "start_race had no total_laps config; falling back to %s", total_laps
             )
 
+        if min_lap_seconds is None:
+            min_lap_seconds = self.engine.min_lap_seconds
+
         result = self.engine.start(
             start_at=start_at,
             race_mode=race_mode,
             total_laps=int(total_laps),
             race_end_mode=race_end_mode,
+            min_lap_seconds=float(min_lap_seconds),
         )
 
         # Fake races have no hardware; synthesize their laps here so clients stay
@@ -568,6 +576,9 @@ class RaceRecorder:
                 config["race_end_mode"] = RaceEndMode(end_raw)
             except ValueError:
                 logging.warning("Unknown race_end_mode in start command: %r", end_raw)
+        min_lap_raw = cmd.get("min_lap_seconds")
+        if isinstance(min_lap_raw, (int, float)):
+            config["min_lap_seconds"] = float(min_lap_raw)
         return config
 
     def _apply_and_publish(self, result: Any) -> None:

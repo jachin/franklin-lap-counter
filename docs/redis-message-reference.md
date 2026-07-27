@@ -48,7 +48,7 @@ Supported commands:
 - `start_race`
   - supports synchronized schedule fields: `ready1_at`, `ready2_at`, `set_at`, `go_at`, `start_at` (epoch seconds, float)
   - if omitted, owner falls back to immediate start timing
-  - optional race-config fields consumed by the headless recorder (ignored by the Rust owner): `race_mode` (RaceMode value string), `total_laps` (int), `race_end_mode` (RaceEndMode value string). The recorder caches these (keyed by `command_id`/`start_at`) and applies them when it sees the authoritative `hardware:out` `start_race` event.
+  - optional race-config fields consumed by the headless recorder (ignored by the Rust owner): `race_mode` (RaceMode value string), `total_laps` (int), `race_end_mode` (RaceEndMode value string), `min_lap_seconds` (float). The recorder caches these (keyed by `command_id`/`start_at`) and applies them when it sees the authoritative `hardware:out` `start_race` event.
 - `end_race`
 - `pause_race`
 - `resume_race`
@@ -233,6 +233,7 @@ Snapshot envelope (`schema_version: 1`):
   "race_mode": "Real Race Mode",
   "total_laps": 10,
   "effective_total_laps": 10,
+  "min_lap_seconds": 3.0,
   "race_end_mode": "last_car",
 
   "leaderboard": [

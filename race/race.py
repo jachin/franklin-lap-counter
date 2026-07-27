@@ -124,14 +124,11 @@ class Race:
             for existing_lap in self.laps
             if existing_lap.racer_id == lap.racer_id and existing_lap.lap_number > 0
         )
-        if (
-            self.race_end_mode == RaceEndMode.MANUAL
-            and lap.lap_number > 0
-            and completed_laps_for_racer >= self.total_laps
-        ):
+        if lap.lap_number > 0 and completed_laps_for_racer >= self.total_laps:
             logging.info(
-                "Ignoring lap for racer %s in manual mode: already completed %s laps",
+                "Ignoring lap for racer %s in %s mode: already completed %s laps",
                 lap.racer_id,
+                self.race_end_mode.value,
                 self.total_laps,
             )
             return False

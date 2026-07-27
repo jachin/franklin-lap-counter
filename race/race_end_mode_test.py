@@ -32,6 +32,35 @@ class TestRaceEndModesIntegration(unittest.TestCase):
 
         self.assertEqual(race.state, RaceState.FINISHED)
 
+    def test_winner_mode_does_not_count_laps_after_racer_finishes(self):
+        race = Race(previous_race=None)
+        race.total_laps = 2
+        race.race_end_mode = RaceEndMode.WINNER
+        race.start(start_time=0.0)
+
+        self.assertTrue(race.add_lap(make_fake_lap(1, 1, 10.0, 10.0)))
+        self.assertTrue(race.add_lap(make_fake_lap(2, 1, 10.5, 10.5)))
+        self.assertTrue(race.add_lap(make_fake_lap(1, 2, 9.8, 19.8)))
+        self.assertEqual(race.state, RaceState.FINISHED)
+
+        with self.assertRaises(RuntimeError):
+            race.add_lap(make_fake_lap(1, 3, 9.7, 29.5))
+        self.assertEqual(race.leaderboard()[0][2], 2)
+
+    def test_last_car_mode_ignores_extra_laps_after_racer_finishes(self):
+        race = Race(previous_race=None)
+        race.total_laps = 2
+        race.race_end_mode = RaceEndMode.LAST_CAR
+        race.start(start_time=0.0)
+
+        self.assertTrue(race.add_lap(make_fake_lap(1, 1, 10.0, 10.0)))
+        self.assertTrue(race.add_lap(make_fake_lap(2, 1, 10.5, 10.5)))
+        self.assertTrue(race.add_lap(make_fake_lap(1, 2, 9.8, 19.8)))
+
+        self.assertFalse(race.add_lap(make_fake_lap(1, 3, 9.7, 29.5)))
+        self.assertEqual(race.leaderboard()[0][2], 2)
+        self.assertEqual(race.state, RaceState.WINNER_DECLARED)
+
     def test_manual_mode_requires_manual_finish(self):
         race = Race(previous_race=None)
         race.total_laps = 2
